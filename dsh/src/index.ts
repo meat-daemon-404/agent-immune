@@ -291,8 +291,8 @@ function startPlugin(ctx: DshContext): void {
         for (const ab of retired) {
           store.enqueueJob(
             event.toolName,
-            traceFor(event, `error=retired #${ab.id}: ${ab.prescription}`),
             snapshot.trace,
+            `previous rule (retired after ${ab.fail_count} failures): ${ab.prescription}`,
             [],
           );
         }

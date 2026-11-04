@@ -18,7 +18,13 @@ await runHook('UserPromptSubmit', (event) => {
         return null;
     const store = new ImmuneStore();
     try {
-        const hits = store.match(prompt, { limit: 3, sessionId: sessionIdOf(event) });
+        const hits = store.match(prompt, {
+            limit: 3,
+            sessionId: sessionIdOf(event),
+            // Session-start priming already delivered these within the TTL window;
+            // re-injecting them at the first prompt would pay twice for one block.
+            excludeInjected: true,
+        });
         return formatImmuneContext(hits);
     }
     finally {

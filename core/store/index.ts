@@ -54,6 +54,12 @@ export interface MatchOptions {
   limit?: number;
   /** Record hits and remember this turn's injection set for later penalising. */
   sessionId?: string;
+  /**
+   * Skip rules this session already received within the injection TTL window.
+   * Hosts that re-inject per turn (DSH) leave this off; hosts that prime at
+   * session start and then match per prompt (ZCode) set it.
+   */
+  excludeInjected?: boolean;
 }
 
 export class ImmuneStore {
@@ -71,12 +77,25 @@ export class ImmuneStore {
   }
 
   match(queryText: string, opts: MatchOptions = {}): Antibody[] {
-    const rows = findMatches(this.db, queryText, opts.limit ?? 3);
+    let rows = findMatches(this.db, queryText, opts.limit ?? 3);
+    // Opt-in dedup: a host whose injection happens per TURN (DSH) wants
+    // re-injection in later turns; one that primes at session start plus
+    // per-prompt matching (ZCode) asks for exclusion so the same rule is not
+    // paid for twice within the injection TTL window.
+    if (opts.excludeInjected && opts.sessionId) {
+      const seen = new Set(this.injectedIds(opts.sessionId));
+      rows = rows.filter((r) => !seen.has(r.id));
+    }
     if (rows.length > 0) {
       bumpHits(this.db, rows.map((r) => r.id));
       if (opts.sessionId) recordInjection(this.db, opts.sessionId, rows.map((r) => r.id));
     }
     return rows;
+  }
+
+  /** Record an injection that did not come through match() (session-start priming). */
+  recordInjection(sessionId: string, ids: number[]): void {
+    if (ids.length > 0) recordInjection(this.db, sessionId, ids);
   }
 
   listAll(includeRetired = true): Antibody[] {

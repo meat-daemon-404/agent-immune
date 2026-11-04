@@ -30,12 +30,14 @@ await runHook('PostToolUseFailure', (event) => {
     });
 
     // A retired antibody is re-distilled together with the new evidence, so a
-    // stale rule is replaced rather than merely deleted.
+    // stale rule is replaced rather than merely deleted. The job carries the
+    // REAL failure plus the old rule as context — bookkeeping text as the
+    // failure side used to produce "retired antibody #3" symptoms.
     for (const antibody of retired) {
       store.enqueueJob(
         toolName,
-        `retired antibody #${antibody.id} (${antibody.trigger_pattern}): ${antibody.prescription}`,
         snapshot.trace,
+        `previous rule (retired after ${antibody.fail_count} failures): ${antibody.prescription}`,
         [],
       );
     }

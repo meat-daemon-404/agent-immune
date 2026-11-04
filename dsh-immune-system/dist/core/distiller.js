@@ -50,6 +50,14 @@ export function ruleDistill(toolName, failureTrace, successTrace) {
     if (TRANSIENT.test(failureTrace)) {
         return { ok: false, reason: 'skip', detail: 'transient failure' };
     }
+    // An identical invocation that merely succeeded on retry carries no lesson:
+    // whatever fixed it happened outside the call (a file appeared, a lock freed).
+    // Keeping these floods the library with "run X again" rules.
+    const failedInvocation = extractInvocation(failureTrace);
+    const okInvocation = extractInvocation(successTrace);
+    if (failedInvocation && okInvocation && failedInvocation === okInvocation) {
+        return { ok: false, reason: 'skip', detail: 'identical retry carries no lesson' };
+    }
     const keywords = extractKeywords(`${failureTrace} ${successTrace}`);
     if (keywords.length === 0) {
         return { ok: false, reason: 'skip', detail: 'no reusable trigger found' };

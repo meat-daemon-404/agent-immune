@@ -130,6 +130,47 @@ test('a related failure does penalise the antibody', () => {
   s.close();
 });
 
+test('JSON-shaped results surface their human field, not the wrapper', async () => {
+  const { extractError } = await import('../dsh-immune-system/dist/core/trace.js');
+
+  assert.equal(
+    extractError('tool=Read input={} result={"message":"File has been modified since read"}'),
+    'File has been modified since read',
+    'message field wins',
+  );
+  assert.equal(
+    extractError('tool=Read input={} result=[{"type":"text","text":"actual output"}]'),
+    'actual output',
+    'text field wins over the JSON wrapper',
+  );
+  assert.equal(extractError('tool=Bash input={} error=plain text'), 'plain text');
+});
+
+test('an identical retry is not worth an antibody', async () => {
+  const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
+
+  const trace =
+    'tool=Bash input={"command":"npm test"} error=flaky assertion';
+  const result = ruleDistill('Bash', trace, trace.replace('error=', 'result='));
+  assert.equal(result.ok, false, 'same command failing then passing is noise');
+  assert.equal(result.reason, 'skip');
+});
+
+test('rules injected this session are not injected twice when asked to dedup', async () => {
+  const s = store();
+  const a = s.insert({ trigger_pattern: 'alpha.ts', symptom: 's', prescription: 'p1' });
+  const b = s.insert({ trigger_pattern: 'beta.ts', symptom: 's', prescription: 'p2' });
+  assert.ok(a && b);
+
+  const opts = { sessionId: 'dup', excludeInjected: true };
+  const first = s.match('alpha.ts beta.ts', opts);
+  assert.equal(first.length, 2, 'first match injects both');
+  const second = s.match('alpha.ts beta.ts', opts);
+  assert.deepEqual(second, [], 'second match within the window injects nothing');
+  assert.equal(s.match('alpha.ts beta.ts').length, 2, 'without the flag, per-turn re-injection is allowed');
+  s.close();
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

@@ -19,13 +19,26 @@ export class ImmuneStore {
         return insertAntibody(this.db, ab);
     }
     match(queryText, opts = {}) {
-        const rows = findMatches(this.db, queryText, opts.limit ?? 3);
+        let rows = findMatches(this.db, queryText, opts.limit ?? 3);
+        // Opt-in dedup: a host whose injection happens per TURN (DSH) wants
+        // re-injection in later turns; one that primes at session start plus
+        // per-prompt matching (ZCode) asks for exclusion so the same rule is not
+        // paid for twice within the injection TTL window.
+        if (opts.excludeInjected && opts.sessionId) {
+            const seen = new Set(this.injectedIds(opts.sessionId));
+            rows = rows.filter((r) => !seen.has(r.id));
+        }
         if (rows.length > 0) {
             bumpHits(this.db, rows.map((r) => r.id));
             if (opts.sessionId)
                 recordInjection(this.db, opts.sessionId, rows.map((r) => r.id));
         }
         return rows;
+    }
+    /** Record an injection that did not come through match() (session-start priming). */
+    recordInjection(sessionId, ids) {
+        if (ids.length > 0)
+            recordInjection(this.db, sessionId, ids);
     }
     listAll(includeRetired = true) {
         return listAntibodies(this.db, includeRetired);
