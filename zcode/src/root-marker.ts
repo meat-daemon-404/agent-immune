@@ -8,8 +8,9 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolveDbPath, ROOT_MARKER } from '../../core/store/path.js';
 
-export const ROOT_MARKER = 'immune-root.txt';
+export { ROOT_MARKER };
 
 export function projectDirOf(): string {
   return (
@@ -58,8 +59,14 @@ export function rememberPluginRoot(): void {
     const dir = dshDirOf();
     mkdirSync(dir, { recursive: true });
     const marker = join(dir, ROOT_MARKER);
-    if (existsSync(marker) && readFileSync(marker, 'utf8').trim() === root) return;
-    writeFileSync(marker, root, 'utf8');
+    // Line 2 records the database the hooks actually use. Slash commands run
+    // inside a model Bash call WITHOUT the hook environment, so the CLI cannot
+    // see ZCODE_PLUGIN_DATA and would otherwise resolve to a different (empty)
+    // file. Hooks rewrite the marker whenever it drifts, so it self-heals.
+    const dbPath = resolveDbPath();
+    const content = `${root}\n${dbPath}\n`;
+    if (existsSync(marker) && readFileSync(marker, 'utf8') === content) return;
+    writeFileSync(marker, content, 'utf8');
   } catch {
     // A read-only project must not break the hook.
   }
