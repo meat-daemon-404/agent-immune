@@ -1,4 +1,6 @@
 import { distillEpisode } from '../../core/distiller.js';
+import { isSelfEpisode } from '../../core/selfnoise.js';
+import { selfMarkers } from './root-marker.js';
 /** Default wall-clock budget for one drain, in milliseconds. */
 export function drainBudgetMs(env = process.env) {
     const raw = Number(env.IMMUNE_DISTILL_BUDGET_MS ?? '');
@@ -21,6 +23,12 @@ export async function drainJobs(store, budgetMs = drainBudgetMs()) {
         const job = store.claimJob();
         if (!job)
             break;
+        // Defense in depth: jobs enqueued by older plugin versions may predate the
+        // enqueue-time self-noise gate, so the drain re-checks before distilling.
+        if (isSelfEpisode(`${job.failure_trace} ${job.success_trace}`, selfMarkers())) {
+            store.finishJob(job.id, 'skipped', 'self-noise episode (drain-time gate)');
+            continue;
+        }
         try {
             const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
                 signal: AbortSignal.timeout(Math.max(1000, remaining)),

@@ -9,6 +9,8 @@
  */
 import type { ImmuneStore } from '../../core/store/index.js';
 import { distillEpisode } from '../../core/distiller.js';
+import { isSelfEpisode } from '../../core/selfnoise.js';
+import { selfMarkers } from './root-marker.js';
 
 export interface DrainResult {
   processed: number;
@@ -40,6 +42,13 @@ export async function drainJobs(store: ImmuneStore, budgetMs = drainBudgetMs()):
 
     const job = store.claimJob();
     if (!job) break;
+
+    // Defense in depth: jobs enqueued by older plugin versions may predate the
+    // enqueue-time self-noise gate, so the drain re-checks before distilling.
+    if (isSelfEpisode(`${job.failure_trace} ${job.success_trace}`, selfMarkers())) {
+      store.finishJob(job.id, 'skipped', 'self-noise episode (drain-time gate)');
+      continue;
+    }
 
     try {
       const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
