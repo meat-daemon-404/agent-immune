@@ -1,16 +1,9 @@
-fix: an identical retry IS a learnable episode (regression)
+test(coverage): the model distillation path is now exercised
 
-The identical-retry gate added in ef39da6 broke the host acceptance flow:
-scripts/verify-steps23.mjs and verify-live-host.mjs encode fail-then-retry-
-succeed as the canonical learnable episode, and the gate reduced them to
-zero antibodies (9/22 and 10/20 assertions failing).
+A local OpenAI-compatible mock endpoint covers the whole model path:
+SSRF gate (loopback/private/metadata/file-scheme rejected, opt-in works),
+auth header and model name reach the wire, generic-lesson normalisation
+applies to model output, skip is respected, and junk output degrades to
+the deterministic rule instead of crashing.
 
-The gate was also unnecessary for the noise it targeted - the live meta-
-antibodies were Edit conflicts with DIFFERENT old_strings, not retries.
-Reverted; network-shaped transient failures are still skipped by the
-existing TRANSIENT regex. A note in distiller.ts records the decision so
-it is not re-introduced by the same reasoning.
-
-All verification green again: 44/44 unit, 15/15 step1, 22/22 steps23,
-20/20 live-host (real Cordis event bus + real SQLite + cross-session
-injection + cold-start priming).
+47/47 unit tests, acceptance matrix green (15/15, 22/22, 20/20).
