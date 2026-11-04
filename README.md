@@ -6,6 +6,11 @@ The agent steps on a rake, fixes it, and — without anyone writing docs — the
 lesson is captured as an *antibody*. Next session, before the agent can make the
 same mistake, the relevant antibodies are injected into its context.
 
+> **Installing from GitHub** — this repository is also a ZCode marketplace:
+> `plugins marketplace add meat-daemon-404/dsh-plugin-immune`
+> then `plugins install dsh-immune-system@dev-dsh-plugin-immune`.
+> Handing the DSH side over: see [HANDOFF-DSH.md](HANDOFF-DSH.md).
+
 ```
  tool fails ─┐
              ├─► pair ─► distil ─► antibody (SQLite + FTS5)
@@ -57,7 +62,17 @@ Only seven hook events exist: `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
 
 ## Install
 
-Installed on this machine from the local dev marketplace:
+From GitHub (works for anyone, no local clone needed):
+
+```bash
+node "<zcode.cjs>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
+node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
+```
+
+The repository root holds `marketplace.json`, so the repo **is** the marketplace
+source; the runtime `git clone`s it and reads the catalog.
+
+Installed on this machine:
 
 ```
 marketplace : dev-dsh-plugin-immune
