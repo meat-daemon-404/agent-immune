@@ -1,6 +1,6 @@
 import { DISTILL_PROMPT, buildDistillInput, parseDistillOutput } from './prompts.js';
 import { chat, readLlmConfig } from './llm.js';
-import { extractError, extractInvocation, extractCallSignature } from './trace.js';
+import { extractError, extractInvocation } from './trace.js';
 import { normalizeKeyword, meaningfulTokens } from './keywords.js';
 import { matchGenericLesson } from './lessons.js';
 /** Failures with no reuse value: the retry usually just works. */
@@ -51,16 +51,12 @@ export function ruleDistill(toolName, failureTrace, successTrace) {
     if (TRANSIENT.test(failureTrace)) {
         return { ok: false, reason: 'skip', detail: 'transient failure' };
     }
-    // An identical invocation that merely succeeded on retry carries no lesson:
-    // whatever fixed it happened outside the call (a file appeared, a lock freed).
-    // The signature is the WHOLE input payload — for Edit, failure and success
-    // share a file_path but differ in attempted content, and only a genuinely
-    // identical retry is noise.
-    const failedCall = extractCallSignature(failureTrace);
-    const okCall = extractCallSignature(successTrace);
-    if (failedCall && okCall && failedCall === okCall) {
-        return { ok: false, reason: 'skip', detail: 'identical retry carries no lesson' };
-    }
+    // NOTE: an identical retry (same invocation failing then succeeding) is a
+    // LEARNABLE episode, not noise — the host's own acceptance flow
+    // (scripts/verify-steps23.mjs) encodes exactly that shape, and a retried
+    // command often hides a real lesson ("the file was created meanwhile").
+    // A previous identical-retry gate here broke the acceptance flow and was
+    // removed; transient *network-shaped* failures are still skipped above.
     const keywords = extractKeywords(`${failureTrace} ${successTrace}`);
     if (keywords.length === 0) {
         return { ok: false, reason: 'skip', detail: 'no reusable trigger found' };

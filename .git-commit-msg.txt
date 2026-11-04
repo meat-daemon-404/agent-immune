@@ -1,14 +1,16 @@
-feat(lessons): generic pitfalls learn once, not once per file
+fix: an identical retry IS a learnable episode (regression)
 
-Live evidence: "file modified since read" was distilled as a separate
-antibody per file (three copies for the same lesson), each occupying an
-injection slot.
+The identical-retry gate added in ef39da6 broke the host acceptance flow:
+scripts/verify-steps23.mjs and verify-live-host.mjs encode fail-then-retry-
+succeed as the canonical learnable episode, and the gate reduced them to
+zero antibodies (9/22 and 10/20 assertions failing).
 
-- core/lessons.ts: curated pattern table mapping generic symptoms to a
-  generic trigger and a bilingual prescription
-- both distill paths (rule + model) converge on the table, and the store's
-  prescription-level dedupe merges every later instance into one row
-- identical-retry gate now compares the WHOLE input payload: for Edit, the
-  failure and success share a file_path while the attempted content differs,
-  so field-level comparison misfired as a "retry"
-- tests: 44 pass, including merge-into-one-row proof
+The gate was also unnecessary for the noise it targeted - the live meta-
+antibodies were Edit conflicts with DIFFERENT old_strings, not retries.
+Reverted; network-shaped transient failures are still skipped by the
+existing TRANSIENT regex. A note in distiller.ts records the decision so
+it is not re-introduced by the same reasoning.
+
+All verification green again: 44/44 unit, 15/15 step1, 22/22 steps23,
+20/20 live-host (real Cordis event bus + real SQLite + cross-session
+injection + cold-start priming).

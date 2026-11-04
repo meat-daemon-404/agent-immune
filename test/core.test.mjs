@@ -167,14 +167,14 @@ test('JSON-shaped results surface their human field, not the wrapper', async () 
   assert.equal(extractError('tool=Bash input={} error=plain text'), 'plain text');
 });
 
-test('an identical retry is not worth an antibody', async () => {
+test('a retried invocation stays a learnable episode', async () => {
   const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
 
-  const trace =
-    'tool=Bash input={"command":"npm test"} error=flaky assertion';
-  const result = ruleDistill('Bash', trace, trace.replace('error=', 'result='));
-  assert.equal(result.ok, false, 'same command failing then passing is noise');
-  assert.equal(result.reason, 'skip');
+  // The host acceptance flow (verify-steps23) encodes exactly this shape:
+  // same command fails, then succeeds — the lesson is the environment fix.
+  const trace = 'tool=Bash input={"command":"npm test"} error=2 suites failed';
+  const result = ruleDistill('Bash', trace, 'tool=Bash input={"command":"npm test"} result=all green');
+  assert.equal(result.ok, true, 'fail-then-succeed with the same command is a lesson');
 });
 
 test('rules injected this session are not injected twice when asked to dedup', async () => {
