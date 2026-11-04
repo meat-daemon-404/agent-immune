@@ -13,7 +13,19 @@
       "description_i18n": {
         "zh-CN": "自进化避坑免疫：捕获每次「失败→修复」的工具调用，蒸馏成可复用的抗体，并在下次遇到同样场景前注入，避免重蹈覆辙。"
       },
-      "category": "developer-tools"
+      "category": "developer-tools",
+      "keywords": [
+        "deepseek-harness",
+        "dsh",
+        "cordis",
+        "plugin",
+        "ai-agent",
+        "self-improving",
+        "memory",
+        "pitfalls",
+        "hooks",
+        "sqlite"
+      ]
     }
   ]
 }

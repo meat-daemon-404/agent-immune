@@ -1,61 +1,203 @@
-# DSH adapter — status: unverified
+# DSH 适配层（dsh-immune-system）
 
-This directory is a **skeleton awaiting contract alignment**. It compiles and
-shares the same `core/` as the ZCode plugin, but it has **not** been run against
-a real DSH host: no DSH runtime existed on the machine where this was built.
+把「踩坑 → 修好」这一次工具调用蒸馏成一条可复用的**抗体**，并在下次遇到同类场景前注入上下文。
+`core/` 与 ZCode 版共用，只有宿主绑定不同，全部集中在 `dsh/src/dsh-adapter.ts`。
 
-Everything host-specific is confined to `dsh/src/dsh-adapter.ts`. When the real
-contract is known, that is the only file that should need to change.
+状态：**已按真实 DSH 源码核对**（`D:\deepseek harness\deepseek-harness\`）。原先 README 里那张
+「UNVERIFIED 假设表」已删除——下面三个问题直接给答案和出处。
 
-## What was assumed
+---
 
-| Concern | Assumed (from the original sketch) | Confidence |
+## 一、三个问题的答案
+
+### 1. 事件叫什么
+
+在 `dsh/src/dsh-adapter.ts` 里以 `DSH_EVENTS` 声明，全部从源码读出：
+
+| 用途 | 真实事件名 | 出处 |
 | --- | --- | --- |
-| Plugin shape | `export const name`, `export function apply(ctx)` (Cordis/Koishi) | high — this is real Cordis style |
-| Session start | `'dsh/session-start'` | **low** — name invented |
-| Pre-request | `'dsh/before-llm-request'` | **low** — name invented |
-| Tool outcome | `'dsh/after-tool-call'` + `isError` flag | **low** — ZCode splits this into two events |
-| Context injection | `session.appendSystemReminder(text)` | **low** |
-| Model access | `ctx.llm.complete(...)` | **low** — adapter avoids it entirely |
-| Commands | `ctx.command(name, desc).action(fn)` | medium — Cordis shape |
-| Storage | `node:sqlite` + FTS5 | high — verified on Node 24 locally |
+| 会话开始 | `agent/session-start` | `packages\core\agent\src\runtime-types.ts:217`（`@mode emit`） |
+| 每步之前 | `agent/pre-step` | `packages\core\agent\src\runtime-types.ts:231`（`@mode waterfall`） |
+| 工具执行之后 | `tools/post-execute` | `packages\core\tools\src\index.ts:175`（`@mode waterfall`） |
 
-## Verification checklist
+没有任何 `dsh/` 前缀的事件族——`'dsh/session-start'`、`'dsh/before-llm-request'`、
+`'dsh/after-tool-call'` 这三个名字都是当初猜的，实际不存在。
 
-Work through these in order; each one unblocks the next.
+### 2. 失败长什么样
 
-1. **Event names.** Read the DSH runtime's event registry. Replace
-   `DSH_EVENTS` in `dsh-adapter.ts`.
-2. **Failure signalling.** Decide whether a failed tool call arrives as a
-   separate event or as a flag. If separate, the adapter must expose both and
-   `apply()` must subscribe to both. ZCode does this as
-   `PostToolUse` / `PostToolUseFailure`.
-3. **Tool payload field names.** Fill in `normaliseToolEvent` and then *delete
-   the speculative fallbacks* — they exist only to survive an unknown contract.
-4. **Injection method.** Confirm how text reaches the model and whether it is
-   synchronous. If background work is discarded (as in ZCode), injection must
-   stay on the request path.
-5. **Model access.** Either map `ctx.llm` into `LlmConfig`-shaped settings, or
-   set `IMMUNE_LLM_BASE_URL` / `IMMUNE_LLM_MODEL` and drop the host LLM
-   dependency completely.
-6. **Command output.** Confirm how a command handler's return value is
-   rendered.
+**只有一个工具事件，用 `isError` 区分成功/失败，没有成功/失败两个事件**（ZCode 才有
+`PostToolUse` / `PostToolUseFailure` 的分裂）。
 
-## Simplification once aligned
+但**只读 `isError` 会漏掉绝大多数失败**。`packages\shell\tool-bash\src\render.ts:19-21` 原文：
 
-The adapter currently reads several plausible field spellings at once. That is
-a deliberate hedge, not a design goal — collapse it to the exact contract as
-soon as it is known, so mistakes surface loudly instead of silently.
+> Non-zero exits are reported, not errored -- the model decides how to react; only
+> infrastructure failures (spawn errors, aborts) surface as isError results.
 
-## Shared behaviour
+也就是说：`bash` 退出码非零到达插件时是 `isError: false`，真相在**渲染文本最后一行**：
 
-Because both adapters call the same `core/`, these are identical across hosts:
+- `[exit code: N]`（`N` 非零时才追加）
+- `[killed by signal: X]`
+- `[timed out after Nms]`
 
-- the antibody schema and FTS5 trigram retrieval;
-- failure → success pairing and the 30-minute pending window;
-- anti-rot retirement after three injected-but-still-failing episodes;
-- credential redaction before anything is written to disk;
-- `SKILL.md` export format.
+（`render.ts:44` 注释：Keep the exit marker last because parseExitStatus anchors there.；
+解析函数 `parseExitStatus` 在 `packages\shell\shell\src\render.ts:36-41`，`tool-bash` 在
+`render.ts:103` 复用。pwsh 工具共用同一套标记。）
 
-Point both plugins at the same `IMMUNE_DB_PATH` and they share one antibody
-library.
+所以 `dsh-adapter.ts` 的 `judgeOutcome()` 依次读三个信号，缺一不可：
+
+1. `result.isError`（权威，但只覆盖基础设施失败）
+2. 结构化 `value.exitCode !== 0`（`packages\shell\tool-bash\src\index.ts:159-182`）
+3. 文本末行标记 / 沙箱拒绝标记 / 常见失败特征词
+
+### 3. 怎么把文字塞给模型
+
+**没有 `session.appendSystemReminder`**——那是猜的。真实通道有两个，插件两个都用：
+
+- `agent.inject(message)`：**同步、返回 `void`**（`packages\core\agent\src\runtime-types.ts:143`）。
+  它把消息排进 next-step 队列，**不唤醒**驱动器；官方文档明说它可能错过「pre-step 已经取了这一批」
+  的那个请求。所以它只保证「下一步起可见」。
+- `agent/pre-step` waterfall：`next()` 拿到决策后，插件返回
+  `{ kind: 'enter', messages: [...decision.messages, 注入消息] }`，**保证进入本轮**。
+  这是唯一能保证「这一轮就生效」的办法。
+
+注入消息用 `createPluginMessage()` 构造，`source` 是 `{ kind: 'plugin', plugin: 'dsh-immune-system' }`
+（对应 `MessageSourceMap`，`packages\llm\llm\src\message.ts:100-105`），这样它不会在派生历史里
+被当成人说的话。正文包在 `<immune_memory>` 与 `</immune_memory>` 之间，抗体文本中的尖括号会被
+`sanitize()` 抹掉，防止提前闭合标签。
+
+---
+
+## 二、命令
+
+两个命令都通过 `ctx.commands.register` 注册（`commands` 是服务，所以插件必须
+`export const inject = ['commands']`，否则访问会抛 `cannot get property "..." without inject`）。
+handler 接收 `CommandInvocation`，参数取 `invocation.rawInput`（没有单独的 `args` 字段），
+返回值必须是 `CommandResult` 对象而不能是裸字符串。
+
+| 命令 | 作用 | 参数 |
+| --- | --- | --- |
+| `/immune` | 列出本项目学到的抗体（含命中/失败计数与状态） | `--all` 连已退役的一起列 |
+| `/immune-export` | 把已验证的抗体导出成 `SKILL.md` | 无（门槛：命中 ≥ 3） |
+
+---
+
+## 三、安装与目录布局
+
+**发布/安装包根是 `dsh-immune-system/`**。它不是「ZCode 专用目录」，而是整个插件的发布包根：
+ZCode 半读 `.zcode-plugin/plugin.json`，DSH 半读同一目录下的 `package.json` 与
+`cordis.patch.yml`。两个宿主清单同处一个目录，所以不会漂移。
+
+```
+dsh-plugin-immune/
+|- core/                              # 宿主无关：存储、蒸馏、检索、导出
+|- dsh/src/                           # DSH 插件源码（本目录）
+|  |- index.ts                        # 入口：name + inject + apply(ctx)
+|  |- dsh-adapter.ts                  # 唯一绑定宿主契约的文件
+|  '- cordis.patch.yml                # 源侧副本（供 review；安装根那份才是被读的）
+'- dsh-immune-system/                 # <- 发布/安装包根
+   |- package.json                    # DSH 安装 manifest（main / dsh.bundle.patch）
+   |- cordis.patch.yml                # 被加载的 patch 层
+   |- .zcode-plugin/plugin.json       # ZCode 清单
+   |- hooks/、commands/               # ZCode 侧资源
+   '- dist/                           # 构建产物（随包提交，无需工具链即可安装）
+      |- dsh/src/index.js             # <- DSH 入口产物（main 指向这里）
+      |- core/**                      # 共享 core 的产物
+      '- zcode/**                     # ZCode 侧产物
+```
+
+`main` 与 `exports` **必须落在包目录内**：`exports` 目标逃出包目录是规范级禁止
+（实测 `ERR_INVALID_PACKAGE_TARGET ... targets must start with "./"`），`main` 用 `..`
+也只是靠目录回退侥幸。所以 manifest 放在持有 `dist/` 的目录里，`main` 写
+`./dist/dsh/src/index.js`。
+
+### 安装
+
+把 `dsh-immune-system/` 作为一个 bundle 包加进 profile 依赖，并在该 profile 的
+`dsh.profile.bundles` 数组里列出包名 `dsh-immune-system`：
+
+```jsonc
+// <DSH_HOME>/profiles/<profile>/package.json
+{
+  "dependencies": { "dsh-immune-system": "file:../../plugins/dsh-immune-system" },
+  "dsh": { "profile": { "bundles": ["@deepseek-ai/dsh-base", "dsh-immune-system"] } }
+}
+```
+
+加载链（`packages\boot\app-boot\src\profile.ts:388-396`）：
+
+```
+dsh.profile.bundles 里的包名
+  -> resolveBundleDir(binName, packageName, installAnchor, profileDir)   # 定位包目录
+  -> 读该目录的 package.json
+  -> 取 dsh.bundle.patch                                                # 例：'./cordis.patch.yml'
+  -> patchPath = join(packageDir, declared)                             # 相对于包目录
+  -> loadOverlayPatches(...)                                            # 顶层 YAML 数组
+```
+
+要点：
+
+- 列进 `dsh.profile.bundles` 却没有 `dsh.bundle` 的包会**响亮失败**
+  （`... declares no dsh.bundle in its package.json`），不会静默跳过。
+- patch 文件必须是**顶层 YAML 数组**，否则报
+  `... must be a top-level YAML array of loader patch entries`。
+- `dsh.bundle.patch` 的路径**相对于包目录**，所以写 `./cordis.patch.yml`。
+- `dsh-immune-system/` 下**没有 `node_modules`**，所以 `peerDependencies` 只作声明用途，
+  全部标 `optional`——宿主已经提供了这些包，插件本身不解析它们（源码里也不 import
+  `@deepseek-ai/*`，只用了 `node:crypto` 与 `node:sqlite`）。
+- `package.json` 里**必须保留 `"type": "module"`**：`dist/zcode/src/hooks/*.js` 依赖它做 ESM。
+
+---
+
+## 四、存储
+
+抗体库是 SQLite 单文件。DSH 侧（`dsh/src/index.ts` 的 `resolveStorePath()`）：
+
+1. `IMMUNE_DB_PATH`（显式指定，最高优先；测试与 ZCode 版都走这条）
+2. `<DSH_HOME>/storages/dsh-immune-system/<sha1(当前工作目录)[0..16]>.sqlite`（`DSH_HOME` 缺省为 `~/.dsh`）
+
+即**默认按项目隔离**，不同工作区学到的抗体互不串味，且不往项目目录里写文件。`core/store/path.ts` 是 ZCode 与 DSH 共用的，没有 DSH_HOME 概念，所以 DSH 专属默认值放在 `dsh/src/index.ts`。两版插件指向同一个 `IMMUNE_DB_PATH` 就共用一份抗体库。
+
+### 冷启动（resume / clear / compact）
+
+`agent/pre-step` 在冷启动时拿到的是「seed 之后新增」的批次，**不含人类提问**，按提问匹配会静默落空。插件订阅 `session/event` 的 `user/message`（只认 `source.kind === 'user'`）记住每个会话最近的提问，pre-step 里优先用本批次的人类消息、取不到时回退到记住的那条。已在真实宿主验证：空批次 + 只有记住的提问 → 仍注入 `<immune_memory>`。
+
+## 五、可用环境变量
+
+| 变量 | 作用 |
+| --- | --- |
+| `IMMUNE_DB_PATH` | 抗体库路径；两版共用一份就指同一个文件 |
+| `IMMUNE_LLM_BASE_URL` | OpenAI 兼容端点；与下一项**同时**配置才启用大模型蒸馏 |
+| `IMMUNE_LLM_MODEL` | 模型名 |
+| `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
+| `IMMUNE_LLM_TIMEOUT_MS` | 单次蒸馏超时，默认 `20000` |
+| `IMMUNE_LLM_MAX_TOKENS` | 蒸馏输出上限，默认 `400` |
+| `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许回环/内网端点（默认拒绝，防 SSRF） |
+| `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；默认中英双语 |
+
+不配 `IMMUNE_LLM_*` 也能跑：回落到确定性的规则蒸馏器，离线可用。
+
+---
+
+## 六、验证状态
+
+| 命令 | 实测结果 |
+| --- | --- |
+| `npm run build` | exit 0，0 错误 |
+| `npm test` | 31 条全绿（17 条 core + zcode hooks，14 条 `test/dsh.test.mjs` 假 Context 单测，含「存储打不开时 apply 只告警不崩会话」） |
+| 三步手验（`scripts/verify-step1.mjs`） | 15 断言全过（含 bash 非零退出必须判失败） |
+| 三步手验（`scripts/verify-steps23.mjs`） | 21 断言全过（失败→成功产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
+| 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |
+| 本机安装验证（`scripts/verify-installed.mjs`） | 16 断言全过（profile bundles 已登记、包可从 profile `node_modules` 解析、`dsh.bundle.patch` 存在且只有一行 insert、入口模块按裸包名导入且导出插件形状） |
+
+---
+
+## 七、行为与 `core/` 共用
+
+因为两版调用同一个 `core/`，以下行为完全一致：
+
+- 抗体结构与 FTS5 三元组检索；
+- 「失败 → 成功」配对，未配对的失败保留 30 分钟（`PENDING_TTL_MS`）；
+- 注入记录 30 分钟内有效（`INJECTION_TTL_MS`），用于反哺失效判定；
+- 反腐烂：一条抗体注入后工具**仍然**失败满 3 次（`RETIRE_AFTER_FAILURES`）即退役并联合新证据重蒸；
+- 落盘前凭据脱敏；
+- `SKILL.md` 导出格式。

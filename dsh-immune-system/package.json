@@ -1,3 +1,76 @@
 {
-  "type": "module"
+  "name": "dsh-immune-system",
+  "version": "0.2.0",
+  "description": "Self-evolving pitfall immunity for coding agents: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
+  "type": "module",
+  "main": "./dist/dsh/src/index.js",
+  "exports": {
+    ".": "./dist/dsh/src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "cordis.patch.yml",
+    "commands/",
+    "hooks/",
+    ".zcode-plugin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "id": "dsh-immune-system",
+    "name": "DSH Immune System",
+    "version": "0.2.0",
+    "repo": "meat-daemon-404/dsh-plugin-immune",
+    "permissions": "读取工具调用结果与斜杠命令输入；在本机写 SQLite 抗体库（默认落在 $DSH_HOME/storages/dsh-immune-system/ 下按项目隔离）；仅在显式配置 IMMUNE_LLM_BASE_URL 与 IMMUNE_LLM_MODEL 时才向该端点发起请求；不读取其它插件的配置，不执行任意命令",
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.5": "compatible"
+      }
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-tools": ">=0.0.1-rc.1",
+    "@deepseek-ai/dsh-session": ">=0.1.7-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    },
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "plugin",
+    "ai-agent",
+    "self-improving",
+    "memory",
+    "pitfalls",
+    "hooks",
+    "sqlite"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/meat-daemon-404/dsh-plugin-immune.git"
+  },
+  "license": "MIT"
 }
