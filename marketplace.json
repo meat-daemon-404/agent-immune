@@ -1,0 +1,19 @@
+{
+  "name": "dev-dsh-plugin-immune",
+  "plugins": [
+    {
+      "name": "dsh-immune-system",
+      "source": "./dsh-immune-system",
+      "version": "0.1.2",
+      "description": "Self-evolving pitfall immunity: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
+      "displayName": "DSH Immune System",
+      "displayName_i18n": {
+        "zh-CN": "自进化免疫系统"
+      },
+      "description_i18n": {
+        "zh-CN": "自进化避坑免疫：捕获每次「失败→修复」的工具调用，蒸馏成可复用的抗体，并在下次遇到同样场景前注入，避免重蹈覆辙。"
+      },
+      "category": "developer-tools"
+    }
+  ]
+}

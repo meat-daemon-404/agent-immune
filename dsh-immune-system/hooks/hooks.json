@@ -1,0 +1,81 @@
+{
+  "description": "Immune system hooks: sense failed-then-fixed tool episodes, inject relevant antibodies, and distil at turn end.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/session-start.js"],
+            "timeoutMs": 20000,
+            "statusMessage": "immune: recalling project antibodies…"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/user-prompt-submit.js"],
+            "timeoutMs": 5000,
+            "statusMessage": "immune: matching antibodies…"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write",
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/pre-tool-use.js"],
+            "timeoutMs": 4000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/post-tool-use.js"],
+            "timeoutMs": 5000
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/post-tool-use-failure.js"],
+            "timeoutMs": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "process",
+            "command": "node",
+            "args": ["${ZCODE_PLUGIN_ROOT}/dist/zcode/src/hooks/stop.js"],
+            "timeoutMs": 30000,
+            "statusMessage": "immune: distilling lessons…"
+          }
+        ]
+      }
+    ]
+  }
+}

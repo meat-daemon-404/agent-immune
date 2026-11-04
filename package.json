@@ -1,0 +1,25 @@
+{
+  "name": "dsh-plugin-immune",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-evolving pitfall-avoidance antibodies for coding agents. Monorepo: shared core, a runnable ZCode hook plugin, and a DSH adapter skeleton.",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "workspaces": [
+    "core",
+    "zcode",
+    "dsh"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "node --test \"test/*.test.mjs\"",
+    "smoke": "node test/smoke.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

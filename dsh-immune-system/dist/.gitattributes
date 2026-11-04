@@ -1,0 +1,5 @@
+# Keep build output out of review noise.
+
+# dist/ is intentionally NOT ignored: the installable plugin must work without a
+# toolchain, so dsh-immune-system/dist/ is committed. Rebuild with `npm run build`
+# before tagging a release.

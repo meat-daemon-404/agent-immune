@@ -1,0 +1,12 @@
+node_modules/
+*.log
+
+# Local immune databases and exported skills are per-machine state.
+.dsh/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Build output IS shipped inside the plugin directory on purpose: the plugin
+# must be installable without a toolchain. Rebuild with `npm run build` before
+# installing or updating.

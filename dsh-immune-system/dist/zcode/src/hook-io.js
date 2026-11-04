@@ -1,0 +1,99 @@
+/**
+ * ZCode hook I/O.
+ *
+ * Contract (verified against the local runtime and the shipped
+ * `diagnosing-hooks` guide):
+ *  - read exactly one JSON event object from stdin;
+ *  - write at most one JSON object to stdout, and it must match a strict
+ *    schema (an unknown key makes the whole hook fail);
+ *  - put diagnostics on stderr only, never on stdout.
+ *
+ * Every hook therefore goes through `runHook`, which guarantees a zero exit
+ * code and never lets a bug in this plugin break the user's turn.
+ */
+import { rememberPluginRoot } from './root-marker.js';
+import { appendFileSync } from 'node:fs';
+/**
+ * Optional execution trace, enabled with IMMUNE_DEBUG_LOG=<path>.
+ *
+ * Useful because the runtime's own log does not always make it obvious which
+ * plugin hook actually fired.
+ */
+function traceRun(eventName, sessionId) {
+    const target = process.env.IMMUNE_DEBUG_LOG;
+    if (!target)
+        return;
+    try {
+        appendFileSync(target, `${new Date().toISOString()}\t${eventName}\t${sessionId}\n`);
+    }
+    catch {
+        // Diagnostics must never break a hook.
+    }
+}
+const MAX_CONTEXT = 10_000;
+export function log(message) {
+    try {
+        process.stderr.write(`[immune] ${message}\n`);
+    }
+    catch {
+        // stderr failures must never surface.
+    }
+}
+/**
+ * The only stdout write this plugin performs. Kept to the single documented
+ * shape so strict schema validation cannot fail on an extra key.
+ */
+export function emitContext(eventName, additionalContext) {
+    const text = additionalContext.slice(0, MAX_CONTEXT);
+    process.stdout.write(JSON.stringify({
+        hookSpecificOutput: { hookEventName: eventName, additionalContext: text },
+    }));
+}
+export async function readEvent() {
+    const chunks = [];
+    for await (const chunk of process.stdin) {
+        chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+    }
+    const raw = Buffer.concat(chunks).toString('utf8').trim();
+    if (!raw)
+        return {};
+    try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    }
+    catch {
+        log('ignoring malformed stdin');
+        return {};
+    }
+}
+export function eventNameOf(event, fallback) {
+    return event.hook_event_name ?? event.hookEventName ?? fallback;
+}
+export function sessionIdOf(event) {
+    const id = event.session_id ?? event.sessionId;
+    return typeof id === 'string' && id ? id : 'unknown-session';
+}
+export function toolNameOf(event) {
+    const name = event.tool_name ?? event.toolName;
+    return typeof name === 'string' && name ? name : 'unknown-tool';
+}
+/**
+ * Run a hook body. `body` returns the context to inject, or null to stay
+ * silent. Any throw is logged and swallowed: a broken plugin must not break
+ * the session.
+ */
+export async function runHook(fallbackName, body) {
+    try {
+        rememberPluginRoot();
+        const event = await readEvent();
+        const eventName = eventNameOf(event, fallbackName);
+        traceRun(eventName, sessionIdOf(event));
+        const context = await body(event, eventName);
+        if (context && context.trim())
+            emitContext(eventName, context);
+    }
+    catch (error) {
+        log(`hook error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    process.exitCode = 0;
+}
