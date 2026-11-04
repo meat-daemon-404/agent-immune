@@ -14,9 +14,11 @@
  * Emits nothing: context added here would be attached to the tool result.
  */
 import { ImmuneStore } from '../../../core/store/index.js';
+import { isSelfEpisode } from '../../../core/selfnoise.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
+import { selfMarkers } from '../root-marker.js';
 
 await runHook('PostToolUse', (event) => {
   const record = event as Record<string, unknown>;
@@ -34,20 +36,25 @@ await runHook('PostToolUse', (event) => {
         toolName,
       });
       // A retired rule is re-distilled with the new evidence, so a stale
-      // antibody is replaced rather than merely deleted.
-      for (const antibody of retired) {
-        store.enqueueJob(
-          toolName,
-          `retired antibody #${antibody.id} (${antibody.trigger_pattern}): ${antibody.prescription}`,
-          snapshot.trace,
-          [],
-        );
+      // antibody is replaced rather than merely deleted — but a self-noise
+      // failure only retires the rule, it never seeds a mutation job.
+      if (!isSelfEpisode(snapshot.trace, selfMarkers())) {
+        for (const antibody of retired) {
+          store.enqueueJob(
+            toolName,
+            snapshot.trace,
+            `previous rule (retired after ${antibody.fail_count} failures): ${antibody.prescription}`,
+            [],
+          );
+        }
       }
       return null;
     }
 
     const failure = store.claimFailure(sessionId, toolName);
-    if (failure) store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids);
+    if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
+      store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids);
+    }
   } finally {
     store.close();
   }

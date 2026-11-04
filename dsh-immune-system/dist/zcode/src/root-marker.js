@@ -18,6 +18,21 @@ export function projectDirOf() {
 export function dshDirOf() {
     return join(projectDirOf(), '.dsh');
 }
+/**
+ * Paths that mark an episode as "the plugin operating on itself".
+ *
+ * Failures while editing the plugin's own install or storage files are
+ * maintenance, not pitfalls — learning from them fills the library with rules
+ * no future session can use. Hooks share this one definition.
+ */
+export function selfMarkers() {
+    return [
+        process.env.ZCODE_PLUGIN_ROOT ?? '',
+        process.env.ZCODE_PLUGIN_DATA ?? '',
+        process.env.CLAUDE_PLUGIN_ROOT ?? '',
+        process.env.CLAUDE_PLUGIN_DATA ?? '',
+    ].filter((p) => p.trim().length > 0);
+}
 export function rememberPluginRoot() {
     const root = process.env.ZCODE_PLUGIN_ROOT?.trim() || process.env.CLAUDE_PLUGIN_ROOT?.trim();
     if (!root)

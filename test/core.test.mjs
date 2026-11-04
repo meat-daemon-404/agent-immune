@@ -192,6 +192,27 @@ test('rules injected this session are not injected twice when asked to dedup', a
   s.close();
 });
 
+test('the plugin does not learn from operating on itself', async () => {
+  const { isSelfEpisode } = await import('../dsh-immune-system/dist/core/selfnoise.js');
+
+  const markers = ['C:\\Users\\x\\.zcode\\cli\\plugins\\cache\\dev-dsh-plugin-immune'];
+
+  assert.equal(
+    isSelfEpisode(
+      'tool=Edit input={"file_path":"C:\\Users\\x\\.zcode\\cli\\plugins\\cache\\dev-dsh-plugin-immune\\dsh-immune-system\\0.3.1\\dist\\core\\trace.js"} error=File modified',
+      markers,
+    ),
+    true,
+    'a trace touching the plugin install dir is self-noise',
+  );
+  assert.equal(
+    isSelfEpisode('tool=Edit input={"file_path":"D:\\work\\app\\main.ts"} error=boom', markers),
+    false,
+    'a normal project file is a lesson',
+  );
+  assert.equal(isSelfEpisode('anything', []), false, 'no markers means never self-noise');
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

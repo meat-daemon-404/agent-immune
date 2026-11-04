@@ -9,9 +9,10 @@
  * context here would attach it to the failing tool result.
  */
 import { ImmuneStore } from '../../../core/store/index.js';
-import { distillEpisode } from '../../../core/distiller.js';
+import { isSelfEpisode } from '../../../core/selfnoise.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeFailure } from '../format.js';
+import { selfMarkers } from '../root-marker.js';
 
 await runHook('PostToolUseFailure', (event) => {
   const sessionId = sessionIdOf(event);
@@ -31,15 +32,18 @@ await runHook('PostToolUseFailure', (event) => {
 
     // A retired antibody is re-distilled together with the new evidence, so a
     // stale rule is replaced rather than merely deleted. The job carries the
-    // REAL failure plus the old rule as context — bookkeeping text as the
-    // failure side used to produce "retired antibody #3" symptoms.
-    for (const antibody of retired) {
-      store.enqueueJob(
-        toolName,
-        snapshot.trace,
-        `previous rule (retired after ${antibody.fail_count} failures): ${antibody.prescription}`,
-        [],
-      );
+    // REAL failure plus the retired rule as context. Self-noise episodes retire
+    // the rule without a mutation job: there is no lesson in the plugin
+    // operating on itself.
+    if (!isSelfEpisode(snapshot.trace, selfMarkers())) {
+      for (const antibody of retired) {
+        store.enqueueJob(
+          toolName,
+          snapshot.trace,
+          `previous rule (retired after ${antibody.fail_count} failures): ${antibody.prescription}`,
+          [],
+        );
+      }
     }
   } finally {
     store.close();

@@ -21,6 +21,7 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { distillEpisode } from '../../core/distiller.js';
 import { strings } from '../../core/i18n.js';
+import { isSelfEpisode } from '../../core/selfnoise.js';
 import {
   DSH_EVENTS,
   PLUGIN_NAME,
@@ -72,6 +73,17 @@ function resolveStorePath(): string {
   const dir = join(home, 'storages', 'dsh-immune-system');
   mkdirSync(dir, { recursive: true });
   return join(dir, `${projectKey}.sqlite`);
+}
+
+/**
+ * Self-noise markers for the DSH host: the plugin's own storage directory.
+ * Any failure trace touching it is the plugin's maintenance, not a pitfall.
+ */
+function selfMarkers(): string[] {
+  const explicit = process.env.IMMUNE_DB_PATH?.trim();
+  if (explicit) return [explicit];
+  const home = process.env.DSH_HOME?.trim() || join(homedir(), '.dsh');
+  return [join(home, 'storages', 'dsh-immune-system')];
 }
 
 /**
@@ -288,19 +300,23 @@ function startPlugin(ctx: DshContext): void {
           failureText: snapshot.trace,
           toolName: event.toolName,
         });
-        for (const ab of retired) {
-          store.enqueueJob(
-            event.toolName,
-            snapshot.trace,
-            `previous rule (retired after ${ab.fail_count} failures): ${ab.prescription}`,
-            [],
-          );
+        // Self-noise (the harness operating on the plugin's own storage) only
+        // retires rules; it never seeds an episode or a mutation job.
+        if (!isSelfEpisode(snapshot.trace, selfMarkers())) {
+          for (const ab of retired) {
+            store.enqueueJob(
+              event.toolName,
+              snapshot.trace,
+              `previous rule (retired after ${ab.fail_count} failures): ${ab.prescription}`,
+              [],
+            );
+          }
         }
         return downstream;
       }
 
       const failure = store.claimFailure(event.sessionId, event.toolName);
-      if (failure) {
+      if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
         store.enqueueJob(
           event.toolName,
           failure.trace,
