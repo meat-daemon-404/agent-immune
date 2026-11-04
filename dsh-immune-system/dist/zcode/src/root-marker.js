@@ -24,14 +24,25 @@ export function dshDirOf() {
  * Failures while editing the plugin's own install or storage files are
  * maintenance, not pitfalls — learning from them fills the library with rules
  * no future session can use. Hooks share this one definition.
+ *
+ * When the session runs inside the plugin's own development repository (the
+ * plugin root sits under the project directory), the whole project tree counts
+ * as self: developing the plugin is maintenance by definition.
  */
 export function selfMarkers() {
-    return [
+    const markers = [
         process.env.ZCODE_PLUGIN_ROOT ?? '',
         process.env.ZCODE_PLUGIN_DATA ?? '',
         process.env.CLAUDE_PLUGIN_ROOT ?? '',
         process.env.CLAUDE_PLUGIN_DATA ?? '',
     ].filter((p) => p.trim().length > 0);
+    const root = (process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT ?? '')
+        .trim()
+        .toLowerCase();
+    const project = projectDirOf().toLowerCase();
+    if (root && project && root.startsWith(project))
+        markers.push(projectDirOf());
+    return markers;
 }
 export function rememberPluginRoot() {
     const root = process.env.ZCODE_PLUGIN_ROOT?.trim() || process.env.CLAUDE_PLUGIN_ROOT?.trim();
