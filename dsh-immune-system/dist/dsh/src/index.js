@@ -65,6 +65,8 @@ function resolveStorePath() {
  * not grow without limit.
  */
 const lastPrompts = new Map();
+/** Last turn a recall block was spliced for, so a turn injects at most once. */
+const lastInjectedTurn = new Map();
 const MAX_TRACKED_SESSIONS = 256;
 function rememberPrompt(sessionId, text) {
     if (!text)
@@ -74,8 +76,10 @@ function rememberPrompt(sessionId, text) {
     if (lastPrompts.size <= MAX_TRACKED_SESSIONS)
         return;
     const oldest = lastPrompts.keys().next().value;
-    if (oldest !== undefined)
+    if (oldest !== undefined) {
         lastPrompts.delete(oldest);
+        lastInjectedTurn.delete(oldest);
+    }
 }
 /**
  * Render antibodies as the compact advisory block.
@@ -116,7 +120,7 @@ function traceFor(event, outcome) {
     }
     return `tool=${event.toolName} input=${input} ${outcome}`;
 }
-/** Drain queued jobs inline; DSH has no separate turn-end event to defer to. */
+/** Distil queued episodes. Called at turn end, never inside a tool result path. */
 async function drain(store, budgetMs = 8000) {
     const deadline = Date.now() + budgetMs;
     store.requeueStuckJobs();
@@ -181,19 +185,32 @@ function startPlugin(ctx) {
             return;
         rememberPrompt(session.header.id, textOf(message.content ?? []));
     });
-    // Session start: prime with the project's most-used antibodies. Delivered via
-    // `inject()` — the channel the `agent/session-start` docs name explicitly.
-    ctx.on(DSH_EVENTS.sessionStart, ({ agent }) => {
-        const block = renderMemory(store.listAll(false).slice(0, 3), t.promptPreamble, 1400);
+    // Session start: retire stale antibodies once, then prime with the project's
+    // most-used ones. Delivered via `inject()` — the channel the
+    // `agent/session-start` docs name explicitly, and its content is visible to
+    // the very first request.
+    ctx.on(DSH_EVENTS.sessionStart, ({ agent, source }) => {
+        store.pruneStale();
+        const active = store.listAll(false);
+        const block = renderMemory(active.slice(0, 3), t.promptPreamble, 1400);
         if (block)
             agent.inject(createPluginMessage(block));
+        log.info(`[immune] session-start (${source}): ${active.length} active antibody/queries`);
     });
     // Pre-step: recall antibodies that match what the human is about to ask.
     // `inject()` can miss the turn already being assembled, so the block is also
     // spliced into the decision returned by the waterfall's default `next()`.
-    ctx.on(DSH_EVENTS.preStep, async ({ agent, messages }, next) => {
+    ctx.on(DSH_EVENTS.preStep, async ({ agent, messages, turn, step }, next) => {
         const decision = await next();
         if (decision.kind === 'reject')
+            return decision;
+        // Recall is a per-turn decision. Re-injecting on every step of a tool loop
+        // would repeat the same block, and — because `match()` bumps hit counts —
+        // would make "popularity" a function of how many steps a turn happened to
+        // take. Both are avoided by acting only on the first step of each turn.
+        if (step !== 1)
+            return decision;
+        if (lastInjectedTurn.get(agent.id) === turn)
             return decision;
         // Prefer the prompt the driver actually claimed this step; fall back to the
         // last prompt seen on the session stream (cold resume/compact carry none).
@@ -204,6 +221,7 @@ function startPlugin(ctx) {
         const block = renderMemory(hits, t.promptPreamble, 1400);
         if (!block)
             return decision;
+        lastInjectedTurn.set(agent.id, turn);
         const desired = createPluginMessage(block);
         return { kind: 'enter', messages: decision.messages.toSpliced(insertAt(decision.messages, messages), 0, desired) };
     });
@@ -231,10 +249,17 @@ function startPlugin(ctx) {
         const failure = store.claimFailure(event.sessionId, event.toolName);
         if (failure) {
             store.enqueueJob(event.toolName, failure.trace, traceFor(event, `result=${event.resultText}`), failure.injected_ids);
-            // No turn-end hook here, so distillation runs after the episode closes.
-            await drain(store);
         }
         return downstream;
+    });
+    // Distillation runs at turn end, not inside the tool pipeline: `drain` may do
+    // an HTTP call to the configured LLM (up to its budget), and a post-execute
+    // listener is awaited *inside* the tool result path, so draining there would
+    // stall every successful-after-failure tool call. `turn-stopping` is serial
+    // and awaited before the boundary commits — the right place for turn-end work.
+    ctx.on(DSH_EVENTS.turnStopping, async () => {
+        if (store.pendingJobCount() > 0)
+            await drain(store);
     });
     ctx.effect(() => () => {
         store.close();

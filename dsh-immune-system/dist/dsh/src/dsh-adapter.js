@@ -47,11 +47,13 @@ export const PLUGIN_NAME = 'dsh-immune-system';
  * - `sessionStart`    — `packages\core\agent\src\runtime-types.ts:217` (`@mode emit`)
  * - `preStep`         — `packages\core\agent\src\runtime-types.ts:231` (`@mode waterfall`)
  * - `postToolExecute` — `packages\core\tools\src\index.ts:175` (`@mode waterfall`)
+ * - `turnStopping`    — `packages\core\agent\src\runtime-types.ts:278` (`@mode serial`)
  */
 export const DSH_EVENTS = {
     sessionStart: 'agent/session-start',
     preStep: 'agent/pre-step',
     postToolExecute: 'tools/post-execute',
+    turnStopping: 'agent/turn-stopping',
 };
 /**
  * The `[killed by signal: X]` / `[exit code: N]` trailer contract, copied from

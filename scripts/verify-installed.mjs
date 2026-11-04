@@ -73,6 +73,7 @@ check('DSH_EVENTS point at real host events', JSON.stringify(mod.DSH_EVENTS) ===
   sessionStart: 'agent/session-start',
   preStep: 'agent/pre-step',
   postToolExecute: 'tools/post-execute',
+  turnStopping: 'agent/turn-stopping',
 }), mod.DSH_EVENTS);
 
 console.log(`\n=== installed check (profile=${profile}): ${passed} passed, ${failed} failed ===`);

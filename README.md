@@ -2,14 +2,17 @@
 
 **自进化避坑免疫系统** — 让 Agent 踩一次坑，就自己长记性。
 
-Agent 踩了坑、修好了，却没人写文档——这次的经验就被自动提炼成一条**抗体**。
+Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**。
 下次在同一个坑面前，相关抗体先一步进入它的上下文。
 
 > Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
-> no documentation required. Next session, the relevant antibodies are injected
-> before the mistake can repeat.
+> no docs required. Next session the relevant antibodies are injected before the
+> mistake can repeat.
 
-[English](#english) · [中文](#中文)
+支持两个宿主：**DSH**（DeepSeek Harness，已按真实宿主契约实测）与 **ZCode**（按实测 hook 契约）。
+两者共用同一份 `core/`。
+
+[中文](#中文) · [English](#english)
 
 ---
 
@@ -22,21 +25,44 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验就被自�
 - 改了 `vite.config.ts`，`process.env` 读不到客户端变量，报错，换 `loadEnv` 才好；
 - 下次换个会话，**又这么写一遍**。
 
-静态文档解决不了这个问题——没人维护，很快就过期。
-这个插件让**踩坑现场自己变成规则**。
+静态文档解决不了——没人维护，很快过期。这个插件让**踩坑现场自己变成规则**：
 
 ```
  工具失败 ─┐
-           ├─► 配对 ─► 蒸馏 ─► 抗体（SQLite + FTS5）
+           ├─► 配对 ─► 蒸馏 ─► 抗体（SQLite + FTS5，按项目隔离）
  工具成功 ─┘                          │
                                       ▼
-        下次工具调用 ─► PreToolUse 即时预警
-        下次对话     ─► <immune_memory> 上下文注入
+        下一次会话提问 ─► <immune_memory> 注入模型上下文
 ```
 
-### 装
+### 安装
 
-本仓库**本身就是插件市场源**，不用克隆：
+#### DSH
+
+插件以 **bundle** 形式安装：一个目录同时带 `package.json`（含 `dsh.bundle.patch`）与 `cordis.patch.yml`，
+登记进 profile 的 `dsh.profile.bundles` 即可。
+
+从本地源码装（已验证的做法）：
+
+```powershell
+# 1) 让 profile 能按裸包名解析到它（Windows 免管理员；Linux/macOS 用 ln -s）
+New-Item -ItemType Junction `
+  -Path  "$env:USERPROFILE\.dsh\profiles\<profile>\node_modules\dsh-immune-system" `
+  -Target "<repo>\dsh-immune-system"
+
+# 2) 在 profile 的 package.json 里登记两项
+#    dependencies["dsh-immune-system"] = "link:<repo>/dsh-immune-system"
+#    dsh.profile.bundles 追加 "dsh-immune-system"
+```
+
+然后**重启 DSH**（bundle 是启动时装配的，运行中的进程不会自己加载）。
+`<profile>` 就是 `~/.dsh/profiles/` 下你实际在用的那个（桌面端通常是 `desktop`）。
+
+装完可用 `/immune` 自检：能返回「暂无抗体」就说明挂上了。
+
+#### ZCode
+
+本仓库本身就是插件市场源：
 
 ```bash
 node "<zcode.cjs 路径>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
@@ -47,60 +73,94 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 
 ### 怎么用
 
-正常干活就行。踩坑 → 修好 → 回合结束时自动提炼。
-下一个会话问一句含相同文件名/命令的话，上下文里就会出现 `<immune_memory>`。
+正常干活就行。踩坑 → 修好 → 下一回合自动提炼。
+之后问到含相同文件名/命令的话，上下文里会出现 `<immune_memory>…</immune_memory>`。
 
-查看学到了什么：
+| 命令 | 宿主 | 作用 |
+| --- | --- | --- |
+| `/immune` | DSH | 列出所有抗体（`/immune --all` 含已退役） |
+| `/immune-export` | DSH | 把经过验证的抗体导出成 `SKILL.md` |
+| `/dsh-immune-system:immune` | ZCode | 同上（加 `--all`） |
+| `/dsh-immune-system:immune-export` | ZCode | 同上 |
 
-```
-/dsh-immune-system:immune           # 列出所有抗体（加 --all 含已退役的）
-/dsh-immune-system:immune-export    # 把经过验证的抗体导出成 SKILL.md
-```
+### 四个关键设计
 
-### 两个关键设计
+**① 失败感知不赌单一事件（这是最要命的一条）**
 
-**抗体失效会被淘汰（Anti-Rot）**
+两个宿主上「bash 退出码非 0」都**不是**错误结果：
+
+- ZCode：`PostToolUseFailure` 只在工具处理器**抛异常**时触发，命令非零退出是正常返回；
+- DSH：`result.isError` **只覆盖基础设施失败**（spawn 错误、abort、监听器抛错），
+  非零退出被明确设计为「reported, not errored」，模型自己决定怎么办。
+
+所以两版都自己判结果。DSH 侧的判据顺序是
+`isError` → `value.exitCode` → 行尾 `[exit code: N]` / `[killed by signal: X]` / `[timed out after Nms]` / sandbox 拒绝标记 → 窄口径失败标记正则。
+
+**② 抗体失效会被淘汰（Anti-Rot）**
+
 一条抗体注入后工具**仍然**失败，说明它没起作用，扣分；满 3 次自动退役并联合新证据重新提炼。
 扣分**带相关性判断**——失败内容必须与该抗体的触发词有共同词才算数，且**排除工具名本身**
 （否则每条 `Bash …` 抗体都会被任何一次 Bash 失败冤枉）。
 
-**失败感知不赌单一事件**
-ZCode 的 `PostToolUseFailure` **只在工具处理器抛异常时**才触发，而 bash 命令非零退出
-通常是正常返回。所以本插件在 `PostToolUse` 里自己判断结果（`exitCode` / `is_error` /
-窄口径输出标记）。这是实测出来的坑，不是推测。
+**③ 注入卫生**
+
+注入内容只来自我们自己提炼的字段，从不放原始工具输出；抗体文本里的尖括号被剥离，
+无法闭合包裹标签；有长度上限；明确标注「仅供参考」，避免模型把它当成用户指令。
+一个回合最多注入一次、且只在回合第一步匹配（工具循环里每步都匹配既会重复灌入，
+也会把抗体的命中计数灌成「这回合跑了几步」的噪声）。
+
+**④ 蒸馏在回合边界跑，不在工具结果路径里**
+
+`drain()` 可能向配置的 LLM 端点发一次 HTTP 请求。DSH 的 `tools/post-execute` 监听器被 await
+在工具结果路径上，把蒸馏放进去会让每次「失败后成功」的工具调用都卡到 HTTP 返回；
+所以它挂在 `agent/turn-stopping`（`@mode serial`，回合边界提交前 await）。
+未清空的队列还会在下次 `session-start` 由 `requeueStuckJobs()` 兜底。
+
+### 存储
+
+抗体库是 SQLite 单文件（含 FTS5 trigram 索引，中文按 3 字窗口匹配）。
+
+- `IMMUNE_DB_PATH` 显式指定时最优先；两版指向同一个文件就共享抗体库。
+- DSH 默认：`<DSH_HOME>/storages/dsh-immune-system/<sha1(当前目录)[0..16]>.sqlite`
+  —— **按项目隔离**，不同工作区互不串味，也不往项目目录里丢文件。
+- ZCode 默认：插件数据目录（`ZCODE_PLUGIN_DATA`），无则 `<项目>/.dsh/immune.sqlite`。
+
+**冷启动**：`agent/pre-step` 在 `resume`/`clear`/`compact` 时拿到的是「seed 之后新增」的批次，
+不含人类提问。DSH 版订阅 `session/event` 的 `user/message` 记住每个会话最近的提问，
+作为匹配依据的兜底，所以冷启动后的第一句也能召回。
 
 ### 配置（全部可选）
 
-不配也能跑——默认用确定性规则蒸馏器，离线可用。
+不配也能跑——默认走确定性规则蒸馏器，离线可用。
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `IMMUNE_DB_PATH` | 数据库路径。两版指向同一个即可共享抗体库 |
+| `IMMUNE_DB_PATH` | 抗体库路径；两版指向同一个即可共享 |
 | `IMMUNE_LLM_BASE_URL` | OpenAI 兼容端点，如 `https://api.example.com/v1` |
 | `IMMUNE_LLM_MODEL` | 模型名，与上面配对使用 |
 | `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
 | `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；**默认中英双语** |
 | `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许环回/私有端点。**默认拒绝**，防 SSRF |
-| `IMMUNE_DEBUG_LOG` | 指定文件则记录每个 hook 的执行，用于排障 |
+| `IMMUNE_DEBUG_LOG` | 指定文件则记录执行细节，用于排障 |
 
 ### 安全
 
 - **脱敏**：写入磁盘前擦除 Bearer 令牌、`*_KEY=` 类赋值、URL 内嵌凭证、JWT。
-  这些记录之后可能被导出成团队共享的 SKILL.md，泄漏在那里比泄漏在日志更糟。
-- **注入卫生**：注入内容只来自我们自己提炼的字段，从不放原始工具输出；
-  抗体文本里的尖括号被剥离，无法闭合包裹标签；有长度上限；明确标注"仅供参考"，
-  避免模型把它当成用户指令。
-- **失败不致命**：hook 永远 exit 0，stdin 畸形则忽略，FTS 表达式出错返回空，
-  模型不可达则回落到规则蒸馏器。插件坏了不能拖垮会话。
-- **SQL 只走参数绑定**，不拼接。
+  这些记录之后可能被导出成团队共享的 `SKILL.md`，泄漏在那里比泄漏在日志更糟。
+- **失败不致命**：DSH 版 `apply()` 把启动包在 try/catch 里，抗体库打不开只写一条
+  `warn` 并把本会话降级为「无免疫」——插件坏了不能拖垮会话。ZCode 版 hook 永远 `exit 0`。
+- **SQL 只走参数绑定**，不拼接；FTS 查询词逐条加引号并转义，用户文本无法注入 FTS 语法。
 
-### 状态
+### 验证状态
 
-- 17 条测试全绿
-- 在本机真实运行时里验证：5 个 hook 全部被分发，`${ZCODE_PLUGIN_ROOT}` 正确展开，
-  数据库落在插件数据目录
-- 用**安装副本**重放全链路：失败→成功→蒸馏→新会话收到 `<immune_memory>`
-- **未验**：Agent 自主端到端（当时模型额度返回 402，turn 到不了工具阶段）
+| 检查 | 结果 |
+| --- | --- |
+| `npm run build` | exit 0 |
+| `npm test` | **34 条全绿**（17 条 core + ZCode hooks，17 条 DSH 单元测试） |
+| `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
+| `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
+| `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
+| `scripts/verify-installed.mjs` | 16 断言（本机 profile 安装校验：bundles 登记、裸包名解析、patch 形状） |
 
 ---
 
@@ -108,14 +168,31 @@ ZCode 的 `PostToolUseFailure` **只在工具处理器抛异常时**才触发，
 
 ### What it does
 
-Repeating the same mistake is the most expensive pattern an agent has. Static
-docs do not fix it — nobody maintains them, and they rot.
+Repeating the same mistake is the most expensive pattern an agent has. Static docs
+do not fix it — nobody maintains them, and they rot. This plugin turns the failure
+scene itself into a rule.
 
-This plugin turns the failure scene itself into a rule.
+Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
+against the real host contract) and **ZCode** (verified against its hooks).
 
 ### Install
 
-The repository **is** a marketplace source:
+**DSH** — the plugin is a bundle: a directory carrying `package.json` (with
+`dsh.bundle.patch`) plus `cordis.patch.yml`, listed in the profile's
+`dsh.profile.bundles`. From a local checkout (verified path):
+
+```powershell
+New-Item -ItemType Junction `
+  -Path  "$env:USERPROFILE\.dsh\profiles\<profile>\node_modules\dsh-immune-system" `
+  -Target "<repo>\dsh-immune-system"
+# then in that profile's package.json:
+#   dependencies["dsh-immune-system"] = "link:<repo>/dsh-immune-system"
+#   append "dsh-immune-system" to dsh.profile.bundles
+```
+
+**Restart DSH** afterwards — bundles are composed at startup.
+
+**ZCode** — this repository *is* a marketplace source:
 
 ```bash
 node "<zcode.cjs>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
@@ -126,10 +203,12 @@ Start a **new task** afterwards; old tasks keep their earlier capability catalog
 
 ### Design notes
 
-**Sensing outcomes, not trusting one event.** `PostToolUseFailure` fires only when
-a tool *handler throws*. A shell command exiting non-zero usually returns
-normally, so that event alone misses the failures this plugin exists to learn
-from. `PostToolUse` therefore classifies its own result.
+**Sensing outcomes, not trusting one event.** On both hosts a shell command
+exiting non-zero is *not* an error result: ZCode's `PostToolUseFailure` only fires
+when a handler throws, and DSH documents that "non-zero exits are reported, not
+errored" — `isError` covers infrastructure failures only. Both ports therefore
+classify the result themselves (exit code, trailing `[exit code: N]` /
+`[killed by signal: X]` / timed-out markers, and a narrow marker regex).
 
 **Anti-rot, relevance-guarded.** An injected antibody that still did not prevent
 the failure loses credit and is retired after three such episodes. The penalty is
@@ -137,41 +216,44 @@ relevance-guarded: the failure must share a meaningful term with the antibody's
 trigger, and the tool name is excluded — otherwise every `Bash …` rule would be
 blamed for any Bash failure.
 
-**Redaction and injection hygiene.** Credentials are scrubbed before anything
-touches disk; injected text comes only from our own distilled fields, is
-length-capped, cannot close its wrapper tag, and is labelled advisory.
+**Injection hygiene.** Injected text comes only from our own distilled fields,
+never raw tool output; brackets are stripped so a line cannot close its wrapper
+tag; length-capped; labelled advisory.
 
----
-
-## 仓库结构 / Layout
+### Layout
 
 ```
-core/                 共用、与宿主无关、零运行时依赖
-  ├── store/          SQLite + FTS5：抗体、episode、任务队列
-  ├── distiller.ts    episode → 抗体（模型 + 规则兜底）
-  ├── i18n.ts         中英双语文案
-  ├── redact.ts       落盘前凭证脱敏
-  └── export.ts       导出 SKILL.md
-zcode/                ZCode 适配（hooks、CLI），按实测契约实现
-dsh/                  DSH 适配骨架，契约未核实
-dsh-immune-system/    可安装插件（manifest、hooks.json、commands、dist）
-test/                 node:test
+core/                  shared, host-agnostic, zero runtime deps
+  ├── store/           SQLite + FTS5 trigram: antibodies, episodes, job queue
+  ├── distiller.ts     episode -> antibody (LLM, rule-based fallback)
+  ├── i18n.ts          zh/en strings
+  ├── redact.ts        credential scrubbing before disk
+  └── export.ts        render SKILL.md
+dsh/                   DSH adapter — verified against the real host contract
+dsh-immune-system/     installable bundle (manifest, patch, commands, dist)
+zcode/                 ZCode adapter (hooks, CLI)
+docs/                  dsh-host-contract.md — every contract claim with file:line
+scripts/               the four verification scripts above
+test/                  node:test
 ```
 
-两版共用同一份 `core/`。指向同一个 `IMMUNE_DB_PATH` 就能共享抗体库。
+Point both hosts at the same `IMMUNE_DB_PATH` and they share one antibody store.
 
-**DSH 交接**：[HANDOFF-DSH.md](HANDOFF-DSH.md) — 只需回答三个问题，改一个文件。
+### The first sketch vs. what the host actually does
 
-## 与最初设计的偏差 / Why this differs from the first sketch
+The original design guessed a Cordis-style API. Reading the DSH source disproved
+every one of those guesses:
 
-初版设计假设了 Cordis 风格的 API（`ctx.on('dsh/before-llm-request')`、
-`ctx.llm.complete`、`async: true` 后台蒸馏）。本机真实运行时里这些都不成立：
-
-| 初版假设 | 实测情况 |
+| First sketch | What DSH actually has |
 | --- | --- |
-| `dsh/before-llm-request` | 无此事件。靠 `UserPromptSubmit` / `SessionStart` 注入 |
-| `after-tool-call` + `is_error` | 成功/失败是两个独立事件，且**没有** `is_error` |
-| `ctx.llm.complete()` | hook 是独立进程，无宿主 LLM；改用 HTTP 客户端 |
-| `ctx.command('immune')` | 命令是 Markdown 提示词，调用一个小 CLI |
-| `async: true` 后台跑 | 官方明确：`async` **无运行时效果** |
-| `new Map()` 记失败 | 每个 hook 独立进程，状态必须落 SQLite |
+| `dsh/before-llm-request` event | no such event; recall rides `agent/pre-step` (waterfall) and `agent.inject()` |
+| `dsh/after-tool-call` event | no such event; results arrive on `tools/post-execute` (waterfall) |
+| success / failure as two events | one event plus `isError`, and `isError` is infrastructure-only |
+| `session.appendSystemReminder()` | does not exist; use `agent.inject(createUserMessage(...))` |
+| `ctx.command(name, desc, handler)` | `ctx.commands.register({ name, description, handler })`, needs `inject=['commands']`, returns a `CommandResult` |
+| `agent/request` to add context | explicitly forbidden — "this waterfall cannot mutate messages" |
+
+Every row above is sourced to a file and line in
+[docs/dsh-host-contract.md](docs/dsh-host-contract.md).
+
+See also [dsh/README.md](dsh/README.md) for the DSH-side operational details.

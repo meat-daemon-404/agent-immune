@@ -232,6 +232,79 @@ async function learnViteRule(fx, agent) {
   await postTool(fx, success, bashResult({ exitCode: 0, text: 'build finished in 3.2s' }));
 }
 
+/** Run the serial turn-end event the way cordis does: await every listener. */
+async function runTurnStopping(fx, agent, turn) {
+  const payload = { agent, turn, signal: { aborted: false } };
+  for (const listener of [...(fx.listeners.get(DSH_EVENTS.turnStopping) ?? [])]) {
+    await listener(payload);
+  }
+}
+
+/** Pre-step waterfall at an explicit (turn, step) position. */
+function preStepAt(fx, agent, messages, turn, step) {
+  const payload = { agent, messages, turn, step, signal: { aborted: false } };
+  return fx.waterfall(DSH_EVENTS.preStep, [payload], () => ({ kind: 'enter', messages }));
+}
+
+/* ================================================================== *
+ * Step 2 / Step 3 — learn an antibody, then recall it
+ * ================================================================== */
+
+test('nothing is distilled inside the tool path; turn-stopping lands exactly one antibody', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-learn');
+
+  await learnViteRule(fx, agent);
+  assert.equal(
+    queryAll(dbPath, 'SELECT id FROM antibodies').length,
+    0,
+    'a post-execute listener must not do turn-end distillation work',
+  );
+
+  await runTurnStopping(fx, agent, 1);
+  const rows = queryAll(dbPath, 'SELECT tool_name, status, trigger_pattern FROM antibodies');
+  assert.equal(rows.length, 1, 'exactly one antibody after the turn closes');
+  assert.equal(rows[0].status, 'active');
+  assert.ok(rows[0].trigger_pattern.length > 0);
+});
+
+test('pre-step recalls a matching antibody on the first step of a turn', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-recall');
+  await learnViteRule(fx, agent);
+  await runTurnStopping(fx, agent, 1);
+
+  const [row] = queryAll(dbPath, 'SELECT trigger_pattern FROM antibodies');
+  const prompt = userMessage('m-1', `how do I fix ${row.trigger_pattern} while building`);
+  const decision = await preStepAt(fx, agent, [prompt], 2, 1);
+
+  assert.equal(decision.kind, 'enter');
+  assert.equal(decision.messages.length, 2, 'one recalled block is spliced in');
+  const injected = decision.messages.at(-1);
+  assert.equal(injected.source.kind, 'plugin');
+  assert.equal(messageText(injected).includes('<immune_memory>'), true);
+  assert.equal(messageText(injected).includes('</immune_memory>'), true);
+});
+
+test('pre-step injects at most once per turn, and never after step 1', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-once');
+  await learnViteRule(fx, agent);
+  await runTurnStopping(fx, agent, 1);
+
+  const [row] = queryAll(dbPath, 'SELECT trigger_pattern FROM antibodies');
+  const prompt = userMessage('m-1', `how do I fix ${row.trigger_pattern} while building`);
+
+  const first = await preStepAt(fx, agent, [prompt], 2, 1);
+  assert.equal(first.messages.length, 2, 'the first step of the turn injects');
+  const repeat = await preStepAt(fx, agent, [prompt], 2, 1);
+  assert.equal(repeat.messages.length, 1, 'the same turn does not inject twice');
+  const stepTwo = await preStepAt(fx, agent, [prompt], 2, 2);
+  assert.equal(stepTwo.messages.length, 1, 'step 2 of a turn never injects');
+  const nextTurn = await preStepAt(fx, agent, [prompt], 3, 1);
+  assert.equal(nextTurn.messages.length, 2, 'a later turn may inject again');
+});
+
 /* ================================================================== *
  * Step 1 — normaliseToolEvent, field by field
  * ================================================================== */
@@ -397,6 +470,7 @@ test('DSH_EVENTS names the real host events', () => {
     sessionStart: 'agent/session-start',
     preStep: 'agent/pre-step',
     postToolExecute: 'tools/post-execute',
+    turnStopping: 'agent/turn-stopping',
   });
 });
 

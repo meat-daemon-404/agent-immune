@@ -92,13 +92,30 @@ const okRes = { isError: false, value: { exitCode: 0 }, content: [okText] };
 const d2 = await ctx.waterfall('tools/post-execute', exec(agent('sess-A'), { command: 'npm run buidl' }), okRes, acceptOnly);
 check('second listener call also accepts', d2 && d2.kind === 'accept', d2);
 
-const db = new DatabaseSync(process.env.IMMUNE_DB_PATH);
-const antibodies = db.prepare('select id, tool_name, status, trigger_pattern, prescription from antibodies').all();
+// Distillation is turn-end work now, so close the turn and wait for the row.
+console.log('[1b] agent/turn-stopping — distillation runs at turn close');
+const { emitAgentEvent } = await dep('dsh-agent');
+const agentA = agent('sess-A');
+emitAgentEvent(ctx, agentA, 'agent/turn-stopping', { agent: agentA, turn: 1, signal: { aborted: false } });
+const readAntibodies = () => {
+  const handle = new DatabaseSync(process.env.IMMUNE_DB_PATH);
+  try {
+    return handle.prepare('select id, tool_name, status, trigger_pattern, prescription from antibodies').all();
+  } finally {
+    handle.close();
+  }
+};
+let antibodies = [];
+for (let attempt = 0; attempt < 240; attempt += 1) {
+  antibodies = readAntibodies();
+  if (antibodies.length > 0) break;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+}
+
 console.log('[2] sqlite antibodies after fail->success');
 console.log('     ', JSON.stringify(antibodies));
 check('exactly one antibody distilled', antibodies.length === 1, antibodies.length);
 check('antibody is active and from bash', antibodies[0] && antibodies[0].status === 'active' && antibodies[0].tool_name === 'bash');
-db.close();
 
 // ---- 2. real agent/pre-step waterfall: a new session gets the recall block ----
 console.log('[3] agent/pre-step waterfall for a fresh session');
@@ -120,7 +137,6 @@ console.log(block);
 console.log('[4] agent/session-start through the host emit path');
 const primed = [];
 const agentC = { id: 'sess-C', session: { header: { id: 'sess-C' } }, inject(m) { primed.push(m); } };
-const { emitAgentEvent } = await dep('dsh-agent');
 check('host exposes emitAgentEvent', typeof emitAgentEvent === 'function');
 emitAgentEvent(ctx, agentC, 'agent/session-start', { source: 'startup' });
 check('session-start primed exactly one message', primed.length === 1, primed.length);

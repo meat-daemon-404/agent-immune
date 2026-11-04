@@ -49,11 +49,13 @@ export const PLUGIN_NAME = 'dsh-immune-system';
  * - `sessionStart`    — `packages\core\agent\src\runtime-types.ts:217` (`@mode emit`)
  * - `preStep`         — `packages\core\agent\src\runtime-types.ts:231` (`@mode waterfall`)
  * - `postToolExecute` — `packages\core\tools\src\index.ts:175` (`@mode waterfall`)
+ * - `turnStopping`    — `packages\core\agent\src\runtime-types.ts:278` (`@mode serial`)
  */
 export const DSH_EVENTS = {
   sessionStart: 'agent/session-start',
   preStep: 'agent/pre-step',
   postToolExecute: 'tools/post-execute',
+  turnStopping: 'agent/turn-stopping',
 } as const;
 
 /** A text block. Mirrors `TextBlock` at `packages\llm\llm\src\types.ts:53-56`. */
@@ -145,6 +147,17 @@ export interface DshSessionStartPayload {
 }
 
 /**
+ * Payload of `agent/turn-stopping` — `packages\core\agent\src\runtime-types.ts:278`
+ * (`@mode serial`). Awaited before the turn boundary commits, so it is the last
+ * place to do turn-end work without stalling a tool result mid-turn.
+ */
+export interface DshTurnStoppingPayload {
+  readonly agent: DshAgent;
+  readonly turn: number;
+  readonly signal: { readonly aborted: boolean };
+}
+
+/**
  * A session handle as handed to a `session/event` listener —
  * `packages\core\session\src\index.ts:76` (`'session/event'(this, session, event)`).
  */
@@ -222,6 +235,15 @@ export interface DshContext {
       result: DshToolResult,
       next: () => Promise<DshPostToolDecision>,
     ) => Promise<DshPostToolDecision>,
+  ): () => boolean;
+  /**
+   * Turn end — `packages\core\agent\src\runtime-types.ts:278` (`@mode serial`).
+   * Awaited before the boundary commits; returning a promise therefore delays
+   * turn close (but never stalls a tool result mid-turn).
+   */
+  on(
+    event: typeof DSH_EVENTS.turnStopping,
+    listener: (payload: DshTurnStoppingPayload) => void | Promise<void>,
   ): () => boolean;
   /**
    * Durable session events — `packages\core\session\src\index.ts:76`. Used to

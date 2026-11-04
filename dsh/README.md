@@ -19,6 +19,7 @@
 | 会话开始 | `agent/session-start` | `packages\core\agent\src\runtime-types.ts:217`（`@mode emit`） |
 | 每步之前 | `agent/pre-step` | `packages\core\agent\src\runtime-types.ts:231`（`@mode waterfall`） |
 | 工具执行之后 | `tools/post-execute` | `packages\core\tools\src\index.ts:175`（`@mode waterfall`） |
+| 回合结束 | `agent/turn-stopping` | `packages\core\agent\src\runtime-types.ts:278`（`@mode serial`，落库前 await） |
 
 没有任何 `dsh/` 前缀的事件族——`'dsh/session-start'`、`'dsh/before-llm-request'`、
 `'dsh/after-tool-call'` 这三个名字都是当初猜的，实际不存在。
@@ -64,6 +65,21 @@
 （对应 `MessageSourceMap`，`packages\llm\llm\src\message.ts:100-105`），这样它不会在派生历史里
 被当成人说的话。正文包在 `<immune_memory>` 与 `</immune_memory>` 之间，抗体文本中的尖括号会被
 `sanitize()` 抹掉，防止提前闭合标签。
+
+**注入频率是「一回合最多一次，且只在 step 1」**。`agent/pre-step` 在工具循环里每一步都会跑；
+若每步都 `store.match()`，一来同一段回忆会被重复灌进上下文，二来 `match()` 会给命中计数加 1，
+于是「抗体的热度」变成「这一回合跑了几步」的函数——一个纯噪声指标。插件用
+`lastInjectedTurn: Map<sessionId, turn>` 记录本会话已注入过的回合，非 step 1 或本回合已注入即直接返回
+`decision` 不再插入。
+
+### 4. 蒸馏在哪里跑
+
+**在 `agent/turn-stopping`（`@mode serial`，回合边界提交前 await），不在 `tools/post-execute` 里。**
+`drain()` 可能按配置向 LLM 端点发一次 HTTP 请求（预算 8s）；`tools/post-execute` 是 waterfall，
+它的监听器被 await 在**工具结果路径**上，把蒸馏放在这里会让每一次「失败后成功」的工具调用都卡住
+直到 HTTP 返回。`turn-stopping` 是回合结束的最后一个可 await 点，放这里既不影响工具延迟，
+也不会丢活（未清空的队列还会在下次 `session-start` 由 `requeueStuckJobs()` 兜底）。
+`post-execute` 只负责入队（`recordFailure` / `claimFailure` / `enqueueJob`）。
 
 ---
 
@@ -183,9 +199,9 @@ dsh.profile.bundles 里的包名
 | 命令 | 实测结果 |
 | --- | --- |
 | `npm run build` | exit 0，0 错误 |
-| `npm test` | 31 条全绿（17 条 core + zcode hooks，14 条 `test/dsh.test.mjs` 假 Context 单测，含「存储打不开时 apply 只告警不崩会话」） |
+| `npm test` | 34 条全绿（17 条 core + zcode hooks，17 条 `test/dsh.test.mjs` 假 Context 单测，含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」） |
 | 三步手验（`scripts/verify-step1.mjs`） | 15 断言全过（含 bash 非零退出必须判失败） |
-| 三步手验（`scripts/verify-steps23.mjs`） | 21 断言全过（失败→成功产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
+| 三步手验（`scripts/verify-steps23.mjs`） | 22 断言全过（失败→成功在 `turn-stopping` 产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
 | 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |
 | 本机安装验证（`scripts/verify-installed.mjs`） | 16 断言全过（profile bundles 已登记、包可从 profile `node_modules` 解析、`dsh.bundle.patch` 存在且只有一行 insert、入口模块按裸包名导入且导出插件形状） |
 

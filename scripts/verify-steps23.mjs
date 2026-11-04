@@ -48,6 +48,7 @@ apply(ctx);
 check('registered session-start listener', listeners.has(DSH_EVENTS.sessionStart), true);
 check('registered pre-step listener', listeners.has(DSH_EVENTS.preStep), true);
 check('registered post-execute listener', listeners.has(DSH_EVENTS.postToolExecute), true);
+check('registered turn-stopping listener', listeners.has(DSH_EVENTS.turnStopping), true);
 check('registered commands', [...commands.keys()].sort(), ['immune', 'immune-export']);
 check('logged storage path', logs.some(([, m]) => m.includes(dbPath)), true);
 
@@ -70,6 +71,15 @@ await emitPostTool(a1, 'npm run build', 'sh: tsc: command not found\n[exit code:
 console.log('  ...failure recorded');
 await emitPostTool(a1, 'npm run build', 'tsc compiled 42 files\n(clean exit)', { exitCode: 0 });
 console.log('  ...success claimed');
+
+// distillation is turn-end work, so close the turn before reading the table
+async function closeTurn(a) {
+  for (const l of listeners.get(DSH_EVENTS.turnStopping) ?? []) {
+    await l({ agent: a, turn: 1, signal: { aborted: false } });
+  }
+}
+await closeTurn(a1);
+console.log('  ...turn closed (distillation runs here)');
 
 // read the real sqlite file
 const db = new DatabaseSync(dbPath);
