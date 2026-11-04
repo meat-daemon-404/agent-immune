@@ -145,6 +145,26 @@ test('exports only proven antibodies as SKILL.md', () => {
   s.close();
 });
 
+test('injects bilingual text by default and honours the locale override', async () => {
+  const { resolveLocale, strings } = await import('../dsh-immune-system/dist/core/i18n.js');
+
+  assert.equal(resolveLocale({}), 'both', 'bilingual is the default');
+
+  const both = strings('both');
+  assert.match(both.promptPreamble, /本项目/);
+  assert.match(both.promptPreamble, /Pitfalls this project/);
+  assert.match(both.trigger, /触发/);
+  assert.match(both.trigger, /trigger/);
+
+  assert.equal(resolveLocale({ IMMUNE_LOCALE: 'zh-CN' }), 'zh-CN');
+  assert.equal(resolveLocale({ IMMUNE_LOCALE: 'en' }), 'en');
+
+  const zh = strings('zh-CN');
+  assert.doesNotMatch(zh.promptPreamble, /Pitfalls/, 'zh must not carry English');
+  const en = strings('en');
+  assert.doesNotMatch(en.promptPreamble, /本项目/, 'en must not carry Chinese');
+});
+
 test('classifies a non-zero exit code as a failure', async () => {
   const { classifyOutcome } = await import('../dsh-immune-system/dist/zcode/src/outcome.js');
 

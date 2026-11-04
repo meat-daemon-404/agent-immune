@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
+import { strings } from '../../core/i18n.js';
 import { dshDirOf } from './root-marker.js';
 
 const WIDE =
@@ -43,21 +44,21 @@ function clamp(value: string, columns: number): string {
 }
 
 function cmdList(store: ImmuneStore, includeRetired: boolean): void {
+  const t = strings();
   const rows = store.listAll(includeRetired);
   if (rows.length === 0) {
-    process.stdout.write('No antibodies yet. They appear after a tool fails and then succeeds.\n');
+    process.stdout.write(`${t.noAntibodies}\n`);
     return;
   }
   const indent = ' '.repeat(27);
-  process.stdout.write(
-    `${pad('#', 5)}${pad('hits', 6)}${pad('fails', 7)}${pad('status', 9)}trigger\n`,
-  );
+  const header = `${pad('#', 5)}${pad('hits', 6)}${pad('fails', 7)}${pad('status', 9)}${t.trigger}\n`;
+  process.stdout.write(header);
   for (const ab of rows) {
     process.stdout.write(
       `${pad(String(ab.id), 5)}${pad(String(ab.hit_count), 6)}${pad(String(ab.fail_count), 7)}` +
         `${pad(ab.status, 9)}${clamp(ab.trigger_pattern, 64)}\n` +
-        `${indent}  avoid: ${clamp(ab.symptom, 90)}\n` +
-        `${indent}  do:    ${clamp(ab.prescription, 90)}\n`,
+        `${indent}${t.avoid}: ${clamp(ab.symptom, 90)}\n` +
+        `${indent}${t.do}: ${clamp(ab.prescription, 90)}\n`,
     );
   }
 }
@@ -80,9 +81,7 @@ function cmdExport(store: ImmuneStore, args: string[]): void {
   const threshold = Number.isFinite(minHits) && minHits > 0 ? minHits : 3;
   const rows = store.exportable(threshold);
   if (rows.length === 0) {
-    process.stdout.write(
-      `No antibody has reached ${threshold} hits yet; nothing worth sharing.\n`,
-    );
+    process.stdout.write(`${strings().noExport}\n`);
     return;
   }
 
@@ -91,7 +90,7 @@ function cmdExport(store: ImmuneStore, args: string[]): void {
     : join(dshDirOf(), 'skills', 'project-pitfalls', 'SKILL.md');
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, renderSkillMarkdown(rows, { minHits: threshold }), 'utf8');
-  process.stdout.write(`Exported ${rows.length} antibodies to ${outPath}\n`);
+  process.stdout.write(`${strings().exported} ${rows.length} -> ${outPath}\n`);
 }
 
 function main(argv: string[]): number {
@@ -118,7 +117,7 @@ function main(argv: string[]): number {
           process.stderr.write('usage: immune forget <id>\n');
           return 2;
         }
-        process.stdout.write(store.remove(id) ? `Forgot antibody #${id}.\n` : `No antibody #${id}.\n`);
+        process.stdout.write(store.remove(id) ? `${strings().forgot} #${id}.\n` : `${strings().notFound} #${id}.\n`);
         return 0;
       }
       default:

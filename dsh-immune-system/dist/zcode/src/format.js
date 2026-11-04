@@ -1,9 +1,7 @@
+import { strings } from '../../core/i18n.js';
 /** Neutralise angle brackets so antibody text cannot close the wrapper tag. */
 function sanitize(value) {
-    return value
-        .replace(/[<>]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
+    return value.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 /**
  * Render at most a handful of antibodies as an `<immune_memory>` block.
@@ -14,16 +12,12 @@ function sanitize(value) {
 export function formatImmuneContext(antibodies, maxChars = 1400) {
     if (antibodies.length === 0)
         return '';
-    const lines = antibodies.map((ab, i) => `${i + 1}. [trigger: ${sanitize(ab.trigger_pattern)}] ` +
-        `avoid: ${sanitize(ab.symptom)} -> do: ${sanitize(ab.prescription)}`);
+    const t = strings();
+    const lines = antibodies.map((ab, i) => `${i + 1}. [${t.trigger}: ${sanitize(ab.trigger_pattern)}] ` +
+        `${t.avoid}: ${sanitize(ab.symptom)} -> ${t.do}: ${sanitize(ab.prescription)}`);
     const body = lines.join('\n');
     const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
-    return [
-        '<immune_memory>',
-        'Pitfalls this project already paid for. Advisory only: verify before relying on it.',
-        clipped,
-        '</immune_memory>',
-    ].join('\n');
+    return ['<immune_memory>', t.promptPreamble, clipped, '</immune_memory>'].join('\n');
 }
 /**
  * Render a just-in-time warning for PreToolUse.
@@ -34,12 +28,14 @@ export function formatImmuneContext(antibodies, maxChars = 1400) {
 export function formatToolWarning(antibodies, maxChars = 700) {
     if (antibodies.length === 0)
         return '';
+    const t = strings();
     const lines = antibodies.map((ab, i) => `${i + 1}. ${sanitize(ab.symptom)} -> ${sanitize(ab.prescription)}`);
     const body = lines.join('\n');
     const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
-    return `<immune_memory>\nA very similar call failed before in this project. Check this first:\n${clipped}\n</immune_memory>`;
+    return `<immune_memory>\n${t.toolPreamble}\n${clipped}\n</immune_memory>`;
 }
-/** Short, redactable description of a tool invocation. */ export function summarizeToolCall(toolName, toolInput) {
+/** Short, redactable description of a tool invocation. */
+export function summarizeToolCall(toolName, toolInput) {
     let input;
     try {
         input = JSON.stringify(toolInput ?? {});

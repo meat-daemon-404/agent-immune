@@ -1,209 +1,177 @@
 # dsh-plugin-immune
 
-Self-evolving **pitfall immunity** for coding agents.
+**自进化避坑免疫系统** — 让 Agent 踩一次坑，就自己长记性。
 
-The agent steps on a rake, fixes it, and — without anyone writing docs — the
-lesson is captured as an *antibody*. Next session, before the agent can make the
-same mistake, the relevant antibodies are injected into its context.
+Agent 踩了坑、修好了，却没人写文档——这次的经验就被自动提炼成一条**抗体**。
+下次在同一个坑面前，相关抗体先一步进入它的上下文。
 
-> **Installing from GitHub** — this repository is also a ZCode marketplace:
-> `plugins marketplace add meat-daemon-404/dsh-plugin-immune`
-> then `plugins install dsh-immune-system@dev-dsh-plugin-immune`.
-> Handing the DSH side over: see [HANDOFF-DSH.md](HANDOFF-DSH.md).
+> Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
+> no documentation required. Next session, the relevant antibodies are injected
+> before the mistake can repeat.
+
+[English](#english) · [中文](#中文)
+
+---
+
+## 中文
+
+### 它解决什么问题
+
+同一个坑反复踩，是 Agent 最浪费时间的模式：
+
+- 改了 `vite.config.ts`，`process.env` 读不到客户端变量，报错，换 `loadEnv` 才好；
+- 下次换个会话，**又这么写一遍**。
+
+静态文档解决不了这个问题——没人维护，很快就过期。
+这个插件让**踩坑现场自己变成规则**。
 
 ```
- tool fails ─┐
-             ├─► pair ─► distil ─► antibody (SQLite + FTS5)
- tool works ─┘                            │
-                                          ▼
-     next tool call ─► PreToolUse warning (just in time)
-     next prompt    ─► <immune_memory> block
+ 工具失败 ─┐
+           ├─► 配对 ─► 蒸馏 ─► 抗体（SQLite + FTS5）
+ 工具成功 ─┘                          │
+                                      ▼
+        下次工具调用 ─► PreToolUse 即时预警
+        下次对话     ─► <immune_memory> 上下文注入
 ```
 
-## Repository layout
+### 装
 
-```
-dsh-plugin-immune/
-├── core/                  shared, host-agnostic, zero runtime dependencies
-│   ├── store/             SQLite + FTS5: antibodies, episodes, job queue
-│   ├── distiller.ts       episode → antibody (model + deterministic fallback)
-│   ├── prompts.ts         distillation prompt and strict output parser
-│   ├── llm.ts             OpenAI-compatible client with endpoint validation
-│   ├── redact.ts          credential scrubbing before anything hits disk
-│   └── export.ts          proven antibodies → SKILL.md
-├── zcode/                 ZCode adapter source (hooks, CLI)
-├── dsh/                   DSH adapter — SKELETON, contract unverified
-├── dsh-immune-system/     installable plugin (manifest, hooks.json, commands, dist)
-├── test/                  node:test suites
-└── marketplace.json       local dev marketplace catalog
+本仓库**本身就是插件市场源**，不用克隆：
+
+```bash
+node "<zcode.cjs 路径>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
+node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
-Both adapters call the same `core/`. Point them at the same database and they
-share one antibody library.
+装完**新建一个任务**才生效（旧任务保留的是旧能力清单）。
 
-## Why this does not look like the original sketch
+### 怎么用
 
-The initial design assumed a Cordis-style API (`ctx.on('dsh/before-llm-request')`,
-`ctx.llm.complete`, `ctx.command`, `async: true` background distillation). None
-of that matches the ZCode runtime that actually exists on this machine, so the
-ZCode adapter is built against the real contract:
+正常干活就行。踩坑 → 修好 → 回合结束时自动提炼。
+下一个会话问一句含相同文件名/命令的话，上下文里就会出现 `<immune_memory>`。
 
-| Sketch | Reality (verified locally) |
+查看学到了什么：
+
+```
+/dsh-immune-system:immune           # 列出所有抗体（加 --all 含已退役的）
+/dsh-immune-system:immune-export    # 把经过验证的抗体导出成 SKILL.md
+```
+
+### 两个关键设计
+
+**抗体失效会被淘汰（Anti-Rot）**
+一条抗体注入后工具**仍然**失败，说明它没起作用，扣分；满 3 次自动退役并联合新证据重新提炼。
+扣分**带相关性判断**——失败内容必须与该抗体的触发词有共同词才算数，且**排除工具名本身**
+（否则每条 `Bash …` 抗体都会被任何一次 Bash 失败冤枉）。
+
+**失败感知不赌单一事件**
+ZCode 的 `PostToolUseFailure` **只在工具处理器抛异常时**才触发，而 bash 命令非零退出
+通常是正常返回。所以本插件在 `PostToolUse` 里自己判断结果（`exitCode` / `is_error` /
+窄口径输出标记）。这是实测出来的坑，不是推测。
+
+### 配置（全部可选）
+
+不配也能跑——默认用确定性规则蒸馏器，离线可用。
+
+| 环境变量 | 作用 |
 | --- | --- |
-| `dsh/before-llm-request` | No such event. Context is injected from `UserPromptSubmit` / `SessionStart` via `hookSpecificOutput.additionalContext`. |
-| `after-tool-call` + `is_error` | Success and failure are **separate events**: `PostToolUse` and `PostToolUseFailure`. There is no `is_error` field. |
-| `ctx.llm.complete()` | Hooks are standalone processes with no host LLM handle. Uses an HTTP client configured by env vars instead. |
-| `ctx.command('immune')` | Commands are Markdown prompts. They call a small CLI. || `async: true` runs in background | The hooks guide is explicit: `async` has **no runtime effect**. Work is queued and drained at `Stop`, which is both correct and cheaper than daemonising. |
-| in-memory `Map` for recent failures | Each hook is its own process. All cross-event state is persisted in SQLite. |
-| (not in the sketch) | `PreToolUse` exists and is the best injection point: it sees the exact tool arguments before the call runs. |
+| `IMMUNE_DB_PATH` | 数据库路径。两版指向同一个即可共享抗体库 |
+| `IMMUNE_LLM_BASE_URL` | OpenAI 兼容端点，如 `https://api.example.com/v1` |
+| `IMMUNE_LLM_MODEL` | 模型名，与上面配对使用 |
+| `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
+| `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；**默认中英双语** |
+| `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许环回/私有端点。**默认拒绝**，防 SSRF |
+| `IMMUNE_DEBUG_LOG` | 指定文件则记录每个 hook 的执行，用于排障 |
 
-Only seven hook events exist: `SessionStart`, `UserPromptSubmit`, `PreToolUse`,
-`PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `Stop`.
+### 安全
 
-## Install
+- **脱敏**：写入磁盘前擦除 Bearer 令牌、`*_KEY=` 类赋值、URL 内嵌凭证、JWT。
+  这些记录之后可能被导出成团队共享的 SKILL.md，泄漏在那里比泄漏在日志更糟。
+- **注入卫生**：注入内容只来自我们自己提炼的字段，从不放原始工具输出；
+  抗体文本里的尖括号被剥离，无法闭合包裹标签；有长度上限；明确标注"仅供参考"，
+  避免模型把它当成用户指令。
+- **失败不致命**：hook 永远 exit 0，stdin 畸形则忽略，FTS 表达式出错返回空，
+  模型不可达则回落到规则蒸馏器。插件坏了不能拖垮会话。
+- **SQL 只走参数绑定**，不拼接。
 
-From GitHub (works for anyone, no local clone needed):
+### 状态
+
+- 17 条测试全绿
+- 在本机真实运行时里验证：5 个 hook 全部被分发，`${ZCODE_PLUGIN_ROOT}` 正确展开，
+  数据库落在插件数据目录
+- 用**安装副本**重放全链路：失败→成功→蒸馏→新会话收到 `<immune_memory>`
+- **未验**：Agent 自主端到端（当时模型额度返回 402，turn 到不了工具阶段）
+
+---
+
+## English
+
+### What it does
+
+Repeating the same mistake is the most expensive pattern an agent has. Static
+docs do not fix it — nobody maintains them, and they rot.
+
+This plugin turns the failure scene itself into a rule.
+
+### Install
+
+The repository **is** a marketplace source:
 
 ```bash
 node "<zcode.cjs>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
 node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
-The repository root holds `marketplace.json`, so the repo **is** the marketplace
-source; the runtime `git clone`s it and reads the catalog.
+Start a **new task** afterwards; old tasks keep their earlier capability catalog.
 
-Installed on this machine:
+### Design notes
+
+**Sensing outcomes, not trusting one event.** `PostToolUseFailure` fires only when
+a tool *handler throws*. A shell command exiting non-zero usually returns
+normally, so that event alone misses the failures this plugin exists to learn
+from. `PostToolUse` therefore classifies its own result.
+
+**Anti-rot, relevance-guarded.** An injected antibody that still did not prevent
+the failure loses credit and is retired after three such episodes. The penalty is
+relevance-guarded: the failure must share a meaningful term with the antibody's
+trigger, and the tool name is excluded — otherwise every `Bash …` rule would be
+blamed for any Bash failure.
+
+**Redaction and injection hygiene.** Credentials are scrubbed before anything
+touches disk; injected text comes only from our own distilled fields, is
+length-capped, cannot close its wrapper tag, and is labelled advisory.
+
+---
+
+## 仓库结构 / Layout
 
 ```
-marketplace : dev-dsh-plugin-immune
-plugin      : dsh-immune-system@dev-dsh-plugin-immune  (0.1.2)
-installed   : C:\Users\33352\.zcode\cli\plugins\cache\dev-dsh-plugin-immune\dsh-immune-system\0.1.2
-database    : C:\Users\33352\.zcode\cli\plugins\data\dsh-immune-system@dev-dsh-plugin-immune\immune.sqlite
+core/                 共用、与宿主无关、零运行时依赖
+  ├── store/          SQLite + FTS5：抗体、episode、任务队列
+  ├── distiller.ts    episode → 抗体（模型 + 规则兜底）
+  ├── i18n.ts         中英双语文案
+  ├── redact.ts       落盘前凭证脱敏
+  └── export.ts       导出 SKILL.md
+zcode/                ZCode 适配（hooks、CLI），按实测契约实现
+dsh/                  DSH 适配骨架，契约未核实
+dsh-immune-system/    可安装插件（manifest、hooks.json、commands、dist）
+test/                 node:test
 ```
 
-CLI equivalent (no UI needed):
+两版共用同一份 `core/`。指向同一个 `IMMUNE_DB_PATH` 就能共享抗体库。
 
-```bash
-node "D:\zcode\resources\glm\zcode.cjs" plugins marketplace add "D:\Project\dsh-plugin-immune"
-node "D:\zcode\resources\glm\zcode.cjs" plugins install dsh-immune-system@dev-dsh-plugin-immune
-```
+**DSH 交接**：[HANDOFF-DSH.md](HANDOFF-DSH.md) — 只需回答三个问题，改一个文件。
 
-To iterate: bump the version in **both** `.zcode-plugin/plugin.json` and
-`marketplace.json`, rebuild, then `plugins marketplace update` followed by
-`plugins update dsh-immune-system@dev-dsh-plugin-immune`. The CLI reports
-"already up to date" if the version did not change, so the bump is required.
+## 与最初设计的偏差 / Why this differs from the first sketch
 
-Restart ZCode (or start a new task) after an update — source edits are not hot
-reload.
+初版设计假设了 Cordis 风格的 API（`ctx.on('dsh/before-llm-request')`、
+`ctx.llm.complete`、`async: true` 后台蒸馏）。本机真实运行时里这些都不成立：
 
-### Try it
-
-Ask the agent something that fails first and then works — for example a command
-with a wrong flag, then the corrected one. Then in a **new** task ask something
-containing the same file or command name. Expected: an `<immune_memory>` block
-with the distilled rule, and no repeat of the mistake.
-
-Run `/dsh-immune-system:immune` to list what has been learned.
-
-## Configuration
-
-All optional. With none set, the deterministic rule-based distiller is used and
-everything works offline.
-
-| Variable | Purpose |
+| 初版假设 | 实测情况 |
 | --- | --- |
-| `IMMUNE_DB_PATH` | Database file. Defaults to the plugin data dir, else `<project>/.dsh/immune.sqlite`. |
-| `IMMUNE_LLM_BASE_URL` | OpenAI-compatible base URL, e.g. `https://api.example.com/v1`. |
-| `IMMUNE_LLM_MODEL` | Model name. Required together with the base URL. |
-| `IMMUNE_LLM_API_KEY` | Bearer token. |
-| `IMMUNE_LLM_TIMEOUT_MS` | Per-call timeout (default 20000). |
-| `IMMUNE_DISTILL_BUDGET_MS` | Wall-clock budget for one drain (default 12000). |
-| `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | Set to `1` to permit a loopback/private model endpoint. **Off by default**: the endpoint validator refuses loopback, private, link-local, CGNAT and reserved addresses to block SSRF-style config poisoning. Local inference servers need this flag. |
-
-## Commands
-
-| Command | Does |
-| --- | --- |
-| `/dsh-immune-system:immune` | List antibodies with hit/fail counts. `--all` includes retired ones. |
-| `/dsh-immune-system:immune-export` | Write proven antibodies (`hits >= 3`) to `.dsh/skills/project-pitfalls/SKILL.md`. |
-
-## Design notes
-
-**Sensing outcomes, not trusting one event.** `PostToolUseFailure` is dispatched
-only when a tool *handler throws*. A shell command exiting non-zero usually
-returns normally, so that event alone misses exactly the failures this plugin
-exists to learn from. `PostToolUse` therefore classifies its own result
-(`exitCode`, `is_error`, or narrow output markers) and both paths converge on the
-same episode recorder. The marker list is deliberately narrow — a healthy build
-log can contain the word "error", and a false positive would record a good call
-as a pitfall.
-
-**Anti-rot, relevance-guarded.** An antibody that was injected and still did not
-prevent the failure loses credit, and at three such episodes it is retired and
-re-distilled with the new evidence. Crucially, the penalty only applies when the
-failure actually shares a meaningful term with the antibody's trigger: the tool
-name is excluded, because every trigger starts with "Bash" or "Edit" and would
-otherwise mark everything as related. Without that guard an unrelated failing
-command would retire a good rule.
-
-**Just-in-time warning.** Prompt-time matching is a guess about intent.
-`PreToolUse` is knowledge: it sees the exact command or file about to be touched.
-That hook searches on the arguments only — including the tool name would make
-every `Bash …` antibody match every Bash call — and injects at most two rules
-right before the call runs.
-
-**Redaction.** Traces are scrubbed for bearer tokens, key/value secrets,
-provider-shaped keys, credentials in URLs and JWTs before they are stored —
-these records can later be exported into a shared skill, so leaking there would
-be worse than leaking in a log.
-
-**Prompt-injection hygiene.** Injected text is our own distilled fields only,
-never raw tool output; angle brackets are stripped so antibody text cannot close
-the wrapper tag; the block is capped, and it is labelled advisory so the model
-does not treat it as an instruction from the user.
-
-**Failure is never fatal.** Hooks always exit 0, malformed stdin is ignored, a
-bad FTS expression returns no matches, and an unreachable model falls back to
-the deterministic distiller. A broken plugin must not break a session.
-
-## Verification status
-
-Run `npm test` (16 tests).
-
-Live verification inside the real runtime:
-
-- the plugin is installed and the runtime dispatches **all five** hooks —
-  `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` —
-  confirmed with `IMMUNE_DEBUG_LOG`; `${ZCODE_PLUGIN_ROOT}` expands to the install
-  cache path, and the database lands in the plugin data directory;
-- `PreToolUse` is visible in the runtime log as
-  `plugin.dsh-immune-system@dev-dsh-plugin-immune.PreToolUse.4.0`;
-- the full loop was replayed against the **installed** copy and a new session
-  received the `<immune_memory>` block.
-
-Covered by tests:
-- Chinese and English retrieval through FTS5 `trigram` (long CJK phrases are
-  expanded into overlapping trigrams, otherwise they would never match);
-- failure/success pairing, including that one failure pairs exactly once;
-- injection bookkeeping and three-strike retirement;
-- **relevance-guarded penalties**: a related failure costs credit, an unrelated
-  one does not;
-- **just-in-time `PreToolUse` warning**, and that a bare `ls` does not trip every
-  `Bash` antibody;
-- **outcome classification**: a non-zero exit code counts as failure, and a
-  healthy log containing the word "error" does not;
-- `SKILL.md` export gating;
-- credential redaction;
-- SQL injection resistance (bound parameters only);
-- **the full loop across real, separate hook processes**, ending with a
-  different session receiving the antibody;
-- strict stdout shape (no extra keys) and clean exit on malformed stdin.
-
-Not covered — pending:
-- an agent-driven end-to-end run (the model quota returned **402** during
-  verification, so a live turn could not reach the tool stage; the same loop was
-  replayed by feeding the installed hooks their real event payloads instead);
-- model-backed distillation (needs `IMMUNE_LLM_*` configured);
-- the DSH adapter (see `dsh/README.md`).
-
-The manifest passes the bundled validator (`zcode plugins validate`).
+| `dsh/before-llm-request` | 无此事件。靠 `UserPromptSubmit` / `SessionStart` 注入 |
+| `after-tool-call` + `is_error` | 成功/失败是两个独立事件，且**没有** `is_error` |
+| `ctx.llm.complete()` | hook 是独立进程，无宿主 LLM；改用 HTTP 客户端 |
+| `ctx.command('immune')` | 命令是 Markdown 提示词，调用一个小 CLI |
+| `async: true` 后台跑 | 官方明确：`async` **无运行时效果** |
+| `new Map()` 记失败 | 每个 hook 独立进程，状态必须落 SQLite |
