@@ -188,3 +188,58 @@ test('an unmatched prompt injects nothing', () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('session-start priming is recorded, so the first prompt does not repeat it', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-'));
+  const env = {
+    IMMUNE_DB_PATH: join(dir, 'immune.sqlite'),
+    ZCODE_PROJECT_DIR: dir,
+  };
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // Learn one rule, and give it hits so priming picks it.
+  runHook(
+    'post-tool-use-failure',
+    {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'p1',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm run build' },
+      error: 'npm ERR! missing script: build',
+    },
+    env,
+  );
+  runHook(
+    'post-tool-use',
+    {
+      hook_event_name: 'PostToolUse',
+      session_id: 'p1',
+      tool_name: 'Bash',
+      tool_input: { command: 'npx vite build --mode production' },
+      tool_response: { exitCode: 0 },
+      tool_result_preview: 'ok',
+    },
+    env,
+  );
+  runHook('stop', { hook_event_name: 'Stop', session_id: 'p1' }, env);
+
+  // A NEW session primes with the rule at startup...
+  const primed = runHook(
+    'session-start',
+    { hook_event_name: 'SessionStart', session_id: 'p2', source: 'startup' },
+    env,
+  );
+  assert.match(primed.stdout, /<immune_memory>/, 'priming must deliver the rule');
+
+  // ...and the same rule must NOT come again at the first prompt.
+  const prompted = runHook(
+    'user-prompt-submit',
+    {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'p2',
+      prompt: 'npm run build 又要打包了，vite.config.ts',
+    },
+    env,
+  );
+  assert.equal(prompted.stdout, '', 'the same session must not pay for the rule twice');
+});

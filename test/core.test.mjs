@@ -130,6 +130,27 @@ test('a related failure does penalise the antibody', () => {
   s.close();
 });
 
+test('the distill parser accepts fenced JSON, skips, and rejects junk', async () => {
+  const { parseDistillOutput } = await import('../dsh-immune-system/dist/core/prompts.js');
+
+  const good = {
+    trigger_pattern: 'vite.config.ts loadEnv',
+    symptom: '读不到变量',
+    prescription: '用 loadEnv 读取',
+  };
+
+  const plain = parseDistillOutput(JSON.stringify(good));
+  assert.equal(plain.ok, true);
+  assert.equal(plain.antibody.trigger_pattern, 'vite.config.ts loadEnv');
+
+  const fenced = parseDistillOutput('```json\n' + JSON.stringify(good) + '\n```');
+  assert.equal(fenced.ok, true, 'a markdown fence must be tolerated');
+
+  assert.deepEqual(parseDistillOutput('{"skip": true}'), { ok: false, reason: 'skip' });
+  assert.equal(parseDistillOutput('not json at all').ok, false);
+  assert.equal(parseDistillOutput('{"trigger_pattern":"","prescription":""}').ok, false);
+});
+
 test('JSON-shaped results surface their human field, not the wrapper', async () => {
   const { extractError } = await import('../dsh-immune-system/dist/core/trace.js');
 
