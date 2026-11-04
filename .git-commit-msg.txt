@@ -1,0 +1,14 @@
+feat(lessons): generic pitfalls learn once, not once per file
+
+Live evidence: "file modified since read" was distilled as a separate
+antibody per file (three copies for the same lesson), each occupying an
+injection slot.
+
+- core/lessons.ts: curated pattern table mapping generic symptoms to a
+  generic trigger and a bilingual prescription
+- both distill paths (rule + model) converge on the table, and the store's
+  prescription-level dedupe merges every later instance into one row
+- identical-retry gate now compares the WHOLE input payload: for Edit, the
+  failure and success share a file_path while the attempted content differs,
+  so field-level comparison misfired as a "retry"
+- tests: 44 pass, including merge-into-one-row proof

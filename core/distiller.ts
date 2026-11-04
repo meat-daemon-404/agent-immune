@@ -11,8 +11,9 @@
 import type { DistillResult } from './types.js';
 import { DISTILL_PROMPT, buildDistillInput, parseDistillOutput } from './prompts.js';
 import { chat, readLlmConfig, type LlmConfig } from './llm.js';
-import { extractError, extractInvocation } from './trace.js';
+import { extractError, extractInvocation, extractCallSignature } from './trace.js';
 import { normalizeKeyword, meaningfulTokens } from './keywords.js';
+import { matchGenericLesson } from './lessons.js';
 
 /** Failures with no reuse value: the retry usually just works. */
 const TRANSIENT =
@@ -68,10 +69,12 @@ export function ruleDistill(
 
   // An identical invocation that merely succeeded on retry carries no lesson:
   // whatever fixed it happened outside the call (a file appeared, a lock freed).
-  // Keeping these floods the library with "run X again" rules.
-  const failedInvocation = extractInvocation(failureTrace);
-  const okInvocation = extractInvocation(successTrace);
-  if (failedInvocation && okInvocation && failedInvocation === okInvocation) {
+  // The signature is the WHOLE input payload — for Edit, failure and success
+  // share a file_path but differ in attempted content, and only a genuinely
+  // identical retry is noise.
+  const failedCall = extractCallSignature(failureTrace);
+  const okCall = extractCallSignature(successTrace);
+  if (failedCall && okCall && failedCall === okCall) {
     return { ok: false, reason: 'skip', detail: 'identical retry carries no lesson' };
   }
 
@@ -87,7 +90,24 @@ export function ruleDistill(
   // Symptom is the error itself; prescription is the invocation that worked.
   // Keeping these two clean is what makes the injected block readable.
   const error = extractError(failureTrace);
-  const symptom = error || firstLine(failureTrace, 80) || 'the first attempt failed';
+  const rawSymptom = error || firstLine(failureTrace, 80) || 'the first attempt failed';
+
+  // A generic pitfall (edit conflicts, stale reads) is stored with a generic
+  // trigger so every instance merges into one rule instead of one-per-file.
+  const lesson = matchGenericLesson(rawSymptom);
+  if (lesson) {
+    return {
+      ok: true,
+      antibody: {
+        trigger_pattern: lesson.trigger,
+        symptom: lesson.symptom,
+        prescription: lesson.prescription,
+        tool_name: toolName,
+      },
+    };
+  }
+
+  const symptom = rawSymptom;
 
   const invocation = extractInvocation(successTrace);
   const prescription = invocation
@@ -123,7 +143,21 @@ export async function distillEpisode(
       opts.signal,
     );
     const parsed = parseDistillOutput(raw, toolName);
-    return parsed.ok ? parsed : ruleDistill(toolName, failureTrace, successTrace);
+    if (!parsed.ok) return ruleDistill(toolName, failureTrace, successTrace);
+
+    // The model path is normalised with the same curated table, so both paths
+    // converge on one generic rule per generic pitfall.
+    const lesson = matchGenericLesson(parsed.antibody.symptom);
+    if (!lesson) return parsed;
+    return {
+      ok: true,
+      antibody: {
+        trigger_pattern: lesson.trigger,
+        symptom: lesson.symptom,
+        prescription: lesson.prescription,
+        tool_name: toolName,
+      },
+    };
   } catch {
     // Model unreachable or misconfigured: the rule-based path keeps the loop alive.
     return ruleDistill(toolName, failureTrace, successTrace);

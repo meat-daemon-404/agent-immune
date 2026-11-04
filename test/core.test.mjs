@@ -213,6 +213,27 @@ test('the plugin does not learn from operating on itself', async () => {
   assert.equal(isSelfEpisode('anything', []), false, 'no markers means never self-noise');
 });
 
+test('a generic pitfall is stored once, not once per file', async () => {
+  const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
+
+  const conflict = (file) =>
+    `tool=Edit input={"file_path":"${file}","old_string":"x"} error=File has been modified since read, either by the user or by a linter. Read it again before attempting to write.`;
+
+  const first = ruleDistill('Edit', conflict('D:\\repo\\a.ts'), 'tool=Edit input={"file_path":"D:\\repo\\a.ts"} result=ok');
+  assert.equal(first.ok, true);
+  assert.match(first.antibody.trigger_pattern, /file-modified-since-read/, 'generic trigger, not the file name');
+  assert.doesNotMatch(first.antibody.trigger_pattern, /a\.ts/, 'per-file keywords must be dropped');
+
+  const s = store();
+  s.insert(first.antibody);
+  const second = ruleDistill('Edit', conflict('D:\\repo\\HANDOFF-DSH.md'), 'tool=Edit result=ok');
+  s.insert(second.antibody);
+  const rows = s.listAll();
+  assert.equal(rows.length, 1, 'the second file merges into the same rule');
+  assert.equal(rows[0].hit_count >= 0, true);
+  s.close();
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

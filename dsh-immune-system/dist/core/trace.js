@@ -67,6 +67,27 @@ export function extractError(trace) {
 }
 const KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'script'];
 /**
+ * The full `input=` payload of a trace.
+ *
+ * Used to detect identical retries. Comparing the WHOLE payload — not just the
+ * first field — matters for tools like Edit, whose failure and success share a
+ * file_path while the attempted content differs.
+ */
+export function extractCallSignature(trace) {
+    const at = trace.indexOf('input=');
+    if (at < 0)
+        return null;
+    const rest = trace.slice(at + 6);
+    let end = rest.length;
+    for (const marker of [' error=', ' result=']) {
+        const idx = rest.indexOf(marker);
+        if (idx >= 0 && idx < end)
+            end = idx;
+    }
+    const body = rest.slice(0, end).replace(/\s+/g, ' ').trim();
+    return body || null;
+}
+/**
  * The command, path or query that was actually run.
  *
  * Parsed by scanning for the key then reading to the closing unescaped quote,
