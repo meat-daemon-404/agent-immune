@@ -3,18 +3,25 @@ import { strings } from '../../core/i18n.js';
 function sanitize(value) {
     return value.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
 }
+/** Clamp one field so a single antibody cannot dominate the block. */
+function clampField(value, max) {
+    const text = sanitize(value);
+    return text.length > max ? `${text.slice(0, max)}…` : text;
+}
 /**
  * Render at most a handful of antibodies as an `<immune_memory>` block.
  *
- * Kept deliberately terse: this text is prepended to every matching turn, so
- * verbosity here is paid for on every request.
+ * Each field is clamped individually AND the whole block is clamped: per-field
+ * caps keep one bloated rule from consuming the whole budget, and the global
+ * cap keeps three of them from doing it together.
  */
-export function formatImmuneContext(antibodies, maxChars = 1400) {
+export function formatImmuneContext(antibodies, maxChars = 1200) {
     if (antibodies.length === 0)
         return '';
     const t = strings();
-    const lines = antibodies.map((ab, i) => `${i + 1}. [${t.trigger}: ${sanitize(ab.trigger_pattern)}] ` +
-        `${t.avoid}: ${sanitize(ab.symptom)} -> ${t.do}: ${sanitize(ab.prescription)}`);
+    const lines = antibodies.map((ab, i) => `${i + 1}. [${t.trigger}: ${clampField(ab.trigger_pattern, 80)}] ` +
+        `${t.avoid}: ${clampField(ab.symptom, 80)} -> ` +
+        `${t.do}: ${clampField(ab.prescription, 100)}`);
     const body = lines.join('\n');
     const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
     return ['<immune_memory>', t.promptPreamble, clipped, '</immune_memory>'].join('\n');
@@ -29,7 +36,7 @@ export function formatToolWarning(antibodies, maxChars = 700) {
     if (antibodies.length === 0)
         return '';
     const t = strings();
-    const lines = antibodies.map((ab, i) => `${i + 1}. ${sanitize(ab.symptom)} -> ${sanitize(ab.prescription)}`);
+    const lines = antibodies.map((ab, i) => `${i + 1}. ${clampField(ab.symptom, 70)} -> ${clampField(ab.prescription, 90)}`);
     const body = lines.join('\n');
     const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
     return `<immune_memory>\n${t.toolPreamble}\n${clipped}\n</immune_memory>`;
@@ -48,14 +55,34 @@ export function summarizeToolCall(toolName, toolInput) {
 /** Describe a failure from a PostToolUseFailure event. */
 export function summarizeFailure(event) {
     const detail = event.error_details ?? event.error ?? 'unknown error';
-    let text;
+    const text = errorTextOf(detail);
+    return `${summarizeToolCall(typeof event.tool_name === 'string' ? event.tool_name : 'unknown-tool', event.tool_input)} error=${text}`;
+}
+/**
+ * Pull the real error text out of a failure payload.
+ *
+ * The runtime hands over a structured object for Bash failures —
+ * `{stdout, stderr, interrupted, isImage}` — and stringifying the whole thing
+ * buries the error under a JSON dump of successful output. Prefer stderr, then
+ * a message field, then stringify as the last resort.
+ */
+function errorTextOf(detail) {
+    if (typeof detail === 'string')
+        return detail;
+    if (typeof detail === 'object' && detail !== null) {
+        const obj = detail;
+        for (const key of ['stderr', 'message', 'error']) {
+            const value = obj[key];
+            if (typeof value === 'string' && value.trim())
+                return value;
+        }
+    }
     try {
-        text = typeof detail === 'string' ? detail : JSON.stringify(detail);
+        return JSON.stringify(detail);
     }
     catch {
-        text = String(detail);
+        return String(detail);
     }
-    return `${summarizeToolCall(typeof event.tool_name === 'string' ? event.tool_name : 'unknown-tool', event.tool_input)} error=${text}`;
 }
 /**
  * Describe a success from a PostToolUse event.

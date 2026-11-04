@@ -145,6 +145,70 @@ test('exports only proven antibodies as SKILL.md', () => {
   s.close();
 });
 
+test('trigger keywords are normalised: paths collapse to basenames, noise dropped', async () => {
+  const { extractKeywords } = await import('../dsh-immune-system/dist/core/distiller.js');
+
+  const text =
+    'tool=Bash input={"command":"cat \\"C:\\\\Users\\\\x\\\\AppData\\\\verge.yaml\\" \'/home/x/verge.yaml\'"} ' +
+    'error=PID UAC APPDATA failed';
+
+  const keywords = extractKeywords(text);
+  assert.ok(
+    keywords.every((k) => !k.includes('/') && !k.includes('\\') && !k.includes(':')),
+    `keywords must not carry paths: ${JSON.stringify(keywords)}`,
+  );
+  assert.ok(keywords.includes('verge.yaml'), 'basename should survive');
+  assert.ok(!keywords.some((k) => k.toUpperCase() === 'APPDATA'), 'stoplist tokens must go');
+  assert.ok(!keywords.some((k) => k.toUpperCase() === 'PID'), 'stoplist tokens must go');
+});
+
+test('structured failure payloads expose stderr, not a JSON dump', async () => {
+  const { summarizeFailure } = await import('../dsh-immune-system/dist/zcode/src/format.js');
+
+  const event = {
+    tool_name: 'Bash',
+    tool_input: { command: 'grep controller' },
+    error_details: {
+      stdout: '86:enable_external_controller: false\n',
+      stderr: 'grep: pattern not found',
+      interrupted: false,
+      isImage: false,
+    },
+  };
+
+  const text = summarizeFailure(event);
+  assert.match(text, /grep: pattern not found/, 'stderr must surface');
+  assert.doesNotMatch(text, /\{"stdout"/, 'JSON dump must not be the symptom');
+});
+
+test('one bloated antibody cannot dominate the injected block', async () => {
+  const { formatImmuneContext } = await import('../dsh-immune-system/dist/zcode/src/format.js');
+
+  const bloated = {
+    id: 1,
+    trigger_pattern: 'x'.repeat(500),
+    symptom: 'y'.repeat(500),
+    prescription: 'z'.repeat(500),
+    hit_count: 0,
+    fail_count: 0,
+    status: 'active',
+    tool_name: null,
+    created_at: 0,
+    updated_at: 0,
+  };
+  const tight = {
+    ...bloated,
+    id: 2,
+    trigger_pattern: 'a.ts',
+    symptom: 's',
+    prescription: 'p',
+  };
+
+  const block = formatImmuneContext([bloated, tight]);
+  assert.ok(block.length < 1200, `block should stay bounded, got ${block.length}`);
+  assert.ok(block.includes('a.ts'), 'the small rule must still fit after the big one');
+});
+
 test('injects bilingual text by default and honours the locale override', async () => {
   const { resolveLocale, strings } = await import('../dsh-immune-system/dist/core/i18n.js');
 

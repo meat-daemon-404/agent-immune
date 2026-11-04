@@ -8,8 +8,11 @@ export const RETIRE_AFTER_FAILURES = 3;
 
 /** Insert a new antibody. Returns its id, or null when the input is unusable. */
 export function insertAntibody(db: DatabaseSync, ab: NewAntibody): number | null {
-  const trigger = ab.trigger_pattern.trim();
-  const prescription = ab.prescription.trim();
+  // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
+  // Without these, one bloated rule dominates every later injection.
+  const trigger = ab.trigger_pattern.trim().slice(0, 200);
+  const symptom = ab.symptom.trim().slice(0, 160);
+  const prescription = ab.prescription.trim().slice(0, 200);
   if (!trigger || !prescription) return null;
 
   // De-duplicate on the prescription: it is the actionable part of the rule.

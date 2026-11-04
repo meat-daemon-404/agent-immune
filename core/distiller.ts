@@ -12,6 +12,7 @@ import type { DistillResult } from './types.js';
 import { DISTILL_PROMPT, buildDistillInput, parseDistillOutput } from './prompts.js';
 import { chat, readLlmConfig, type LlmConfig } from './llm.js';
 import { extractError, extractInvocation } from './trace.js';
+import { normalizeKeyword, meaningfulTokens } from './keywords.js';
 
 /** Failures with no reuse value: the retry usually just works. */
 const TRANSIENT =
@@ -25,12 +26,18 @@ const ARG_RE = /"(?:command|file_path|path|pattern|query|url|script)"\s*:\s*"((?
 export function extractKeywords(text: string, max = 8): string[] {
   const found: string[] = [];
   const push = (raw: string) => {
-    const value = raw.trim();
-    if (value.length < 3) return;
-    if (!found.some((f) => f.toLowerCase() === value.toLowerCase())) found.push(value);
+    const token = normalizeKeyword(raw);
+    if (!token) return;
+    if (found.some((f) => f.toLowerCase() === token.toLowerCase())) return;
+    found.push(token);
   };
 
-  for (const m of text.matchAll(ARG_RE)) if (m[1]) push(m[1].split(/\s+/)[0] ?? '');
+  // Commands contribute their meaningful words, not their first word (`cd`,
+  // `sudo`), and not their flags.
+  for (const m of text.matchAll(ARG_RE)) {
+    if (!m[1]) continue;
+    for (const token of meaningfulTokens(m[1], 2)) push(token);
+  }
   for (const m of text.matchAll(FILE_RE)) if (m[0]) push(m[0]);
   for (const m of text.matchAll(ENV_RE)) if (m[0]) push(m[0]);
 
@@ -64,7 +71,9 @@ export function ruleDistill(
     return { ok: false, reason: 'skip', detail: 'no reusable trigger found' };
   }
 
-  const trigger = `${toolName} ${keywords.join(' ')}`.trim();
+  // A trigger is a recall key, not a document: hard-cap it so one episode with
+  // long absolute paths cannot dominate the injected block.
+  const trigger = `${toolName} ${keywords.join(' ')}`.trim().slice(0, 160);
 
   // Symptom is the error itself; prescription is the invocation that worked.
   // Keeping these two clean is what makes the injected block readable.
