@@ -1,121 +1,98 @@
-# DSH 交接说明 / Handing this over to DSH
+# DSH 适配层核实记录 / Verification record
 
-ZCode 版已完整实现并在真实运行时验证过。
-DSH 版只差**宿主契约对齐**——`core/` 全部可复用，需要改的只有一个文件。
+**状态：已按真实 DSH 源码核实。** 出处是本地 checkout
+`D:\deepseek harness\deepseek-harness`，每条都标了文件与行号。
 
-> The ZCode side is done and verified. The DSH side needs only contract
-> alignment: all of `core/` is reusable, and a single file changes.
+> 早先这份文档是一份「待对齐清单」，写着事件名都是猜的。那些猜测已经被源码取代，
+> 所以下面直接给答案；只剩最后一节保留「怎么重新核对」，用于 DSH 升级后复查。
 
----
-
-## 一分钟看懂现状
-
-```
-core/           ← 已完成、已验证、与宿主无关
-zcode/          ← 已完成，按实测契约实现，运行时验证通过
-dsh/            ← 骨架，编译通过，但从未在真实 DSH 上跑过
-  └─ dsh-adapter.ts   ← 唯一的待改文件
-```
-
-`dsh/src/index.ts` 的业务逻辑（注入、配对、扣分、导出）**不用动**。
-它只通过 `dsh-adapter.ts` 暴露的接触点与宿主交互。
+`core/` 与 ZCode 版共用，宿主差异全部集中在 `dsh/src/dsh-adapter.ts`。
 
 ---
 
-## 第一步：回答三个问题
+## 事件与用途
 
-每条都要有**源码或文档证据**，不接受"应该是这样"。
+| 用途 | 事件 | 模式 | 出处 |
+| --- | --- | --- | --- |
+| 召回注入 | `agent/pre-step` | waterfall | `core/agent/src/runtime-types.ts:231` |
+| 会话开始 | `agent/session-start` | emit | `runtime-types.ts:217` |
+| 事前拦截 | `tools/pre-execute` | waterfall | `core/tools/src/index.ts:152` |
+| 感知结果 | `tools/post-execute` | waterfall | `core/tools/src/index.ts:175` |
+| 回合收尾 | `agent/turn-stopping` | serial | `runtime-types.ts:278` |
 
-### 问题一：事件叫什么
+这些名字有一条**契约钉住测试**（`test/dsh.test.mjs` 的 `DSH_EVENTS names the real host events`）：
+新增或改名会立刻失败，逼你回到源码核对，而不是顺手改断言。
 
-现在假设的是：
+## 注入通道
+
+`agent.inject(message)` 是官方说明里点名的通道（"Queue model-facing context for the
+next pre-step"）。注入内容在 `agent/pre-step` 的 waterfall 里也能改——返回
+`{ kind: 'enter', messages: [...] }` 即替换本步进入模型的消息。
+
+一回合只注入一次：`lastInjectedTurn` 记住已注入的回合号。工具循环里每步都注入既会重复灌入，
+也会把命中数灌成「这回合跑了几步」的噪声。
+
+## 失败语义（最容易做错的一条）
+
+`isError` **不足以判断失败**。`packages/shell/tool-bash/src/render.ts:17-21` 写明：
+
+> 非零退出被「上报」，不是「出错」——只有基础设施级失败（spawn 错误、中断）才表现为 isError。
+
+所以 `bash` 退出码 1 会以 `isError: false` 到达，真相埋在渲染文本最后一行
+（`[exit code: 1]`）和结构化的 `value.exitCode` 里。`judgeOutcome()` 三个信号一起读：
+结构化退出码 → `isError` → 渲染尾行标记。
+
+## 事前拦截的返回形状
+
+`PreToolDecision`（`core/tools/src/index.ts:588`）：
 
 ```ts
-export const DSH_EVENTS = {
-  sessionStart: 'dsh/session-start',
-  beforeRequest: 'dsh/before-llm-request',
-  afterToolCall: 'dsh/after-tool-call',
-} as const;
+type PreToolDecision =
+  | { kind: 'allow' }
+  | { kind: 'deny'; reason: string }
+  | { kind: 'ask'; reason?: string }
 ```
 
-**这三个名字是猜的。** 去 DSH 的事件注册表/文档里找真实名字，改掉即可。
+`allow` 要调 `next()` 交给下一层；`deny` 直接返回、不调 `next()`。
+**这个类型没有携带上下文的字段**，所以 `IMMUNE_GUARD=warn` 只能在 ZCode 侧生效——
+the agent harness 侧只能「拦或不拦」。
 
-### 问题二：失败怎么表示（决定架构）
+## 存储
 
-| 如果 DSH 是… | 那么 |
-| --- | --- |
-| 单个工具事件 + `isError` 布尔 | 保留现在的 `normaliseToolEvent`，直接用 `ok` 分支 |
-| **成功/失败拆成两个事件** | 必须订阅两个事件，都调用同一个记录函数 |
+`$DSH_HOME/storages/dsh-immune-system/<sha1(cwd)[0..16]>.sqlite`，按项目隔离。
+`IMMUNE_DB_PATH` 可覆盖。全局共享库是同目录下的 `global.sqlite`。
 
-ZCode 是第二种（`PostToolUse` / `PostToolUseFailure`），而且有个坑值得提前知道：
-
-> **失败事件只在工具处理器抛异常时才触发。** bash 非零退出通常不抛，
-> 所以 ZCode 版最终在 `PostToolUse` 里自己判断结果（见 `zcode/src/outcome.ts`）。
-
-如果 DSH 也是拆分式，**强烈建议照搬这个分类逻辑**，否则会对最常见的失败完全失明。
-
-### 问题三：怎么把文字塞给模型
-
-现在假设 `session.appendSystemReminder(text)`。要确认：
-
-- 真实方法名；
-- **是否同步**。ZCode 的后台 hook 输出会被丢弃，所以注入必须同步。
-  如果 DSH 也有类似约束，注入就不能放进异步分支。
-
-### 模型访问：可以完全绕开
-
-`dsh/src/index.ts` **不依赖宿主 LLM**，走 `core/distiller.ts`：
-
-- 配了 `IMMUNE_LLM_BASE_URL` + `IMMUNE_LLM_MODEL` → 用 HTTP 客户端；
-- 没配 → 用确定性规则蒸馏器（离线可跑）。
-
-所以 `ctx.llm.complete()` 这条假设可以**直接删掉**，不用去核实。
+用两条独立连接而非 `ATTACH DATABASE`：SQLite 明确说明 WAL 下跨附加库事务不原子，
+而本插件每进程短连接、多 hook 并发。
 
 ---
 
-## 第二步：改完怎么验
+## DSH 升级后怎么重新核对
+
+改动 `dsh-adapter.ts` 之前，按顺序确认这四件事，每条都要有源码行号：
+
+1. **事件名还在不在。** `grep -rn "tools/pre-execute\|agent/pre-step" packages/core/*/src`
+   ——事件声明都是生成进 subsystem 文档的，源码里带 `@mode` 注释。
+2. **失败判定有没有变。** 看 `packages/shell/tool-bash/src/render.ts` 与
+   `judgeOutcome()`；如果上游改成真的抛异常，可以简化成读 `isError`。
+3. **`PreToolDecision` / `PostToolDecision` 的成员。** 有没有多出携带上下文的形态
+   ——如果有，`warn` 模式就能在 the agent harness 侧也实现。
+4. **`agent.inject` 与 `agent/pre-step` 的关系。** 注入是「排队」还是「当步生效」，
+   决定要不要同时保留两处。
+
+跑：
 
 ```bash
-npm run build          # 必须 0 错误
-npm test               # 58 条，core 与 DSH 部分应全绿
+npm run build     # 0 错误
+npm test          # 59 条
 ```
 
-DSH 侧没有自动化测试，按这个顺序手验：
-
-1. **单元级**：给 `normaliseToolEvent` 喂一条真实捕获的载荷，断言
-   `sessionId / toolName / ok / errorText` 都对。
-2. **闭环级**：同一工具先失败、后成功 → 等一个回合 → 查
-   `IMMUNE_DB_PATH` 指向的 sqlite 里 `antibodies` 表有记录。
-3. **跨会话级**：换一个新会话，问一句包含该触发词的话 →
-   上下文里应出现 `<immune_memory>`。**这条是整件事的意义所在，必须验。**
+`test/dsh.test.mjs` 里有真 Cordis 式的假宿主（`fakeContext` + `waterfall` 链式调用），
+钉住事件名、失败判定和拦截返回形状。改动适配层后先看它。
 
 ---
 
-## 第三步：删掉临时兼容
+## 一句话
 
-`dsh-adapter.ts` 里所有 `??` 兜底（多种字段拼写、`isError === true || is_error === true`）
-都是为"未知契约"付的保险费。对齐后请**全部删掉**，让错误响亮地失败，
-而不是静默地用错误字段继续跑。
-
----
-
-## 共享同一份抗体库（推荐）
-
-两版指向同一个数据库即可共用积累：
-
-```
-IMMUNE_DB_PATH=/path/to/immune.sqlite
-```
-
-ZCode 版默认落在 `plugins/data/dsh-immune-system@<market>/immune.sqlite`。
-DSH 版让它指到同一个文件，就能读到 ZCode 学到的坑，反之亦然。
-
----
-
-## 一句话总结
-
-> 你只需要回答"DSH 的事件叫什么、失败长什么样、怎么把文字塞给模型"这三个问题，
-> 改 `dsh/src/dsh-adapter.ts` 一个文件，其余全部复用。
-
-如果这三个问题里有任何一个在 DSH 那边找不到明确答案，**先别写代码**——
-按 ZCode 的经验，猜错事件名的代价是整个插件静默失效。
+> 契约已核实，不是猜的。要改就从 `dsh-adapter.ts` 一处改，
+> 改完让 `npm test` 里的契约钉住测试告诉你哪里不一致。

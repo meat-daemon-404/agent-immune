@@ -217,7 +217,7 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **58 条全绿**（36 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
+| `npm test` | **59 条全绿**（37 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

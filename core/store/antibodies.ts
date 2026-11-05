@@ -96,6 +96,13 @@ export function findMatches(db: DatabaseSync, text: string, limit: number): Anti
 
     // Rank the LIKE hits by how many distinct words they contain, so an
     // antibody matching two concepts outranks one that merely shares a word.
+    //
+    // NOTE: a "minimum 2 windows" gate was tried here and removed. It cannot
+    // distinguish a legitimate recall ("怎么解决跨域" shares only 跨域 with the
+    // rule) from a spurious one ("改一下这个文件" shares only 文件): both are one
+    // window out of ~5, and length or ratio thresholds differ by one character.
+    // Costing ~100 advisory characters on an occasional weak match is cheaper
+    // than silently dropping a real one.
     const scored = candidates
       .filter((row) => !seen.has(row.id))
       .map((row) => {

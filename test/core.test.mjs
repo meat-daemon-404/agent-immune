@@ -443,6 +443,30 @@ test('--prune retires, --purge deletes', () => {
   s.close();
 });
 
+test('a weak single-window match is ranked last, not dropped', () => {
+  const s = store();
+  const strong = s.insert({
+    trigger_pattern: 'Edit 文件占用 权限',
+    symptom: '文件被占用无法写入',
+    prescription: '先关掉占用进程',
+  });
+  const weak = s.insert({
+    trigger_pattern: 'Edit 文件写入权限',
+    symptom: '写不进去',
+    prescription: '检查只读属性',
+  });
+  assert.ok(strong && weak);
+
+  // "文件占用" shares two windows with `strong` (文件, 占用) and one with `weak`.
+  const hits = s.match('文件占用', { limit: 3 });
+  assert.equal(hits[0].id, strong, 'the two-window rule ranks first');
+  assert.ok(
+    hits.some((h) => h.id === weak),
+    'the single-window rule is still offered — dropping it would lose real recalls',
+  );
+  s.close();
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });
