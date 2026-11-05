@@ -45,7 +45,7 @@ await runHook('PostToolUse', (event) => {
         }
         const failure = store.claimFailure(sessionId, toolName);
         if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
-            store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids);
+            store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids, failure.human_hint);
         }
     }
     finally {

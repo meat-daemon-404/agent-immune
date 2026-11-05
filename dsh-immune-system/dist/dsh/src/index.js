@@ -18,7 +18,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
-import { distillEpisode } from '../../core/distiller.js';
+import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { DSH_EVENTS, PLUGIN_NAME, createPluginMessage, makeLogger, normaliseToolEvent, textOf, } from './dsh-adapter.js';
@@ -146,6 +146,7 @@ async function drain(store, budgetMs = 8000) {
         try {
             const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
                 signal: AbortSignal.timeout(Math.max(1000, remaining)),
+                humanHint: job.human_hint ?? '',
             });
             if (result.ok) {
                 store.insert(result.antibody);
@@ -195,7 +196,12 @@ function startPlugin(ctx) {
         const message = event.data;
         if (message.source?.kind !== 'user')
             return;
-        rememberPrompt(session.header.id, textOf(message.content ?? []));
+        const text = textOf(message.content ?? []);
+        rememberPrompt(session.header.id, text);
+        // A fresh human message is the explanation for whatever failed last turn;
+        // attaching it makes the distilled prescription human-authored.
+        if (isSubstantiveHint(text))
+            store.attachHumanHint(session.header.id, text);
     });
     // Session start: retire stale antibodies once, then prime with the project's
     // most-used ones. Delivered via `inject()` — the channel the
@@ -264,7 +270,7 @@ function startPlugin(ctx) {
         }
         const failure = store.claimFailure(event.sessionId, event.toolName);
         if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
-            store.enqueueJob(event.toolName, failure.trace, traceFor(event, `result=${event.resultText}`), failure.injected_ids);
+            store.enqueueJob(event.toolName, failure.trace, traceFor(event, `result=${event.resultText}`), failure.injected_ids, failure.human_hint);
         }
         return downstream;
     });
@@ -292,6 +298,38 @@ function startPlugin(ctx) {
                 .map((a) => `#${a.id} [hits ${a.hit_count}/fails ${a.fail_count}] ${a.status}\n  ${t.trigger}: ${a.trigger_pattern}\n  ${t.avoid}: ${a.symptom}\n  ${t.do}: ${a.prescription}`)
                 .join('\n\n');
             return { kind: 'success', text };
+        },
+    });
+    ctx.commands.register({
+        name: 'immune-forget',
+        description: 'Remove antibodies: <id>, --last (undo the previous turn), or --prune (never-hit, >14d)',
+        input: { hint: '<id> | --last | --prune' },
+        handler: ({ rawInput }) => {
+            const args = rawInput.trim().split(/\s+/).filter(Boolean);
+            if (args.includes('--last')) {
+                const id = store.forgetLast();
+                return {
+                    kind: 'success',
+                    text: id === null ? t.notFound : `${t.forgot} #${id}`,
+                };
+            }
+            if (args.includes('--prune')) {
+                const removed = store.pruneZombies(14 * 24 * 60 * 60 * 1000);
+                return {
+                    kind: 'success',
+                    text: removed.length === 0
+                        ? t.noZombies
+                        : `${t.pruned} ${removed.length}: ${removed.map((n) => `#${n}`).join(' ')}`,
+                };
+            }
+            const id = Number(args[0]);
+            if (!Number.isInteger(id) || id <= 0) {
+                return { kind: 'error', text: `${t.notFound} — usage: <id> | --last | --prune` };
+            }
+            return {
+                kind: 'success',
+                text: store.remove(id) ? `${t.forgot} #${id}` : `${t.notFound} #${id}`,
+            };
         },
     });
     ctx.commands.register({

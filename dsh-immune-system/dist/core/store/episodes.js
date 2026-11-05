@@ -40,8 +40,12 @@ export function recordFailure(db, sessionId, toolName, trace) {
         tool_name: toolName,
         trace: redactAndClamp(trace),
         injected_ids: injected,
+        human_hint: '',
         created_at: now,
     };
+    // A repeat failure keeps any hint already attached: the human explanation for
+    // this failure may already have arrived, and it must not be wiped by a second
+    // failing call in the same turn.
     db.prepare(`INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, created_at)
      VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(session_id, tool_name) DO UPDATE SET
@@ -49,6 +53,26 @@ export function recordFailure(db, sessionId, toolName, trace) {
        injected_ids = excluded.injected_ids,
        created_at = excluded.created_at`).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), now);
     return snapshot;
+}
+/**
+ * Attach the human's latest message to every un-hinted pending failure.
+ *
+ * Called when a NEW user turn starts. Because prompt capture happens before any
+ * tool runs in that turn, every pending failure at this moment came from an
+ * earlier turn — which is exactly the "agent failed, human explained, try again"
+ * shape worth learning from.
+ *
+ * Returns how many rows were annotated.
+ */
+export function attachHumanHint(db, sessionId, hint) {
+    const text = redactAndClamp(hint, 400);
+    if (!text)
+        return 0;
+    const info = db
+        .prepare(`UPDATE pending_failures SET human_hint = ?
+        WHERE session_id = ? AND human_hint = ''`)
+        .run(text, sessionId);
+    return Number(info.changes);
 }
 /**
  * Claim a pending failure for `toolName`, deleting it so one failure is only
@@ -67,6 +91,7 @@ export function claimFailure(db, sessionId, toolName) {
         tool_name: row.tool_name,
         trace: row.trace,
         injected_ids: parseIds(row.injected_ids),
+        human_hint: typeof row.human_hint === 'string' ? row.human_hint : '',
         created_at: row.created_at,
     };
 }

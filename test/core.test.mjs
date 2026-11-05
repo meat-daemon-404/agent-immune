@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { ImmuneStore } from '../dsh-immune-system/dist/core/store/index.js';
 import { renderSkillMarkdown } from '../dsh-immune-system/dist/core/export.js';
@@ -213,6 +217,36 @@ test('the plugin does not learn from operating on itself', async () => {
   assert.equal(isSelfEpisode('anything', []), false, 'no markers means never self-noise');
 });
 
+test('another clone of the plugin is recognised by its package fingerprint', async () => {
+  const { isSelfEpisode } = await import('../dsh-immune-system/dist/core/selfnoise.js');
+
+  // A dev checkout living entirely OUTSIDE the working project — the blind spot
+  // that previously let maintenance noise through.
+  const clone = mkdtempSync(join(tmpdir(), 'immune-clone-'));
+  writeFileSync(join(clone, 'package.json'), JSON.stringify({ name: 'dsh-immune-system' }));
+  const cloneFile = join(clone, 'core', 'x.ts');
+  mkdirSync(join(clone, 'core'), { recursive: true });
+  writeFileSync(cloneFile, 'export {}');
+
+  const escape = (p) => p.replace(/\\/g, '\\\\');
+  assert.equal(
+    isSelfEpisode(`tool=Edit input={"file_path":"${escape(cloneFile)}"} error=File modified`, []),
+    true,
+    'no env markers, no shared prefix — the package name is enough',
+  );
+
+  // A genuinely unrelated project next to it must stay a lesson.
+  const app = join(clone, 'app');
+  mkdirSync(app, { recursive: true });
+  writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'my-app' }));
+  const appFile = join(app, 'main.ts');
+  writeFileSync(appFile, 'export {}');
+  assert.equal(
+    isSelfEpisode(`tool=Edit input={"file_path":"${escape(appFile)}"} error=boom`, []),
+    false,
+  );
+});
+
 test('a generic pitfall is stored once, not once per file', async () => {
   const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
 
@@ -231,6 +265,92 @@ test('a generic pitfall is stored once, not once per file', async () => {
   const rows = s.listAll();
   assert.equal(rows.length, 1, 'the second file merges into the same rule');
   assert.equal(rows[0].hit_count >= 0, true);
+  s.close();
+});
+
+test('two-character CJK words recall through the LIKE fallback', () => {
+  const s = store();
+  s.insert({
+    trigger_pattern: '跨域 CORS',
+    symptom: '跨域请求被浏览器拦截',
+    prescription: '服务端补 Access-Control-Allow-Origin',
+  });
+
+  // Trigram cannot index a 2-character term; the fallback must catch it, even
+  // when the word sits inside a longer run in a natural sentence.
+  assert.equal(s.match('怎么解决跨域').length, 1, 'embedded 2-char word must match');
+  assert.equal(s.match('跨域').length, 1, 'bare 2-char word must match');
+  assert.equal(s.match('端口冲突').length, 0, 'unrelated 2-char words must not match');
+  s.close();
+});
+
+test('forget --last removes the newest rule, prune drops old never-hit ones', () => {
+  const s = store();
+  const old = s.insert({ trigger_pattern: 'old.ts', symptom: 's', prescription: 'p-old' });
+  const recent = s.insert({ trigger_pattern: 'recent.ts', symptom: 's', prescription: 'p-new' });
+  assert.ok(old && recent);
+
+  assert.equal(s.forgetLast(), recent, '--last targets the newest active rule');
+  assert.equal(s.listAll().length, 1);
+
+  // Age the survivor past the 14-day window; it was never injected.
+  const longAgo = Date.now() - 15 * 24 * 60 * 60 * 1000;
+  s['db'].prepare('UPDATE antibodies SET created_at = ? WHERE id = ?').run(longAgo, old);
+
+  const removed = s.pruneZombies(14 * 24 * 60 * 60 * 1000);
+  assert.deepEqual(removed, [old]);
+  assert.equal(s.listAll().length, 0);
+  s.close();
+});
+
+test('a human explanation becomes the prescription, trivial ones do not', async () => {
+  const { ruleDistill, isSubstantiveHint } = await import(
+    '../dsh-immune-system/dist/core/distiller.js'
+  );
+
+  const failure = 'tool=Bash input={"command":"npm run build"} error=npm ERR! missing script';
+  const success = 'tool=Bash input={"command":"pnpm build"} result=ok';
+
+  const withHint = ruleDistill('Bash', failure, success, '这个仓库用的是 pnpm，不要用 npm');
+  assert.equal(withHint.ok, true);
+  assert.match(withHint.antibody.prescription, /pnpm/, 'the human rule must win over the diff');
+
+  // Acknowledgements are turns, not explanations.
+  assert.equal(isSubstantiveHint('继续'), false);
+  assert.equal(isSubstantiveHint('ok'), false);
+  assert.equal(isSubstantiveHint('好的，继续吧'), false);
+  assert.equal(isSubstantiveHint('这个仓库用的是 pnpm，不要用 npm'), true);
+
+  const noHint = ruleDistill('Bash', failure, success, '继续');
+  assert.match(noHint.antibody.prescription, /pnpm build/, 'trivial hint falls back to the diff');
+});
+
+test('a database created by an older version gains the hint columns on open', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-migrate-'));
+  const dbPath = join(dir, 'old.sqlite');
+
+  // Simulate a pre-hint schema.
+  const old = new DatabaseSync(dbPath);
+  old.exec(`CREATE TABLE pending_failures (
+    session_id TEXT NOT NULL, tool_name TEXT NOT NULL, trace TEXT NOT NULL,
+    injected_ids TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, tool_name))`);
+  old.exec(`CREATE TABLE distill_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, tool_name TEXT NOT NULL,
+    failure_trace TEXT NOT NULL, success_trace TEXT NOT NULL,
+    injected_ids TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL DEFAULT 'pending',
+    note TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+  old.close();
+
+  const s = new ImmuneStore({ dbPath });
+  s.recordFailure('s1', 'Bash', 'old row');
+  assert.equal(s.attachHumanHint('s1', '这个仓库用 pnpm，别用 npm'), 1);
+  assert.equal(s.claimFailure('s1', 'Bash').human_hint, '这个仓库用 pnpm，别用 npm');
+
+  const jobId = s.enqueueJob('Bash', 'f', 's', [], 'hint text');
+  const job = s.claimJob();
+  assert.equal(job.id, jobId);
+  assert.equal(job.human_hint, 'hint text');
   s.close();
 });
 

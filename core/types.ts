@@ -44,6 +44,15 @@ export interface FailureSnapshot {
   trace: string;
   /** Antibody ids injected before this failure, so they can be penalised. */
   injected_ids: number[];
+  /**
+   * What the human said in the turn AFTER the failure.
+   *
+   * Real sessions often read: tool fails → agent asks → the human explains
+   * ("这个仓库用 pnpm, 不要用 npm") → the next call works. That sentence is the
+   * best distillation input available, and it is what makes the resulting
+   * prescription better than the model's own guess at a retry.
+   */
+  human_hint: string;
   created_at: number;
 }
 

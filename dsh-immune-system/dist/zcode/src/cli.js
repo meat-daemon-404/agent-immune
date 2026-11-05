@@ -101,9 +101,23 @@ function main(argv) {
                 process.stdout.write('Pruned stale pending failures and injection records.\n');
                 return 0;
             case 'forget': {
+                // --last  : undo the antibody the previous turn just learned
+                // --prune : drop never-injected antibodies older than 14 days
+                if (args.includes('--last')) {
+                    const id = store.forgetLast();
+                    process.stdout.write(id === null ? `${strings().notFound}\n` : `${strings().forgot} #${id}.\n`);
+                    return 0;
+                }
+                if (args.includes('--prune')) {
+                    const removed = store.pruneZombies(14 * 24 * 60 * 60 * 1000);
+                    process.stdout.write(removed.length === 0
+                        ? `${strings().noZombies}\n`
+                        : `${strings().pruned} ${removed.length}: ${removed.map((n) => `#${n}`).join(' ')}\n`);
+                    return 0;
+                }
                 const id = Number(args[0]);
                 if (!Number.isFinite(id)) {
-                    process.stderr.write('usage: immune forget <id>\n');
+                    process.stderr.write('usage: immune forget <id> | --last | --prune\n');
                     return 2;
                 }
                 process.stdout.write(store.remove(id) ? `${strings().forgot} #${id}.\n` : `${strings().notFound} #${id}.\n`);

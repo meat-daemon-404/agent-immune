@@ -19,6 +19,8 @@ import {
   penalizeAntibodies,
   removeAntibody,
   setAntibodyStatus,
+  newestActiveId,
+  pruneZombieAntibodies,
   type PenaltyContext,
 } from './antibodies.js';
 import {
@@ -27,6 +29,7 @@ import {
   pruneStale,
   recordFailure,
   recordInjection,
+  attachHumanHint,
 } from './episodes.js';
 import {
   claimJob,
@@ -106,12 +109,29 @@ export class ImmuneStore {
     return removeAntibody(this.db, id);
   }
 
+  /** Forget the newest active antibody. Returns its id, or null when none. */
+  forgetLast(): number | null {
+    const id = newestActiveId(this.db);
+    if (id === null) return null;
+    return removeAntibody(this.db, id) ? id : null;
+  }
+
+  /** Delete never-injected antibodies older than `olderThanMs`. */
+  pruneZombies(olderThanMs: number): number[] {
+    return pruneZombieAntibodies(this.db, olderThanMs);
+  }
+
   setStatus(id: number, status: AntibodyStatus): boolean {
     return setAntibodyStatus(this.db, id, status);
   }
 
   recordFailure(sessionId: string, toolName: string, trace: unknown): FailureSnapshot {
     return recordFailure(this.db, sessionId, toolName, trace);
+  }
+
+  /** Annotate pending failures with what the human said in the next turn. */
+  attachHumanHint(sessionId: string, hint: unknown): number {
+    return attachHumanHint(this.db, sessionId, hint);
   }
 
   claimFailure(sessionId: string, toolName: string): FailureSnapshot | null {
@@ -134,8 +154,14 @@ export class ImmuneStore {
     return exportableAntibodies(this.db, minHits);
   }
 
-  enqueueJob(tool: string, failure: string, success: string, injected: number[]): number {
-    return enqueueJob(this.db, tool, failure, success, injected);
+  enqueueJob(
+    tool: string,
+    failure: string,
+    success: string,
+    injected: number[],
+    humanHint = '',
+  ): number {
+    return enqueueJob(this.db, tool, failure, success, injected, humanHint);
   }
 
   claimJob(): DistillJob | null {

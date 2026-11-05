@@ -7,6 +7,7 @@ export interface DistillJob {
   failure_trace: string;
   success_trace: string;
   injected_ids: string;
+  human_hint?: string;
   status: string;
   note: string;
   created_at: number;
@@ -19,15 +20,16 @@ export function enqueueJob(
   failureTrace: string,
   successTrace: string,
   injectedIds: number[],
+  humanHint = '',
 ): number {
   const now = Date.now();
   const info = db
     .prepare(
       `INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
-    .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), now, now);
+    .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, now, now);
   return Number(info.lastInsertRowid);
 }
 

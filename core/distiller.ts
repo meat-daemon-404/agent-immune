@@ -55,6 +55,21 @@ function firstLine(trace: string, max = 80): string {
 }
 
 /**
+ * Whether a human message is worth storing as a hint.
+ *
+ * "继续" or "ok" is a turn, not an explanation — attaching it would become a
+ * useless prescription ("do: continue"). Only substantive text qualifies.
+ */
+export function isSubstantiveHint(text: string): boolean {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length < 10) return false;
+  if (/^(继续|好的|好|行|可以|ok|okay|yes|y|go on|continue|thanks|谢谢)[。.!！]?$/i.test(clean)) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Deterministic fallback: build a rule straight from the failed and successful
  * invocations without calling a model.
  */
@@ -62,6 +77,7 @@ export function ruleDistill(
   toolName: string,
   failureTrace: string,
   successTrace: string,
+  humanHint = '',
 ): DistillResult {
   if (TRANSIENT.test(failureTrace)) {
     return { ok: false, reason: 'skip', detail: 'transient failure' };
@@ -106,9 +122,14 @@ export function ruleDistill(
   const symptom = rawSymptom;
 
   const invocation = extractInvocation(successTrace);
-  const prescription = invocation
-    ? `${toolName}: ${invocation}`
-    : firstLine(successTrace, 120) || 'use the retried invocation that succeeded';
+  // A human explanation outranks anything inferred from the diff: they state
+  // the rule ("this repo uses pnpm"), the traces only show what happened.
+  const hint = isSubstantiveHint(humanHint) ? humanHint.trim() : '';
+  const prescription = hint
+    ? hint.slice(0, 200)
+    : invocation
+      ? `${toolName}: ${invocation}`
+      : firstLine(successTrace, 120) || 'use the retried invocation that succeeded';
 
   return {
     ok: true,
@@ -126,20 +147,23 @@ export async function distillEpisode(
   toolName: string,
   failureTrace: string,
   successTrace: string,
-  opts: { llm?: LlmConfig | null; signal?: AbortSignal } = {},
+  opts: { llm?: LlmConfig | null; signal?: AbortSignal; humanHint?: string } = {},
 ): Promise<DistillResult> {
+  const hint = opts.humanHint ?? '';
+  const fallback = (): DistillResult => ruleDistill(toolName, failureTrace, successTrace, hint);
+
   const llm = opts.llm === undefined ? readLlmConfig() : opts.llm;
-  if (!llm) return ruleDistill(toolName, failureTrace, successTrace);
+  if (!llm) return fallback();
 
   try {
     const raw = await chat(
       llm,
       DISTILL_PROMPT,
-      buildDistillInput(failureTrace, successTrace),
+      buildDistillInput(failureTrace, successTrace, hint),
       opts.signal,
     );
     const parsed = parseDistillOutput(raw, toolName);
-    if (!parsed.ok) return ruleDistill(toolName, failureTrace, successTrace);
+    if (!parsed.ok) return fallback();
 
     // The model path is normalised with the same curated table, so both paths
     // converge on one generic rule per generic pitfall.
@@ -156,6 +180,6 @@ export async function distillEpisode(
     };
   } catch {
     // Model unreachable or misconfigured: the rule-based path keeps the loop alive.
-    return ruleDistill(toolName, failureTrace, successTrace);
+    return fallback();
   }
 }

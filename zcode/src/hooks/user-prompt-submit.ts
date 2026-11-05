@@ -10,6 +10,7 @@
  * injected, which is what later failure penalties are attributed to.
  */
 import { ImmuneStore } from '../../../core/store/index.js';
+import { isSubstantiveHint } from '../../../core/distiller.js';
 import { runHook, sessionIdOf } from '../hook-io.js';
 import { formatImmuneContext } from '../format.js';
 
@@ -19,6 +20,12 @@ await runHook('UserPromptSubmit', (event) => {
 
   const store = new ImmuneStore();
   try {
+    // A prompt arriving now is the human's response to whatever failed last
+    // turn. Attaching it turns "tool failed, human explained, retry worked"
+    // into a much better prescription than the model could infer alone.
+    // Trivial acknowledgements are filtered out here so they never become one.
+    if (isSubstantiveHint(prompt)) store.attachHumanHint(sessionIdOf(event), prompt);
+
     const hits = store.match(prompt, {
       limit: 3,
       sessionId: sessionIdOf(event),

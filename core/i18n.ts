@@ -27,6 +27,9 @@ export interface Strings {
   exported: string;
   forgot: string;
   notFound: string;
+  /** Zombie prune (never-injected, old). */
+  pruned: string;
+  noZombies: string;
 }
 
 const PROMPT_ZH = '本项目已踩过的坑，仅供参考，采纳前请核实。';
@@ -46,6 +49,8 @@ const BOTH: Strings = {
   exported: '已导出 / Exported',
   forgot: '已删除抗体 / Forgot antibody',
   notFound: '没有找到抗体 / No antibody found',
+  pruned: '已清理僵尸抗体 / Pruned zombies',
+  noZombies: '没有可清理的僵尸抗体（从未命中且超过 14 天）。\nNo zombie antibodies to prune (never injected, older than 14 days).',
 };
 
 const ZH: Strings = {
@@ -59,6 +64,8 @@ const ZH: Strings = {
   exported: '已导出',
   forgot: '已删除抗体',
   notFound: '没有找到抗体',
+  pruned: '已清理僵尸抗体',
+  noZombies: '没有可清理的僵尸抗体（从未命中且超过 14 天）。',
 };
 
 const EN: Strings = {
@@ -72,6 +79,8 @@ const EN: Strings = {
   exported: 'Exported',
   forgot: 'Forgot antibody',
   notFound: 'No antibody found',
+  pruned: 'Pruned zombies',
+  noZombies: 'No zombie antibodies to prune (never injected, older than 14 days).',
 };
 
 /**

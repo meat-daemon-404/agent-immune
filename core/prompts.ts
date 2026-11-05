@@ -29,8 +29,12 @@ Rules:
 - Never include secrets, tokens, or hostnames in any field.`;
 
 /** Build the user-side payload for one failure/success pair. */
-export function buildDistillInput(failureTrace: string, successTrace: string): string {
-  return [
+export function buildDistillInput(
+  failureTrace: string,
+  successTrace: string,
+  humanHint = '',
+): string {
+  const parts = [
     '<failed_call>',
     failureTrace,
     '</failed_call>',
@@ -38,7 +42,20 @@ export function buildDistillInput(failureTrace: string, successTrace: string): s
     '<successful_call>',
     successTrace,
     '</successful_call>',
-  ].join('\n');
+  ];
+  if (humanHint.trim()) {
+    // The human's correction is the highest-signal input available: it states
+    // the rule outright instead of leaving the model to infer it from a diff.
+    parts.push(
+      '',
+      '<human_explanation>',
+      humanHint.trim(),
+      '</human_explanation>',
+      'The human said this after the failure. If it states the actual rule, the',
+      'prescription must follow it rather than a guess at what changed.',
+    );
+  }
+  return parts.join('\n');
 }
 
 /** Strip a surrounding markdown fence, if the model added one. */

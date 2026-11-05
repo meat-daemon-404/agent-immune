@@ -32,6 +32,7 @@ export async function drainJobs(store, budgetMs = drainBudgetMs()) {
         try {
             const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
                 signal: AbortSignal.timeout(Math.max(1000, remaining)),
+                humanHint: job.human_hint ?? '',
             });
             processed += 1;
             if (result.ok) {

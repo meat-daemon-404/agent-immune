@@ -92,8 +92,15 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | --- | --- | --- |
 | `/immune` | DSH | 列出所有抗体（`/immune --all` 含已退役） |
 | `/immune-export` | DSH | 把经过验证的抗体导出成 `SKILL.md` |
+| `/immune-forget <id>` | DSH | 删除指定抗体 |
+| `/immune-forget --last` | DSH | 撤销上一回合刚学的那条 |
+| `/immune-forget --prune` | DSH | 清理从未命中且超过 14 天的僵尸抗体 |
 | `/dsh-immune-system:immune` | ZCode | 同上（加 `--all`） |
 | `/dsh-immune-system:immune-export` | ZCode | 同上 |
+| `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune`） |
+
+> 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）
+> 走参数化 LIKE 兜底**——trigram 压根无法索引 2 字词，只靠 MATCH 会把这类词整段漏掉。
 
 ### 四个关键设计
 
@@ -120,6 +127,13 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 各学了一条重复规则。精选模式表（`core/lessons.ts`）把这类症状归一成泛型触发词和处方，
 规则的处方级去重随后把所有实例合并成一条，教训靠命中数累积而不是繁殖。
 规则蒸馏与模型蒸馏两条路径共用同一张表。
+
+**②⁺⁺ 人类纠偏优先于模型猜测（Cross-turn hint）**
+
+真实会话经常是：工具失败 → Agent 问人 → 人类说"这个仓库用 pnpm" → 重试成功。
+那句人话是最好的蒸馏输入。`UserPromptSubmit` 会把**新回合的人类消息**挂到上一回合
+未闭合的失败上，蒸馏时作为处方的最优来源（人类陈述规则，模型只能从 diff 里猜）。
+"继续""ok"这类空话会被 `isSubstantiveHint` 挡掉——否则会变成 `do: 继续` 这种废处方。
 
 **③ 注入卫生**
 
@@ -175,7 +189,7 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **47 条全绿**（25 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
+| `npm test` | **53 条全绿**（31 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
@@ -183,11 +197,9 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 
 ### 已知限制
 
-- **自噪声门有两个盲区**：它能识别「插件安装目录」和「插件开发仓库位于当前项目之下」两种自身路径；
-  但开发仓库位于项目目录**之外**时不匹配。实测代价：开发插件时的 Edit 冲突会入库两三条元噪声，
-  需要 `forget` 手动清理。（第一次真实使用时清理过 15 条，说明这不是理论问题。）
 - **模型端点默认拒绝环回**：本地 Ollama 类服务需显式设 `IMMUNE_ALLOW_PRIVATE_ENDPOINT=1`。
   这是防 SSRF 的代价，不是疏漏。
+- **外部 LLM 蒸馏未实测**：规则蒸馏器全流程有测试；接真实模型端点的路径只有 mock 覆盖。
 - **真实 agent 端到端未验**：验证期间模型额度返回 402，turn 到不了工具阶段。同一条链路改为
   向安装副本投喂真实事件载荷验证（含真 Cordis 宿主的 20 条断言）。
 

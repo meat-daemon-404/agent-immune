@@ -52,9 +52,13 @@ export function recordFailure(
     tool_name: toolName,
     trace: redactAndClamp(trace),
     injected_ids: injected,
+    human_hint: '',
     created_at: now,
   };
 
+  // A repeat failure keeps any hint already attached: the human explanation for
+  // this failure may already have arrived, and it must not be wiped by a second
+  // failing call in the same turn.
   db.prepare(
     `INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, created_at)
      VALUES (?, ?, ?, ?, ?)
@@ -65,6 +69,28 @@ export function recordFailure(
   ).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), now);
 
   return snapshot;
+}
+
+/**
+ * Attach the human's latest message to every un-hinted pending failure.
+ *
+ * Called when a NEW user turn starts. Because prompt capture happens before any
+ * tool runs in that turn, every pending failure at this moment came from an
+ * earlier turn — which is exactly the "agent failed, human explained, try again"
+ * shape worth learning from.
+ *
+ * Returns how many rows were annotated.
+ */
+export function attachHumanHint(db: DatabaseSync, sessionId: string, hint: unknown): number {
+  const text = redactAndClamp(hint, 400);
+  if (!text) return 0;
+  const info = db
+    .prepare(
+      `UPDATE pending_failures SET human_hint = ?
+        WHERE session_id = ? AND human_hint = ''`,
+    )
+    .run(text, sessionId);
+  return Number(info.changes);
 }
 
 /**
@@ -80,7 +106,14 @@ export function claimFailure(
   const row = db
     .prepare('SELECT * FROM pending_failures WHERE session_id = ? AND tool_name = ?')
     .get(sessionId, toolName) as
-    | { session_id: string; tool_name: string; trace: string; injected_ids: string; created_at: number }
+    | {
+        session_id: string;
+        tool_name: string;
+        trace: string;
+        injected_ids: string;
+        human_hint?: string;
+        created_at: number;
+      }
     | undefined;
   if (!row) return null;
 
@@ -94,6 +127,7 @@ export function claimFailure(
     tool_name: row.tool_name,
     trace: row.trace,
     injected_ids: parseIds(row.injected_ids),
+    human_hint: typeof row.human_hint === 'string' ? row.human_hint : '',
     created_at: row.created_at,
   };
 }

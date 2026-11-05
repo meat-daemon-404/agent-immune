@@ -189,6 +189,60 @@ test('an unmatched prompt injects nothing', () => {
   }
 });
 
+test('a human correction between failure and retry reaches the antibody', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-hint-'));
+  const env = { IMMUNE_DB_PATH: join(dir, 'immune.sqlite'), ZCODE_PROJECT_DIR: dir };
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const session = 'hint-1';
+
+  // Turn 1: the command fails.
+  runHook(
+    'post-tool-use',
+    {
+      hook_event_name: 'PostToolUse',
+      session_id: session,
+      tool_name: 'Bash',
+      tool_input: { command: 'npm run build' },
+      tool_response: { exitCode: 127 },
+      tool_result_preview: 'npm ERR! missing script: build',
+    },
+    env,
+  );
+
+  // Turn 2: the human explains the rule.
+  runHook(
+    'user-prompt-submit',
+    {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: session,
+      prompt: '这个仓库用的是 pnpm，不要用 npm，重新跑一次',
+    },
+    env,
+  );
+
+  // Turn 2 continues: the retry works.
+  runHook(
+    'post-tool-use',
+    {
+      hook_event_name: 'PostToolUse',
+      session_id: session,
+      tool_name: 'Bash',
+      tool_input: { command: 'pnpm build' },
+      tool_response: { exitCode: 0 },
+      tool_result_preview: 'build ok',
+    },
+    env,
+  );
+  runHook('stop', { hook_event_name: 'Stop', session_id: session }, env);
+
+  const listed = spawnSync(process.execPath, [CLI, 'list'], {
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+  assert.match(listed.stdout, /pnpm/, 'the human explanation must survive into the rule');
+});
+
 test('session-start priming is recorded, so the first prompt does not repeat it', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'immune-'));
   const env = {

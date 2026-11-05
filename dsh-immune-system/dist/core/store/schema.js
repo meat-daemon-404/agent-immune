@@ -49,6 +49,7 @@ export const SCHEMA_STATEMENTS = [
     tool_name    TEXT    NOT NULL,
     trace        TEXT    NOT NULL,
     injected_ids TEXT    NOT NULL DEFAULT '[]',
+    human_hint   TEXT    NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (session_id, tool_name)
   )`,
@@ -64,6 +65,7 @@ export const SCHEMA_STATEMENTS = [
     failure_trace TEXT    NOT NULL,
     success_trace TEXT    NOT NULL,
     injected_ids  TEXT    NOT NULL DEFAULT '[]',
+    human_hint    TEXT    NOT NULL DEFAULT '',
     status        TEXT    NOT NULL DEFAULT 'pending',
     note          TEXT    NOT NULL DEFAULT '',
     created_at    INTEGER NOT NULL,

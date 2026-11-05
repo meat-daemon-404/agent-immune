@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Antibody, AntibodyStatus, NewAntibody } from '../types.js';
-import { buildFtsQuery } from './tokenize.js';
+import { buildFtsQuery, cjkBigrams } from './tokenize.js';
 import { isRelated } from '../relevance.js';
 
 /** An antibody is retired after this many injected-but-still-failed episodes. */
@@ -34,25 +34,87 @@ export function insertAntibody(db: DatabaseSync, ab: NewAntibody): number | null
   return Number(info.lastInsertRowid);
 }
 
-/** Rank active antibodies against free text using bm25. */
+/**
+ * Rank active antibodies against free text.
+ *
+ * Two retrievers, merged:
+ *   1. FTS5 trigram MATCH for terms of 3+ characters (ranked by bm25);
+ *   2. a bound-parameter LIKE pass for 2-character CJK words, which trigram
+ *      cannot index at all — without it "跨域" / "端口" / "权限" never match.
+ *
+ * Like-query values are bound, never interpolated, and only the number of
+ * placeholders is generated (that count is derived from a bounded token list).
+ */
 export function findMatches(db: DatabaseSync, text: string, limit: number): Antibody[] {
+  const rows: Antibody[] = [];
+  const seen = new Set<number>();
+
   const ftsQuery = buildFtsQuery(text);
-  if (!ftsQuery) return [];
-  try {
-    return db
-      .prepare(
-        `SELECT a.* FROM antibodies a
-           JOIN antibodies_fts f ON a.id = f.rowid
-          WHERE antibodies_fts MATCH ?
-            AND a.status = 'active'
-          ORDER BY bm25(antibodies_fts)
-          LIMIT ?`,
-      )
-      .all(ftsQuery, limit) as unknown as Antibody[];
-  } catch {
-    // A malformed MATCH expression must never break the user's turn.
-    return [];
+  if (ftsQuery) {
+    try {
+      const hits = db
+        .prepare(
+          `SELECT a.* FROM antibodies a
+             JOIN antibodies_fts f ON a.id = f.rowid
+            WHERE antibodies_fts MATCH ?
+              AND a.status = 'active'
+            ORDER BY bm25(antibodies_fts)
+            LIMIT ?`,
+        )
+        .all(ftsQuery, limit) as unknown as Antibody[];
+      for (const row of hits) {
+        rows.push(row);
+        seen.add(row.id);
+      }
+    } catch {
+      // A malformed MATCH expression must never break the user's turn.
+    }
   }
+
+  if (rows.length >= limit) return rows.slice(0, limit);
+
+  const bigrams = cjkBigrams(text);
+  if (bigrams.length === 0) return rows;
+
+  try {
+    const clause = '(trigger_pattern LIKE ? OR symptom LIKE ? OR prescription LIKE ?)';
+    const where = bigrams.map(() => clause).join(' OR ');
+    const params: string[] = [];
+    for (const gram of bigrams) {
+      const needle = `%${gram}%`;
+      params.push(needle, needle, needle);
+    }
+
+    const candidates = db
+      .prepare(
+        `SELECT * FROM antibodies
+          WHERE status = 'active' AND (${where})
+          ORDER BY hit_count DESC, created_at DESC
+          LIMIT 24`,
+      )
+      .all(...params) as unknown as Antibody[];
+
+    // Rank the LIKE hits by how many distinct words they contain, so an
+    // antibody matching two concepts outranks one that merely shares a word.
+    const scored = candidates
+      .filter((row) => !seen.has(row.id))
+      .map((row) => {
+        const haystack = `${row.trigger_pattern} ${row.symptom} ${row.prescription}`;
+        const score = bigrams.filter((gram) => haystack.includes(gram)).length;
+        return { row, score };
+      })
+      .sort((a, b) => b.score - a.score || b.row.hit_count - a.row.hit_count);
+
+    for (const entry of scored) {
+      if (rows.length >= limit) break;
+      rows.push(entry.row);
+      seen.add(entry.row.id);
+    }
+  } catch {
+    // The fallback is an optimisation; never let it cost the caller a turn.
+  }
+
+  return rows.slice(0, limit);
 }
 
 /** Bump hit counters for injected antibodies. */
@@ -133,4 +195,34 @@ export function exportableAntibodies(db: DatabaseSync, minHits: number): Antibod
         ORDER BY hit_count DESC, created_at DESC`,
     )
     .all(minHits) as unknown as Antibody[];
+}
+
+/** Id of the newest still-active antibody, or null when there is none. */
+export function newestActiveId(db: DatabaseSync): number | null {
+  const row = db
+    .prepare("SELECT id FROM antibodies WHERE status = 'active' ORDER BY id DESC LIMIT 1")
+    .get() as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+/**
+ * Delete "zombie" antibodies: never injected once, and old enough that they
+ * are not simply waiting for their first recall.
+ *
+ * Returns the ids actually removed so the caller can report them.
+ */
+export function pruneZombieAntibodies(db: DatabaseSync, olderThanMs: number): number[] {
+  const cutoff = Date.now() - olderThanMs;
+  const rows = db
+    .prepare(
+      `SELECT id FROM antibodies
+        WHERE status = 'active' AND hit_count = 0 AND created_at < ?`,
+    )
+    .all(cutoff) as Array<{ id: number }>;
+
+  const removed: number[] = [];
+  for (const row of rows) {
+    if (removeAntibody(db, row.id)) removed.push(row.id);
+  }
+  return removed;
 }

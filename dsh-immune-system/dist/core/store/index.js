@@ -1,8 +1,8 @@
 import { resolve } from 'node:path';
 import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
-import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, } from './antibodies.js';
-import { claimFailure, injectedIds, pruneStale, recordFailure, recordInjection, } from './episodes.js';
+import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, newestActiveId, pruneZombieAntibodies, } from './antibodies.js';
+import { claimFailure, injectedIds, pruneStale, recordFailure, recordInjection, attachHumanHint, } from './episodes.js';
 import { claimJob, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
 export { RETIRE_AFTER_FAILURES } from './antibodies.js';
 export { resolveDbPath } from './path.js';
@@ -46,11 +46,26 @@ export class ImmuneStore {
     remove(id) {
         return removeAntibody(this.db, id);
     }
+    /** Forget the newest active antibody. Returns its id, or null when none. */
+    forgetLast() {
+        const id = newestActiveId(this.db);
+        if (id === null)
+            return null;
+        return removeAntibody(this.db, id) ? id : null;
+    }
+    /** Delete never-injected antibodies older than `olderThanMs`. */
+    pruneZombies(olderThanMs) {
+        return pruneZombieAntibodies(this.db, olderThanMs);
+    }
     setStatus(id, status) {
         return setAntibodyStatus(this.db, id, status);
     }
     recordFailure(sessionId, toolName, trace) {
         return recordFailure(this.db, sessionId, toolName, trace);
+    }
+    /** Annotate pending failures with what the human said in the next turn. */
+    attachHumanHint(sessionId, hint) {
+        return attachHumanHint(this.db, sessionId, hint);
     }
     claimFailure(sessionId, toolName) {
         return claimFailure(this.db, sessionId, toolName);
@@ -67,8 +82,8 @@ export class ImmuneStore {
     exportable(minHits = 3) {
         return exportableAntibodies(this.db, minHits);
     }
-    enqueueJob(tool, failure, success, injected) {
-        return enqueueJob(this.db, tool, failure, success, injected);
+    enqueueJob(tool, failure, success, injected, humanHint = '') {
+        return enqueueJob(this.db, tool, failure, success, injected, humanHint);
     }
     claimJob() {
         return claimJob(this.db);

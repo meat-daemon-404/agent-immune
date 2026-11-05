@@ -49,7 +49,7 @@ check('registered session-start listener', listeners.has(DSH_EVENTS.sessionStart
 check('registered pre-step listener', listeners.has(DSH_EVENTS.preStep), true);
 check('registered post-execute listener', listeners.has(DSH_EVENTS.postToolExecute), true);
 check('registered turn-stopping listener', listeners.has(DSH_EVENTS.turnStopping), true);
-check('registered commands', [...commands.keys()].sort(), ['immune', 'immune-export']);
+check('registered commands', [...commands.keys()].sort(), ['immune', 'immune-export', 'immune-forget']);
 check('logged storage path', logs.some(([, m]) => m.includes(dbPath)), true);
 
 // ---- helpers ---------------------------------------------------------------

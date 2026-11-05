@@ -1,10 +1,10 @@
-export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds) {
+export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds, humanHint = '') {
     const now = Date.now();
     const info = db
         .prepare(`INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'pending', ?, ?)`)
-        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), now, now);
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, now, now);
     return Number(info.lastInsertRowid);
 }
 /**
