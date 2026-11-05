@@ -13,9 +13,12 @@ function parseIds(raw) {
     }
 }
 /** Remember which antibodies were injected on this session's current turn. */
-export function recordInjection(db, sessionId, ids) {
-    db.prepare(`INSERT INTO session_injections (session_id, ids, created_at) VALUES (?, ?, ?)
-     ON CONFLICT(session_id) DO UPDATE SET ids = excluded.ids, created_at = excluded.created_at`).run(sessionId, JSON.stringify(ids), Date.now());
+export function recordInjection(db, sessionId, ids, prescriptions = []) {
+    db.prepare(`INSERT INTO session_injections (session_id, ids, prescriptions, created_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET
+       ids = excluded.ids,
+       prescriptions = excluded.prescriptions,
+       created_at = excluded.created_at`).run(sessionId, JSON.stringify(ids), JSON.stringify(prescriptions), Date.now());
 }
 /** Antibody ids injected during the current turn of this session. */
 export function injectedIds(db, sessionId) {
@@ -27,6 +30,28 @@ export function injectedIds(db, sessionId) {
     if (Date.now() - row.created_at > INJECTION_TTL_MS)
         return [];
     return parseIds(row.ids);
+}
+/**
+ * Prescriptions delivered during the current turn.
+ *
+ * Shared-library rules have no stable id this database can reason about (their
+ * ids come from another file), so they are deduplicated by prescription text.
+ */
+export function injectedPrescriptions(db, sessionId) {
+    const row = db
+        .prepare('SELECT prescriptions, created_at FROM session_injections WHERE session_id = ?')
+        .get(sessionId);
+    if (!row)
+        return [];
+    if (Date.now() - row.created_at > INJECTION_TTL_MS)
+        return [];
+    try {
+        const parsed = JSON.parse(row.prescriptions ?? '[]');
+        return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    }
+    catch {
+        return [];
+    }
 }
 /**
  * Record a failed tool call, capturing which antibodies were in context so they

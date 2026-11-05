@@ -396,6 +396,53 @@ test('a generic lesson reaches a brand-new project through the shared library', 
   }
 });
 
+test('shared rules count their own hits and respect per-session dedup', async () => {
+  const { GlobalStore } = await import('../dsh-immune-system/dist/core/store/global.js');
+  const { rmSync } = await import('node:fs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-global2-'));
+  try {
+    const a = new ImmuneStore({ dbPath: join(dir, 'a.sqlite') });
+    a.insertShared(
+      {
+        trigger_pattern: 'Edit file-modified-since-read 重读',
+        symptom: '文件被外部修改',
+        prescription: '先重新 Read 再改',
+      },
+      { generic: true },
+    );
+    a.close();
+
+    const b = new ImmuneStore({ dbPath: join(dir, 'b.sqlite') });
+    const opts = { limit: 3, sessionId: 's1', excludeInjected: true };
+    assert.equal(b.match('文件被外部修改了', opts).length, 1, 'recalled from the shared library');
+    assert.equal(b.match('文件被外部修改了', opts).length, 0, 'not re-injected in the same session');
+
+    // The shared library must be a library, not a read-only mirror: without
+    // this its rules could never age, retire, or be pruned.
+    const g = new GlobalStore(join(dir, 'global.sqlite'));
+    assert.equal(g.listAll()[0].hit_count, 1, 'the shared library counts injections');
+    g.close();
+    b.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('--prune retires, --purge deletes', () => {
+  const s = store();
+  const id = s.insert({ trigger_pattern: 'z.ts', symptom: 's', prescription: 'p-zombie' });
+  assert.ok(id);
+  const longAgo = Date.now() - 15 * 24 * 60 * 60 * 1000;
+  s['db'].prepare('UPDATE antibodies SET created_at = ? WHERE id = ?').run(longAgo, id);
+
+  assert.deepEqual(s.retireZombies(14 * 24 * 60 * 60 * 1000), [id]);
+  assert.equal(s.listAll(true).length, 1, 'retiring keeps the row recoverable');
+  assert.equal(s.listAll(false).length, 0, 'and stops it being injected');
+  assert.deepEqual(s.pruneZombies(14 * 24 * 60 * 60 * 1000), [], 'an already-retired row is not purged');
+  s.close();
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

@@ -121,12 +121,18 @@ function main(argv: string[]): number {
           );
           return 0;
         }
-        if (args.includes('--prune')) {
-          const removed = store.pruneZombies(14 * 24 * 60 * 60 * 1000);
+        if (args.includes('--prune') || args.includes('--purge')) {
+          // --prune retires (reversible, stops injection); --purge deletes.
+          // Deletion is not the default because zero hits only proves the
+          // trigger has not come up yet, not that the rule is worthless.
+          const purge = args.includes('--purge');
+          const window = 14 * 24 * 60 * 60 * 1000;
+          const changed = purge ? store.pruneZombies(window) : store.retireZombies(window);
+          const label = purge ? strings().purged : strings().pruned;
           process.stdout.write(
-            removed.length === 0
+            changed.length === 0
               ? `${strings().noZombies}\n`
-              : `${strings().pruned} ${removed.length}: ${removed.map((n) => `#${n}`).join(' ')}\n`,
+              : `${label} ${changed.length}: ${changed.map((n) => `#${n}`).join(' ')}\n`,
           );
           return 0;
         }
@@ -134,7 +140,7 @@ function main(argv: string[]): number {
         const id = Number(args[0]);
         if (!Number.isFinite(id)) {
           process.stderr.write(
-            'usage: immune forget <id> | --last | --prune\n',
+            'usage: immune forget <id> | --last | --prune | --purge\n',
           );
           return 2;
         }

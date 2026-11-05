@@ -24,7 +24,8 @@ const BOTH = {
     exported: '已导出 / Exported',
     forgot: '已删除抗体 / Forgot antibody',
     notFound: '没有找到抗体 / No antibody found',
-    pruned: '已清理僵尸抗体 / Pruned zombies',
+    pruned: '已退役僵尸抗体 / Retired zombies',
+    purged: '已删除僵尸抗体 / Purged zombies',
     noZombies: '没有可清理的僵尸抗体（从未命中且超过 14 天）。\nNo zombie antibodies to prune (never injected, older than 14 days).',
 };
 const ZH = {
@@ -38,7 +39,8 @@ const ZH = {
     exported: '已导出',
     forgot: '已删除抗体',
     notFound: '没有找到抗体',
-    pruned: '已清理僵尸抗体',
+    pruned: '已退役僵尸抗体',
+    purged: '已删除僵尸抗体',
     noZombies: '没有可清理的僵尸抗体（从未命中且超过 14 天）。',
 };
 const EN = {
@@ -52,7 +54,8 @@ const EN = {
     exported: 'Exported',
     forgot: 'Forgot antibody',
     notFound: 'No antibody found',
-    pruned: 'Pruned zombies',
+    pruned: 'Retired zombies',
+    purged: 'Purged zombies',
     noZombies: 'No zombie antibodies to prune (never injected, older than 14 days).',
 };
 /**

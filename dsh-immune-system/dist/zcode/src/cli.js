@@ -108,16 +108,22 @@ function main(argv) {
                     process.stdout.write(id === null ? `${strings().notFound}\n` : `${strings().forgot} #${id}.\n`);
                     return 0;
                 }
-                if (args.includes('--prune')) {
-                    const removed = store.pruneZombies(14 * 24 * 60 * 60 * 1000);
-                    process.stdout.write(removed.length === 0
+                if (args.includes('--prune') || args.includes('--purge')) {
+                    // --prune retires (reversible, stops injection); --purge deletes.
+                    // Deletion is not the default because zero hits only proves the
+                    // trigger has not come up yet, not that the rule is worthless.
+                    const purge = args.includes('--purge');
+                    const window = 14 * 24 * 60 * 60 * 1000;
+                    const changed = purge ? store.pruneZombies(window) : store.retireZombies(window);
+                    const label = purge ? strings().purged : strings().pruned;
+                    process.stdout.write(changed.length === 0
                         ? `${strings().noZombies}\n`
-                        : `${strings().pruned} ${removed.length}: ${removed.map((n) => `#${n}`).join(' ')}\n`);
+                        : `${label} ${changed.length}: ${changed.map((n) => `#${n}`).join(' ')}\n`);
                     return 0;
                 }
                 const id = Number(args[0]);
                 if (!Number.isFinite(id)) {
-                    process.stderr.write('usage: immune forget <id> | --last | --prune\n');
+                    process.stderr.write('usage: immune forget <id> | --last | --prune | --purge\n');
                     return 2;
                 }
                 process.stdout.write(store.remove(id) ? `${strings().forgot} #${id}.\n` : `${strings().notFound} #${id}.\n`);

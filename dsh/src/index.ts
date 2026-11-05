@@ -23,6 +23,8 @@ import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
 import { matchGenericLesson } from '../../core/lessons.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
+import { findGuardHit, guardMode } from '../../core/guards.js';
+import { redact } from '../../core/redact.js';
 import {
   DSH_EVENTS,
   PLUGIN_NAME,
@@ -35,6 +37,7 @@ import {
   type DshContext,
   type DshPostToolDecision,
   type DshPreStepDecision,
+  type DshPreToolDecision,
   type DshSessionEvent,
   type NormalisedToolEvent,
 } from './dsh-adapter.js';
@@ -286,6 +289,29 @@ function startPlugin(ctx: DshContext): void {
     return { kind: 'enter', messages: decision.messages.toSpliced(insertAt(decision.messages, messages), 0, desired) };
   });
 
+  // Guards run before dispatch and can refuse the call outright. Only the
+  // `deny` mode is meaningful here: `PreToolDecision` has no context channel,
+  // so `warn` cannot be delivered from this hook and is ZCode-only.
+  ctx.on(
+    DSH_EVENTS.preToolExecute,
+    async (exec, next): Promise<DshPreToolDecision> => {
+      if (guardMode() === 'deny') {
+        const argumentsText = (() => {
+          try {
+            return redact(JSON.stringify(exec?.arguments ?? {})).slice(0, 2000);
+          } catch {
+            return '';
+          }
+        })();
+        const hit = findGuardHit(argumentsText);
+        if (hit) {
+          return { kind: 'deny', reason: `[${hit.rule.id}] ${hit.rule.what} → ${hit.rule.instead}` };
+        }
+      }
+      return next();
+    },
+  );
+
   // Tool results: sense the failure -> success inflection.
   ctx.on(
     DSH_EVENTS.postToolExecute,
@@ -372,8 +398,9 @@ function startPlugin(ctx: DshContext): void {
 
   ctx.commands.register({
     name: 'immune-forget',
-    description: 'Remove antibodies: <id>, --last (undo the previous turn), or --prune (never-hit, >14d)',
-    input: { hint: '<id> | --last | --prune' },
+    description:
+      'Remove antibodies: <id>, --last (undo the previous turn), --prune (retire never-hit, >14d), --purge (delete them)',
+    input: { hint: '<id> | --last | --prune | --purge' },
     handler: ({ rawInput }): DshCommandResult => {
       const args = rawInput.trim().split(/\s+/).filter(Boolean);
 
@@ -385,14 +412,17 @@ function startPlugin(ctx: DshContext): void {
         };
       }
 
-      if (args.includes('--prune')) {
-        const removed = store.pruneZombies(14 * 24 * 60 * 60 * 1000);
+      if (args.includes('--prune') || args.includes('--purge')) {
+        const purge = args.includes('--purge');
+        const window = 14 * 24 * 60 * 60 * 1000;
+        const changed = purge ? store.pruneZombies(window) : store.retireZombies(window);
+        const label = purge ? t.purged : t.pruned;
         return {
           kind: 'success',
           text:
-            removed.length === 0
+            changed.length === 0
               ? t.noZombies
-              : `${t.pruned} ${removed.length}: ${removed.map((n) => `#${n}`).join(' ')}`,
+              : `${label} ${changed.length}: ${changed.map((n) => `#${n}`).join(' ')}`,
         };
       }
 

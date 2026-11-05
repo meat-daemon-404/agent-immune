@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync as Database } from 'node:sqlite';
 import { SCHEMA_STATEMENTS } from './schema.js';
 import { openDatabase } from './open.js';
-import { findMatches, insertAntibody } from './antibodies.js';
+import { findMatches, insertAntibody, bumpHits, pruneZombieAntibodies } from './antibodies.js';
 /** File name of the shared library next to the per-project database. */
 export const GLOBAL_DB_FILE = 'global.sqlite';
 /** Path of the global library that belongs to a given project database. */
@@ -55,6 +55,22 @@ export class GlobalStore {
     }
     match(text, limit) {
         return findMatches(this.db, text, limit);
+    }
+    /**
+     * Count an injection of a shared rule.
+     *
+     * Without this the shared library would be write-only: `findMatches` is a
+     * pure read, so a shared rule could never accumulate hits, never satisfy any
+     * hit-based rule, and never be pruned or retired.
+     */
+    countInjection(ids) {
+        if (ids.length === 0)
+            return;
+        bumpHits(this.db, ids);
+    }
+    /** Drop shared rules that were never used and are old enough not to be new. */
+    pruneZombies(olderThanMs) {
+        return pruneZombieAntibodies(this.db, olderThanMs);
     }
     listAll(includeRetired = true) {
         const sql = includeRetired

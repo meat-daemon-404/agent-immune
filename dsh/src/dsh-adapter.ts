@@ -48,12 +48,14 @@ export const PLUGIN_NAME = 'dsh-immune-system';
  *
  * - `sessionStart`    — `packages\core\agent\src\runtime-types.ts:217` (`@mode emit`)
  * - `preStep`         — `packages\core\agent\src\runtime-types.ts:231` (`@mode waterfall`)
+ * - `preToolExecute`  — `packages\core\tools\src\index.ts:152` (`@mode waterfall`)
  * - `postToolExecute` — `packages\core\tools\src\index.ts:175` (`@mode waterfall`)
  * - `turnStopping`    — `packages\core\agent\src\runtime-types.ts:278` (`@mode serial`)
  */
 export const DSH_EVENTS = {
   sessionStart: 'agent/session-start',
   preStep: 'agent/pre-step',
+  preToolExecute: 'tools/pre-execute',
   postToolExecute: 'tools/post-execute',
   turnStopping: 'agent/turn-stopping',
 } as const;
@@ -125,6 +127,12 @@ export type DshToolResult =
 export type DshPreStepDecision =
   | { readonly kind: 'reject' }
   | { readonly kind: 'enter'; readonly messages: DshUserMessage[] };
+
+/** `PreToolDecision` at `packages\core\tools\src\index.ts:588-591`. */
+export type DshPreToolDecision =
+  | { readonly kind: 'allow' }
+  | { readonly kind: 'deny'; readonly reason: string }
+  | { readonly kind: 'ask'; readonly reason?: string };
 
 /** `PostToolDecision` at `packages\core\tools\src\index.ts:188-193`. */
 export type DshPostToolDecision =
@@ -227,6 +235,19 @@ export interface DshContext {
       payload: DshPreStepPayload,
       next: () => Promise<DshPreStepDecision>,
     ) => Promise<DshPreStepDecision>,
+  ): () => boolean;
+  /**
+   * Before dispatch — `packages\core\tools\src\index.ts:152` (`@mode waterfall`).
+   * `next()` allows; returning a decision replaces the outcome. Used only for
+   * the opt-in guard: `PreToolDecision` has no context channel, so an advisory
+   * (non-blocking) warning cannot be delivered from here.
+   */
+  on(
+    event: typeof DSH_EVENTS.preToolExecute,
+    listener: (
+      exec: DshToolExecution,
+      next: () => Promise<DshPreToolDecision>,
+    ) => Promise<DshPreToolDecision>,
   ): () => boolean;
   on(
     event: typeof DSH_EVENTS.postToolExecute,

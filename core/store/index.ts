@@ -22,11 +22,13 @@ import {
   setAntibodyStatus,
   newestActiveId,
   pruneZombieAntibodies,
+  retireZombieAntibodies,
   type PenaltyContext,
 } from './antibodies.js';
 import {
   claimFailure,
   injectedIds,
+  injectedPrescriptions,
   pruneStale,
   recordFailure,
   recordInjection,
@@ -124,8 +126,16 @@ export class ImmuneStore {
 
   match(queryText: string, opts: MatchOptions = {}): Antibody[] {
     const limit = opts.limit ?? 3;
-    let own = findMatches(this.db, queryText, limit);
 
+    // Prescriptions already delivered this session. Shared rules live in a
+    // different database with its own id sequence, so text is the only stable
+    // key to deduplicate them against project rules.
+    const sent =
+      opts.excludeInjected && opts.sessionId
+        ? new Set(injectedPrescriptions(this.db, opts.sessionId))
+        : null;
+
+    let own = findMatches(this.db, queryText, limit);
     // Opt-in dedup: a host whose injection happens per TURN (DSH) wants
     // re-injection in later turns; one that primes at session start plus
     // per-prompt matching (ZCode) asks for exclusion so the same rule is not
@@ -135,9 +145,36 @@ export class ImmuneStore {
       own = own.filter((r) => !seen.has(r.id));
     }
 
+    // Fill the remaining slots from the shared library, so a fresh project is
+    // not defenceless before it has learned anything of its own.
+    //
+    // Project rows and shared rows are tracked in separate arrays, never merged
+    // by id: the two databases have independent AUTOINCREMENT sequences, so an
+    // id from one can collide with an unrelated row in the other.
+    const shared: Antibody[] = [];
+    const delivered = new Set(own.map((r) => r.prescription));
+    if (own.length < limit) {
+      const global = this.global();
+      if (global) {
+        try {
+          // Ask for a little extra so deduplicated candidates do not shrink
+          // the result below what the caller asked for.
+          const want = limit - own.length + (sent?.size ?? 0);
+          for (const candidate of global.match(queryText, want)) {
+            if (delivered.has(candidate.prescription)) continue;
+            if (sent?.has(candidate.prescription)) continue;
+            shared.push(candidate);
+            delivered.add(candidate.prescription);
+            if (own.length + shared.length >= limit) break;
+          }
+        } catch {
+          // A broken shared library must not break the caller's turn.
+        }
+      }
+    }
+
     if (own.length > 0) {
       bumpHits(this.db, own.map((r) => r.id));
-      if (opts.sessionId) recordInjection(this.db, opts.sessionId, own.map((r) => r.id));
 
       // Promote on the turn a rule crosses five successful injections: that is
       // the proof-of-generality the promotion rule asks for, and checking the
@@ -160,35 +197,31 @@ export class ImmuneStore {
       }
     }
 
-    // Fill the remaining slots from the shared library, so a fresh project is
-    // not defenceless before it has learned anything of its own.
-    //
-    // Project rows and shared rows are tracked in separate arrays, never merged
-    // by id: the two databases have independent AUTOINCREMENT sequences, so an
-    // id from one can collide with an unrelated row in the other.
-    const shared: Antibody[] = [];
-    if (own.length < limit) {
-      const global = this.global();
-      if (global) {
-        try {
-          const have = new Set(own.map((r) => r.prescription));
-          for (const candidate of global.match(queryText, limit - own.length)) {
-            if (have.has(candidate.prescription)) continue;
-            shared.push(candidate);
-            if (own.length + shared.length >= limit) break;
-          }
-        } catch {
-          // A broken shared library must not break the caller's turn.
-        }
+    if (shared.length > 0) {
+      // The shared library is a real library, not a read-only mirror: its rules
+      // must accumulate hits or they can never age, retire, or be pruned.
+      try {
+        this.global()?.countInjection(shared.map((r) => r.id));
+      } catch {
+        // Counting is best-effort.
       }
+    }
+
+    if (opts.sessionId && (own.length > 0 || shared.length > 0)) {
+      recordInjection(
+        this.db,
+        opts.sessionId,
+        own.map((r) => r.id),
+        [...delivered],
+      );
     }
 
     return [...own, ...shared];
   }
 
   /** Record an injection that did not come through match() (session-start priming). */
-  recordInjection(sessionId: string, ids: number[]): void {
-    if (ids.length > 0) recordInjection(this.db, sessionId, ids);
+  recordInjection(sessionId: string, ids: number[], prescriptions: string[] = []): void {
+    if (ids.length > 0) recordInjection(this.db, sessionId, ids, prescriptions);
   }
 
   listAll(includeRetired = true): Antibody[] {
@@ -206,7 +239,12 @@ export class ImmuneStore {
     return removeAntibody(this.db, id) ? id : null;
   }
 
-  /** Delete never-injected antibodies older than `olderThanMs`. */
+  /** Retire never-injected antibodies older than `olderThanMs` (reversible). */
+  retireZombies(olderThanMs: number): number[] {
+    return retireZombieAntibodies(this.db, olderThanMs);
+  }
+
+  /** Delete never-injected antibodies older than `olderThanMs` (not reversible). */
   pruneZombies(olderThanMs: number): number[] {
     return pruneZombieAntibodies(this.db, olderThanMs);
   }

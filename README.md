@@ -94,10 +94,11 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `/immune-export` | DSH | 把经过验证的抗体导出成 `SKILL.md` |
 | `/immune-forget <id>` | DSH | 删除指定抗体 |
 | `/immune-forget --last` | DSH | 撤销上一回合刚学的那条 |
-| `/immune-forget --prune` | DSH | 清理从未命中且超过 14 天的僵尸抗体 |
+| `/immune-forget --prune` | DSH | **退役**从未命中且超过 14 天的抗体（可恢复，不再注入） |
+| `/immune-forget --purge` | DSH | **物理删除**上述抗体（不可恢复） |
 | `/dsh-immune-system:immune` | ZCode | 同上（加 `--all`） |
 | `/dsh-immune-system:immune-export` | ZCode | 同上 |
-| `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune`） |
+| `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune` / `--purge`） |
 
 > 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）
 > 走参数化 LIKE 兜底**——trigram 压根无法索引 2 字词，只靠 MATCH 会把这类词整段漏掉。
@@ -154,8 +155,12 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 三条只在任何环境都错的规则：强推 main、`rm -rf /`、`git reset --hard`。
 **规则写在代码里，不进数据库**——蒸馏产物是模型输出，把它编译成正则去拦截工具调用
 等于让未经审阅的字符串获得停止工作的权力，还有 ReDoS 风险。
-`deny` 是唯一有破坏性的模式，所以它从不是默认值。目前仅 ZCode 侧接线；
-DSH 的 `PreToolDecision` 形状未经核实，不猜。
+`deny` 是唯一有破坏性的模式，所以它从不是默认值。
+
+两侧都接上了：ZCode 用 `permissionDecision: deny`，the agent harness 用
+`tools/pre-execute` 返回 `{ kind: 'deny', reason }`（`PreToolDecision` 的三种形态
+查自 `packages/core/tools/src/index.ts:588`）。**`warn` 仅 ZCode 有效**——
+`PreToolDecision` 没有携带上下文的字段，the agent harness 侧只能"拦或不拦"。
 
 **③ 注入卫生**
 注入内容只来自我们自己提炼的字段，从不放原始工具输出；抗体文本里的尖括号被剥离，
@@ -212,7 +217,7 @@ DSH 的 `PreToolDecision` 形状未经核实，不猜。
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **55 条全绿**（33 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
+| `npm test` | **58 条全绿**（36 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

@@ -54,9 +54,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     PRIMARY KEY (session_id, tool_name)
   )`,
   `CREATE TABLE IF NOT EXISTS session_injections (
-    session_id TEXT    PRIMARY KEY,
-    ids        TEXT    NOT NULL,
-    created_at INTEGER NOT NULL
+    session_id    TEXT    PRIMARY KEY,
+    ids           TEXT    NOT NULL,
+    prescriptions TEXT    NOT NULL DEFAULT '[]',
+    created_at    INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_antibodies_status ON antibodies(status, hit_count DESC)`,
   `CREATE TABLE IF NOT EXISTS distill_jobs (

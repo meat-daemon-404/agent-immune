@@ -466,11 +466,14 @@ test('the entry point exports the Cordis plugin shape', () => {
 });
 
 test('DSH_EVENTS names the real host events', () => {
+  // Each name is pinned to its declaration in the DSH checkout; adding an event
+  // is meant to break this test so the new name gets verified, not assumed.
   assert.deepEqual(DSH_EVENTS, {
-    sessionStart: 'agent/session-start',
-    preStep: 'agent/pre-step',
-    postToolExecute: 'tools/post-execute',
-    turnStopping: 'agent/turn-stopping',
+    sessionStart: 'agent/session-start', // runtime-types.ts:217
+    preStep: 'agent/pre-step', // runtime-types.ts:231
+    preToolExecute: 'tools/pre-execute', // tools/src/index.ts:152
+    postToolExecute: 'tools/post-execute', // tools/src/index.ts:175
+    turnStopping: 'agent/turn-stopping', // runtime-types.ts:278
   });
 });
 
@@ -492,4 +495,36 @@ test('apply() degrades to a warning instead of breaking the session when the sto
     else process.env.IMMUNE_DB_PATH = previous;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('the DSH guard refuses a force-push only when asked', async (t) => {
+  const { fx } = await bootstrap(t);
+  const exec = { arguments: { command: 'git push --force origin main' } };
+  const allow = { kind: 'allow' };
+  const previous = process.env.IMMUNE_GUARD;
+
+  t.after(() => {
+    if (previous === undefined) delete process.env.IMMUNE_GUARD;
+    else process.env.IMMUNE_GUARD = previous;
+  });
+
+  // Default: the waterfall delegates, so the call proceeds.
+  delete process.env.IMMUNE_GUARD;
+  assert.deepEqual(
+    await fx.waterfall(DSH_EVENTS.preToolExecute, [exec], () => allow),
+    allow,
+  );
+
+  // deny: PreToolDecision carries a reason, and next() is never reached.
+  process.env.IMMUNE_GUARD = 'deny';
+  const denied = await fx.waterfall(DSH_EVENTS.preToolExecute, [exec], () => allow);
+  assert.equal(denied.kind, 'deny');
+  assert.match(denied.reason, /force-push-main/);
+
+  // A harmless command still passes through.
+  const harmless = { arguments: { command: 'git push origin feature/x' } };
+  assert.deepEqual(
+    await fx.waterfall(DSH_EVENTS.preToolExecute, [harmless], () => allow),
+    allow,
+  );
 });

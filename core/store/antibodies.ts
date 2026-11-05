@@ -206,11 +206,30 @@ export function newestActiveId(db: DatabaseSync): number | null {
 }
 
 /**
- * Delete "zombie" antibodies: never injected once, and old enough that they
- * are not simply waiting for their first recall.
+ * Retire "zombie" antibodies instead of deleting them.
  *
- * Returns the ids actually removed so the caller can report them.
+ * Preferred over deletion: zero hits does not prove a rule is worthless, only
+ * that its trigger has not come up yet. Retirement stops it being injected —
+ * the actual goal — while keeping the text recoverable if it turns out to
+ * matter. Physical removal is available separately, deliberately.
  */
+export function retireZombieAntibodies(db: DatabaseSync, olderThanMs: number): number[] {
+  const cutoff = Date.now() - olderThanMs;
+  const rows = db
+    .prepare(
+      `SELECT id FROM antibodies
+        WHERE status = 'active' AND hit_count = 0 AND created_at < ?`,
+    )
+    .all(cutoff) as Array<{ id: number }>;
+
+  const retired: number[] = [];
+  for (const row of rows) {
+    if (setAntibodyStatus(db, row.id, 'retired')) retired.push(row.id);
+  }
+  return retired;
+}
+
+/** Physically delete zombie antibodies. Only for an explicit "purge" request. */
 export function pruneZombieAntibodies(db: DatabaseSync, olderThanMs: number): number[] {
   const cutoff = Date.now() - olderThanMs;
   const rows = db

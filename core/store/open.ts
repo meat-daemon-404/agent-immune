@@ -37,6 +37,7 @@ export function openDatabase(dbPath: string): DatabaseSync {
 const COLUMNS: ReadonlyArray<{ table: string; column: string; ddl: string }> = [
   { table: 'pending_failures', column: 'human_hint', ddl: "TEXT NOT NULL DEFAULT ''" },
   { table: 'distill_jobs', column: 'human_hint', ddl: "TEXT NOT NULL DEFAULT ''" },
+  { table: 'session_injections', column: 'prescriptions', ddl: "TEXT NOT NULL DEFAULT '[]'" },
 ];
 
 function migrate(db: DatabaseSync): void {

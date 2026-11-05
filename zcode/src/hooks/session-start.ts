@@ -24,7 +24,13 @@ await runHook('SessionStart', async (event) => {
   try {
     await drainJobs(store);
     const top = store.listAll(false).slice(0, 3);
-    if (top.length > 0) store.recordInjection(sessionIdOf(event), top.map((a) => a.id));
+    if (top.length > 0) {
+      store.recordInjection(
+        sessionIdOf(event),
+        top.map((a) => a.id),
+        top.map((a) => a.prescription),
+      );
+    }
     return formatImmuneContext(top);
   } finally {
     store.close();
