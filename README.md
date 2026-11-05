@@ -99,9 +99,11 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `/dsh-immune-system:immune` | ZCode | 同上（加 `--all`） |
 | `/dsh-immune-system:immune-export` | ZCode | 同上 |
 | `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune` / `--purge`） |
+| `/dsh-immune-system:immune-learn` | ZCode | 手动教一条规则 |
 | `/dsh-immune-system:immune-ui` | ZCode | 启动本地仪表盘，给出地址 |
 | `cli.js ui [--port N]` | 两者 | 同上（前台运行，默认 7788，端口占用自动顺延） |
 | `cli.js learn <trigger> [symptom] <prescription>` | 两者 | 手动教一条规则（借鉴 pro-workflow 的 `/learn-rule`） |
+| `cli.js search <query>` | 两者 | 只读检索——与仪表盘/MCP 同一条不计数通道 |
 | `cli.js export-json <path>` / `import-json <path>` | 两者 | 库快照导出/导入——跨机器同步、git 提交、团队共享 |
 | `cli.js doctor` | 两者 | 安装健康自检：node 版本、FTS5、数据库、marker、MCP 脚本 |
 
