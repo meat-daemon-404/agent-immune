@@ -13,3 +13,7 @@ node_modules/
 
 # npm pack output (build artifacts are committed; tarballs are not)
 *.tgz
+
+# scratch files used while committing
+.git-commit-msg.txt
+.hub-issue.md
