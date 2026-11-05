@@ -169,6 +169,16 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
 | `scripts/verify-installed.mjs` | 16 断言（本机 profile 安装校验：bundles 登记、裸包名解析、patch 形状） |
 
+### 已知限制
+
+- **自噪声门有两个盲区**：它能识别「插件安装目录」和「插件开发仓库位于当前项目之下」两种自身路径；
+  但开发仓库位于项目目录**之外**时不匹配。实测代价：开发插件时的 Edit 冲突会入库两三条元噪声，
+  需要 `forget` 手动清理。（第一次真实使用时清理过 15 条，说明这不是理论问题。）
+- **模型端点默认拒绝环回**：本地 Ollama 类服务需显式设 `IMMUNE_ALLOW_PRIVATE_ENDPOINT=1`。
+  这是防 SSRF 的代价，不是疏漏。
+- **真实 agent 端到端未验**：验证期间模型额度返回 402，turn 到不了工具阶段。同一条链路改为
+  向安装副本投喂真实事件载荷验证（含真 Cordis 宿主的 20 条断言）。
+
 ---
 
 ## English
