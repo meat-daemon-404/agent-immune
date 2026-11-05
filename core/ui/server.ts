@@ -20,6 +20,7 @@ import type { AddressInfo } from 'node:net';
 import { ImmuneStore } from '../store/index.js';
 import { renderPage } from './page.js';
 import { resolveLocale } from '../i18n.js';
+import { applyAction, dashboardStats, readState } from './query.js';
 
 export interface UiServerOptions {
   /** Database to open. Defaults to the host's resolution. */
@@ -35,9 +36,6 @@ export interface UiServerHandle {
   port: number;
   close(): Promise<void>;
 }
-
-const MAX_QUERY = 200;
-const ACTIONS = new Set(['retire', 'restore', 'delete']);
 
 export async function startUiServer(options: UiServerOptions = {}): Promise<UiServerHandle> {
   const store = new ImmuneStore(options.dbPath ? { dbPath: options.dbPath } : {});
@@ -61,13 +59,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
   }
 
   function stats(): { active: number; retired: number; hits: number; shared: number } {
-    const all = store.listAll(true);
-    return {
-      active: all.filter((a) => a.status === 'active').length,
-      retired: all.filter((a) => a.status === 'retired').length,
-      hits: all.reduce((sum, a) => sum + a.hit_count, 0),
-      shared: store.sharedAntibodies(1000).length,
-    };
+    return dashboardStats(store);
   }
 
   function handle(req: IncomingMessage, res: ServerResponse): void {
@@ -99,13 +91,13 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (path === '/api/list' && req.method === 'GET') {
-      const query = (url.searchParams.get('q') ?? '').slice(0, MAX_QUERY);
-      sendJson(res, 200, { stats: stats(), antibodies: store.peek(query, 200) });
+      const query = url.searchParams.get('q') ?? '';
+      sendJson(res, 200, readState(store, 'project', query));
       return;
     }
 
     if (path === '/api/shared' && req.method === 'GET') {
-      sendJson(res, 200, { stats: stats(), antibodies: store.sharedAntibodies(200) });
+      sendJson(res, 200, readState(store, 'shared'));
       return;
     }
 
@@ -121,18 +113,8 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         const obj = (parsed ?? {}) as Record<string, unknown>;
         const op = typeof obj.op === 'string' ? obj.op : '';
         const id = typeof obj.id === 'number' ? obj.id : Number.NaN;
-        if (!ACTIONS.has(op) || !Number.isInteger(id) || id <= 0) {
-          sendJson(res, 400, { error: 'invalid action' });
-          return;
-        }
-
-        if (op === 'delete') {
-          const ok = store.remove(id);
-          sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
-          return;
-        }
-        const ok = store.setStatus(id, op === 'retire' ? 'retired' : 'active');
-        sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
+        const result = applyAction(store, op, id);
+        sendJson(res, result.status, result.body);
       });
       return;
     }

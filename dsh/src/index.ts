@@ -25,6 +25,7 @@ import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
 import { redact } from '../../core/redact.js';
+import { registerImmuneUiRoute } from './ui-route.js';
 import {
   DSH_EVENTS,
   PLUGIN_NAME,
@@ -235,6 +236,11 @@ function startPlugin(ctx: DshContext): void {
   const log = makeLogger(ctx);
   const store = new ImmuneStore({ dbPath: resolveStorePath() });
   log.info(`[immune] storage: ${store.dbPath}`);
+
+  // Native web UI: the settings tab in the DSH web app talks to this route.
+  // Optional on purpose — CLI and desktop profiles expose no `webServer`, and
+  // requiring one would stop the plugin activating there at all.
+  registerImmuneUiRoute(ctx, store);
 
   // Remember every human prompt as it lands, so a resumed session can still be
   // matched even when its first pre-step batch carries no human message.

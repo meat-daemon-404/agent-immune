@@ -18,8 +18,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { ImmuneStore } from '../store/index.js';
 import { renderPage } from './page.js';
 import { resolveLocale } from '../i18n.js';
-const MAX_QUERY = 200;
-const ACTIONS = new Set(['retire', 'restore', 'delete']);
+import { applyAction, dashboardStats, readState } from './query.js';
 export async function startUiServer(options = {}) {
     const store = new ImmuneStore(options.dbPath ? { dbPath: options.dbPath } : {});
     const token = randomBytes(24).toString('hex');
@@ -40,13 +39,7 @@ export async function startUiServer(options = {}) {
         return a.length === b.length && timingSafeEqual(a, b);
     }
     function stats() {
-        const all = store.listAll(true);
-        return {
-            active: all.filter((a) => a.status === 'active').length,
-            retired: all.filter((a) => a.status === 'retired').length,
-            hits: all.reduce((sum, a) => sum + a.hit_count, 0),
-            shared: store.sharedAntibodies(1000).length,
-        };
+        return dashboardStats(store);
     }
     function handle(req, res) {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1');
@@ -72,12 +65,12 @@ export async function startUiServer(options = {}) {
             return;
         }
         if (path === '/api/list' && req.method === 'GET') {
-            const query = (url.searchParams.get('q') ?? '').slice(0, MAX_QUERY);
-            sendJson(res, 200, { stats: stats(), antibodies: store.peek(query, 200) });
+            const query = url.searchParams.get('q') ?? '';
+            sendJson(res, 200, readState(store, 'project', query));
             return;
         }
         if (path === '/api/shared' && req.method === 'GET') {
-            sendJson(res, 200, { stats: stats(), antibodies: store.sharedAntibodies(200) });
+            sendJson(res, 200, readState(store, 'shared'));
             return;
         }
         if (path === '/api/action' && req.method === 'POST') {
@@ -93,17 +86,8 @@ export async function startUiServer(options = {}) {
                 const obj = (parsed ?? {});
                 const op = typeof obj.op === 'string' ? obj.op : '';
                 const id = typeof obj.id === 'number' ? obj.id : Number.NaN;
-                if (!ACTIONS.has(op) || !Number.isInteger(id) || id <= 0) {
-                    sendJson(res, 400, { error: 'invalid action' });
-                    return;
-                }
-                if (op === 'delete') {
-                    const ok = store.remove(id);
-                    sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
-                    return;
-                }
-                const ok = store.setStatus(id, op === 'retire' ? 'retired' : 'active');
-                sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'not found' });
+                const result = applyAction(store, op, id);
+                sendJson(res, result.status, result.body);
             });
             return;
         }

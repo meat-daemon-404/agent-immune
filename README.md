@@ -119,6 +119,24 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 UI 是自建的而非宿主插件 UI——ZCode 插件没有 UI 插槽（只有 hooks/commands/skills/MCP），
 所以走本地 HTTP，两个宿主通用。
 
+#### the agent harness 原生 UI（设置页里的 tab）
+
+the agent harness 有 web GUI 和客户端插槽，所以那边**不用另开页面**：
+`设置 → 插件` 里会出现一个「免疫 / Immune」tab。
+
+- 客户端是 `dsh-immune-system/client/client.js`，按模块装载器契约手写
+  （`window.__ModuleLoader__.load({ id, factory })`），**不需要打包器、不写 JSX**
+- 数据走宿主路由 `/plugins/dsh-immune-system/api`，用
+  `ctx.inject(['webServer'], …)` 注册——这是可选依赖，CLI/桌面 profile 没有 web 服务时
+  插件照常工作，只是没有这个 tab
+- 变更类请求要求 `content-type: application/json` 且同源：JSON 会强制 CORS 预检，
+  跨站页面过不去
+
+> 诚实说明：客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、
+> 跨源拒绝、无 web 服务时不注册），但**没有在真实 web 应用里端到端跑通**——
+> 本机 web profile 装了十几个第三方插件和 MCP 服务，启动日志淹没在它们的输出里，
+> 我没能把启动稳定下来。tab 是否如期出现，需要你重启 DSH 后看一眼。
+
 ### 四个关键设计
 
 **① 失败感知不赌单一事件（这是最要命的一条）**
@@ -233,7 +251,7 @@ UI 是自建的而非宿主插件 UI——ZCode 插件没有 UI 插槽（只有 
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **63 条全绿**（41 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试，含仪表盘 13 条） |
+| `npm test` | **66 条全绿**（41 条 core + ZCode，22 条 DSH 单元，3 条原生 UI 契约） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
