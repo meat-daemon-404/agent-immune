@@ -101,6 +101,9 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune` / `--purge`） |
 | `/dsh-immune-system:immune-ui` | ZCode | 启动本地仪表盘，给出地址 |
 | `cli.js ui [--port N]` | 两者 | 同上（前台运行，默认 7788，端口占用自动顺延） |
+| `cli.js learn <trigger> [symptom] <prescription>` | 两者 | 手动教一条规则（借鉴 pro-workflow 的 `/learn-rule`） |
+| `cli.js export-json <path>` / `import-json <path>` | 两者 | 库快照导出/导入——跨机器同步、git 提交、团队共享 |
+| `cli.js doctor` | 两者 | 安装健康自检：node 版本、FTS5、数据库、marker、MCP 脚本 |
 
 > 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）
 > 走参数化 LIKE 兜底**——trigram 压根无法索引 2 字词，只靠 MATCH 会把这类词整段漏掉。
@@ -136,6 +139,24 @@ the agent harness 有 web GUI 和客户端插槽，所以那边**不用另开页
 > 跨源拒绝、无 web 服务时不注册），但**没有在真实 web 应用里端到端跑通**——
 > 本机 web profile 装了十几个第三方插件和 MCP 服务，启动日志淹没在它们的输出里，
 > 我没能把启动稳定下来。tab 是否如期出现，需要你重启 DSH 后看一眼。
+
+### 同步与体检
+
+库快照是纯 JSON（带格式标签），合并语义刻意保守：
+
+- **处方是身份**——与库自身的去重规则一致
+- 两侧都认识的规则，命中/失效计数取 **max**（两台机器各自独立计数，不该相乘）
+- 状态任一侧 active 即 active——「退役」是一台机器的判断，不是共识
+
+```bash
+node "<plugin>/dist/zcode/src/cli.js" export-json library.json   # 快照
+node "<plugin>/dist/zcode/src/cli.js" import-json library.json   # 合并进当前库
+node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
+```
+
+把 `library.json` 提交进仓库（或放进共享库 `global.sqlite` 所在目录的 git），团队每个
+成员 `import-json` 一次就继承全部教训。`doctor` 逐项报告 node 版本、FTS5 trigram
+探针、库可写性、marker、MCP 脚本，任何一项失败退出码非零，可以接进 CI。
 
 ### 四个关键设计
 

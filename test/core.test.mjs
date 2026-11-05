@@ -467,6 +467,101 @@ test('a weak single-window match is ranked last, not dropped', () => {
   s.close();
 });
 
+test('library snapshots round-trip and merge conservatively', async () => {
+  const { exportLibrary, importLibrary, SNAPSHOT_FORMAT } = await import(
+    '../dsh-immune-system/dist/core/sync.js'
+  );
+
+  // Machine A: two rules, one used heavily, one retired.
+  const a = store();
+  const used = a.insert({ trigger_pattern: 'pnpm-lock.yaml 这个仓库', symptom: 'npm 装错', prescription: '用 pnpm 装依赖' });
+  const dead = a.insert({ trigger_pattern: 'old.ts', symptom: 's', prescription: 'old fix' });
+  a.setStatus(dead, 'retired');
+  a.match('pnpm-lock.yaml 这个仓库');
+  a.match('pnpm-lock.yaml 这个仓库');
+
+  const snapshot = exportLibrary(a);
+  assert.equal(snapshot.format, SNAPSHOT_FORMAT);
+  assert.equal(snapshot.count, 2);
+  a.close();
+
+  // Machine B: knows the pnpm rule with a DIFFERENT tally, lacks the dead one.
+  const b = store();
+  const existing = b.insert({
+    trigger_pattern: 'pnpm-lock.yaml 那台机器',
+    symptom: 'npm 装错',
+    prescription: '用 pnpm 装依赖',
+  });
+  b.match('pnpm-lock.yaml 那台机器');
+
+  const report = importLibrary(b, snapshot);
+  assert.deepEqual(report, { added: 1, merged: 1, invalid: 0 });
+
+  const rows = b.listAll(true);
+  assert.equal(rows.length, 2);
+
+  // Tallies take the max: two machines' independent counts do not multiply.
+  const pnpm = rows.find((r) => r.prescription === '用 pnpm 装依赖');
+  assert.equal(pnpm.hit_count, 2, 'max(a=2, b=1)');
+  assert.equal(pnpm.status, 'active', 'active on either side wins');
+
+  const restored = rows.find((r) => r.prescription === 'old fix');
+  assert.equal(restored.status, 'retired', 'retirement survives the trip');
+  b.close();
+});
+
+test('import rejects malformed rows without dying', async () => {
+  const { importLibrary } = await import('../dsh-immune-system/dist/core/sync.js');
+  const s = store();
+  const report = importLibrary(s, {
+    format: 'dsh-immune-library',
+    version: 1,
+    antibodies: [
+      { trigger_pattern: 'ok.ts', symptom: 's', prescription: 'good fix' },
+      { trigger_pattern: '', prescription: 'no trigger' },
+      null,
+      'a string',
+    ],
+  });
+  assert.deepEqual(report, { added: 1, merged: 0, invalid: 3 });
+  s.close();
+});
+
+test('shared-library zombies age out on pruneStale', async () => {
+  const { GlobalStore, globalDbPathFor } = await import(
+    '../dsh-immune-system/dist/core/store/global.js'
+  );
+  const { rmSync } = await import('node:fs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-age-'));
+  try {
+    const a = new ImmuneStore({ dbPath: join(dir, 'a.sqlite') });
+    a.insertShared(
+      { trigger_pattern: 'Edit quoting', symptom: '路径含空格', prescription: '引号包住路径' },
+      { generic: true },
+    );
+    a.close();
+
+    // Age the shared rule past the 30-day window.
+    const g = new GlobalStore(globalDbPathFor(join(dir, 'a.sqlite')));
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    g['db'].prepare('UPDATE antibodies SET created_at = ?').run(old);
+    assert.equal(g.listAll(false).length, 1, 'still active before pruning');
+    g.close();
+
+    const b = new ImmuneStore({ dbPath: join(dir, 'b.sqlite') });
+    b.pruneStale(); // <- the fix: this call is what ages the shared library
+    b.close();
+
+    const after = new GlobalStore(globalDbPathFor(join(dir, 'a.sqlite')));
+    assert.equal(after.listAll(false).length, 0, 'retired by pruneStale');
+    assert.equal(after.listAll(true).length, 1, 'kept recoverable, not deleted');
+    after.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

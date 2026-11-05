@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync as Database } from 'node:sqlite';
 import { SCHEMA_STATEMENTS } from './schema.js';
 import { openDatabase } from './open.js';
-import { findMatches, insertAntibody, bumpHits, pruneZombieAntibodies } from './antibodies.js';
+import { findMatches, insertAntibody, bumpHits, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 /** File name of the shared library next to the per-project database. */
 export const GLOBAL_DB_FILE = 'global.sqlite';
 /** Path of the global library that belongs to a given project database. */
@@ -71,6 +71,10 @@ export class GlobalStore {
     /** Drop shared rules that were never used and are old enough not to be new. */
     pruneZombies(olderThanMs) {
         return pruneZombieAntibodies(this.db, olderThanMs);
+    }
+    /** Retire them instead — reversible, and the safer default for sharing. */
+    retireZombies(olderThanMs) {
+        return retireZombieAntibodies(this.db, olderThanMs);
     }
     listAll(includeRetired = true) {
         const sql = includeRetired

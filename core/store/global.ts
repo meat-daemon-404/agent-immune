@@ -21,7 +21,13 @@ import { DatabaseSync as Database } from 'node:sqlite';
 import type { Antibody } from '../types.js';
 import { SCHEMA_STATEMENTS } from './schema.js';
 import { openDatabase } from './open.js';
-import { findMatches, insertAntibody, bumpHits, pruneZombieAntibodies } from './antibodies.js';
+import {
+  findMatches,
+  insertAntibody,
+  bumpHits,
+  pruneZombieAntibodies,
+  retireZombieAntibodies,
+} from './antibodies.js';
 
 /** File name of the shared library next to the per-project database. */
 export const GLOBAL_DB_FILE = 'global.sqlite';
@@ -84,6 +90,11 @@ export class GlobalStore {
   /** Drop shared rules that were never used and are old enough not to be new. */
   pruneZombies(olderThanMs: number): number[] {
     return pruneZombieAntibodies(this.db, olderThanMs);
+  }
+
+  /** Retire them instead — reversible, and the safer default for sharing. */
+  retireZombies(olderThanMs: number): number[] {
+    return retireZombieAntibodies(this.db, olderThanMs);
   }
 
   listAll(includeRetired = true): Antibody[] {

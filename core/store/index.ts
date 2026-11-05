@@ -299,6 +299,16 @@ export class ImmuneStore {
 
   pruneStale(now = Date.now()): void {
     pruneStale(this.db, now);
+    // The shared library has no other caller for its zombie aging: without
+    // this, a shared rule that is never recalled lives forever, and the
+    // library can only ever grow. Retiring (not deleting) keeps it
+    // recoverable, and the longer window respects that shared rules are
+    // recalled more rarely than project ones.
+    try {
+      this.global()?.retireZombies(30 * 24 * 60 * 60 * 1000);
+    } catch {
+      // Aging the shared library is best-effort.
+    }
   }
 
   exportable(minHits = 3): Antibody[] {

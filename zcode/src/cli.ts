@@ -7,12 +7,14 @@
  *
  * Usage: node dist/zcode/src/cli.js <list|stats|export|prune|forget> [...]
  */
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { strings } from '../../core/i18n.js';
+import { SNAPSHOT_FORMAT, exportLibrary, importLibrary } from '../../core/sync.js';
 import { startUiServer } from '../../core/ui/server.js';
+import { runDoctor } from './doctor.js';
 import { dshDirOf } from './root-marker.js';
 
 const WIDE =
@@ -163,6 +165,65 @@ function main(argv: string[]): number {
           id === null ? `${strings().notFound}\n` : `${strings().learned} #${id}.\n`,
         );
         return 0;
+      }
+      case 'export-json': {
+        // Library snapshots are how a library moves between machines or to a
+        // teammate without npm, a server, or a shared filesystem.
+        const target = args[0];
+        const snapshot = exportLibrary(store);
+        const body = JSON.stringify(snapshot, null, 2) + '\n';
+        if (target) {
+          writeFileSync(resolve(target), body, 'utf8');
+          process.stdout.write(`exported ${snapshot.count} antibodies -> ${resolve(target)}\n`);
+        } else {
+          process.stdout.write(body);
+        }
+        return 0;
+      }
+      case 'import-json': {
+        const source = args[0];
+        if (!source) {
+          process.stderr.write('usage: immune import-json <snapshot.json>\n');
+          return 2;
+        }
+        let snapshot: unknown;
+        try {
+          snapshot = JSON.parse(readFileSync(resolve(source), 'utf8'));
+        } catch (error) {
+          process.stderr.write(
+            `cannot read snapshot: ${error instanceof Error ? error.message : String(error)}\n`,
+          );
+          return 2;
+        }
+        if (
+          typeof snapshot === 'object' &&
+          snapshot !== null &&
+          (snapshot as Record<string, unknown>).format !== SNAPSHOT_FORMAT
+        ) {
+          process.stderr.write(`not a ${SNAPSHOT_FORMAT} snapshot (missing format tag)\n`);
+          return 2;
+        }
+        const report = importLibrary(store, snapshot);
+        process.stdout.write(
+          `imported: ${report.added} added, ${report.merged} merged, ${report.invalid} invalid\n`,
+        );
+        return 0;
+      }
+      case 'doctor': {
+        // Own store: the shared one is closed by main's finally, and closing a
+        // store twice throws "database is not open".
+        const doctorStore = new ImmuneStore();
+        const results = runDoctor(doctorStore);
+        let failures = 0;
+        for (const check of results) {
+          if (!check.ok) failures += 1;
+          process.stdout.write(`${check.ok ? 'ok  ' : 'FAIL'} ${check.name}: ${check.detail}\n`);
+        }
+        doctorStore.close();
+        process.stdout.write(
+          `\n${results.length - failures}/${results.length} checks passed${failures ? ` — fix the ${failures} FAIL above` : ''}\n`,
+        );
+        return failures === 0 ? 0 : 1;
       }
       case 'forget': {
         // --last  : undo the antibody the previous turn just learned
