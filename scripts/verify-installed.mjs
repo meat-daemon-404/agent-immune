@@ -72,6 +72,7 @@ check('module exports normaliseToolEvent()', typeof mod.normaliseToolEvent === '
 check('DSH_EVENTS point at real host events', JSON.stringify(mod.DSH_EVENTS) === JSON.stringify({
   sessionStart: 'agent/session-start',
   preStep: 'agent/pre-step',
+  preToolExecute: 'tools/pre-execute',
   postToolExecute: 'tools/post-execute',
   turnStopping: 'agent/turn-stopping',
 }), mod.DSH_EVENTS);

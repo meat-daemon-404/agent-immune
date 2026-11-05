@@ -123,7 +123,7 @@ export function importLibrary(store: ImmuneStore, snapshot: unknown): ImportRepo
       if (changed) {
         // status has no numeric setter; go through setStatus when it changed.
         if (mergedStatus !== existing.status) store.setStatus(existing.id, mergedStatus);
-        applyTallies(store, existing.id, mergedHits, mergedFails);
+        applyTallies(store, existing.id, mergedHits, mergedFails, incoming.created_at);
       }
       report.merged += 1;
       continue;
@@ -141,7 +141,7 @@ export function importLibrary(store: ImmuneStore, snapshot: unknown): ImportRepo
       continue;
     }
     if (incoming.hit_count > 0 || incoming.fail_count > 0) {
-      applyTallies(store, id, incoming.hit_count, incoming.fail_count);
+      applyTallies(store, id, incoming.hit_count, incoming.fail_count, incoming.created_at);
     }
     if (incoming.status === 'retired') store.setStatus(id, 'retired');
     report.added += 1;
@@ -152,9 +152,26 @@ export function importLibrary(store: ImmuneStore, snapshot: unknown): ImportRepo
 
 import type { DatabaseSync } from 'node:sqlite';
 
-/** Set tallies directly; used by import, which owns merge policy. */
-function applyTallies(store: ImmuneStore, id: number, hitCount: number, failCount: number): void {
+/** Set tallies (and optionally creation time) directly; import owns merge policy. */
+function applyTallies(
+  store: ImmuneStore,
+  id: number,
+  hitCount: number,
+  failCount: number,
+  createdAt?: number,
+): void {
   const db = (store as unknown as { db: DatabaseSync }).db;
+  if (createdAt && createdAt > 0) {
+    // Snapshot time is preserved so zombie aging counts from the original
+    // lesson, not from when this machine imported it.
+    db.prepare('UPDATE antibodies SET hit_count = ?, fail_count = ?, created_at = ? WHERE id = ?').run(
+      hitCount,
+      failCount,
+      createdAt,
+      id,
+    );
+    return;
+  }
   db.prepare('UPDATE antibodies SET hit_count = ?, fail_count = ? WHERE id = ?').run(
     hitCount,
     failCount,

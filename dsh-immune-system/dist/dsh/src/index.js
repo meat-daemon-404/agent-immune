@@ -367,19 +367,30 @@ function startPlugin(ctx) {
     });
     ctx.commands.register({
         name: 'immune-learn',
-        description: 'Teach a rule directly: <trigger> [symptom] <prescription>',
-        input: { hint: '<trigger> [symptom] <prescription>' },
+        description: 'Teach a rule directly: <trigger> | [symptom] | <prescription>  (| separated; without |, trigger = first token and prescription = the rest)',
+        input: { hint: '<trigger> | [symptom] | <prescription>' },
         handler: ({ rawInput }) => {
-            const parts = rawInput.trim().split(/\s+/);
-            // A 3-part split cannot work on free text, so the rule is: trigger is the
-            // first token, prescription is the last, symptom is whatever is between.
-            const trigger = parts[0] ?? '';
-            const prescription = parts.length >= 2 ? parts[parts.length - 1] ?? '' : '';
-            const symptom = parts.length >= 3 ? parts.slice(1, -1).join(' ') : '';
-            if (!trigger || !prescription) {
+            const text = rawInput.trim();
+            // Free text cannot be split by whitespace: "用 pnpm 不是 npm" would put
+            // "npm" in the prescription slot. Pipe-separated when given; the
+            // separator-free form keeps trigger = first token, prescription = the rest.
+            const hasPipes = text.includes('|');
+            const segments = hasPipes
+                ? text.split('|').map((part) => part.trim())
+                : (() => {
+                    const tokens = text.split(/\s+/);
+                    const first = tokens[0] ?? '';
+                    const rest = tokens.slice(1).join(' ');
+                    return rest ? [first, rest] : [first];
+                })();
+            const trigger = segments[0] ?? '';
+            const prescription = segments[segments.length - 1] ?? '';
+            const symptom = segments.length >= 3 ? segments.slice(1, -1).join(' | ') : '';
+            if (!trigger || !prescription || segments.length > 3) {
                 return {
                     kind: 'error',
-                    text: `${t.notFound} — usage: <trigger> [symptom] <prescription>\nexample: pnpm-lock.yaml 这个仓库用 pnpm 不是 npm`,
+                    text: `${t.notFound} — expected: <trigger> | [symptom] | <prescription>\n` +
+                        `example: pnpm-lock.yaml 这个仓库 | npm 装依赖报错 | 用 pnpm 不要用 npm`,
                 };
             }
             const id = store.insert({

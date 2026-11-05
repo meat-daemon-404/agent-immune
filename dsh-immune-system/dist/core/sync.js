@@ -87,7 +87,7 @@ export function importLibrary(store, snapshot) {
                 // status has no numeric setter; go through setStatus when it changed.
                 if (mergedStatus !== existing.status)
                     store.setStatus(existing.id, mergedStatus);
-                applyTallies(store, existing.id, mergedHits, mergedFails);
+                applyTallies(store, existing.id, mergedHits, mergedFails, incoming.created_at);
             }
             report.merged += 1;
             continue;
@@ -104,7 +104,7 @@ export function importLibrary(store, snapshot) {
             continue;
         }
         if (incoming.hit_count > 0 || incoming.fail_count > 0) {
-            applyTallies(store, id, incoming.hit_count, incoming.fail_count);
+            applyTallies(store, id, incoming.hit_count, incoming.fail_count, incoming.created_at);
         }
         if (incoming.status === 'retired')
             store.setStatus(id, 'retired');
@@ -112,8 +112,14 @@ export function importLibrary(store, snapshot) {
     }
     return report;
 }
-/** Set tallies directly; used by import, which owns merge policy. */
-function applyTallies(store, id, hitCount, failCount) {
+/** Set tallies (and optionally creation time) directly; import owns merge policy. */
+function applyTallies(store, id, hitCount, failCount, createdAt) {
     const db = store.db;
+    if (createdAt && createdAt > 0) {
+        // Snapshot time is preserved so zombie aging counts from the original
+        // lesson, not from when this machine imported it.
+        db.prepare('UPDATE antibodies SET hit_count = ?, fail_count = ?, created_at = ? WHERE id = ?').run(hitCount, failCount, createdAt, id);
+        return;
+    }
     db.prepare('UPDATE antibodies SET hit_count = ?, fail_count = ? WHERE id = ?').run(hitCount, failCount, id);
 }

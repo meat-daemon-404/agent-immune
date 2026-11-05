@@ -90,7 +90,7 @@ identical-retry note).
 ## Verification
 
 ```bash
-npm test          # 72 unit tests (node:test)
+npm test          # node:test; counts grow as coverage does — green is the bar
 node scripts/verify-step1.mjs     # 15  — outcome classification
 node scripts/verify-steps23.mjs   # 22  — loop end-to-end (fake Cordis host)
 node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite

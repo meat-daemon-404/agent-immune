@@ -528,3 +528,35 @@ test('the DSH guard refuses a force-push only when asked', async (t) => {
     allow,
   );
 });
+
+test('immune-learn preserves free-text prescriptions via pipe separators', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+
+  const learn = (raw) => {
+    const command = fx.commands.find((c) => c.name === 'immune-learn');
+    return command.handler({ rawInput: raw });
+  };
+
+  // The pipe form keeps every segment intact — this is the regression this
+  // test pins: whitespace splitting once truncated the prescription to its
+  // last word ("用 pnpm 不要用 npm" -> "npm").
+  const piped = learn('pnpm-lock.yaml 这个仓库 | npm 装依赖报错 | 用 pnpm 不要用 npm');
+  assert.match(piped.text, /Learned #\d+/);
+
+  const rule = queryAll(
+    dbPath,
+    'SELECT trigger_pattern, symptom, prescription FROM antibodies WHERE prescription LIKE ?',
+    '%pnpm%',
+  )[0];
+  assert.ok(rule, 'the full prescription survived');
+  assert.equal(rule.symptom, 'npm 装依赖报错');
+
+  // Two-segment form: trigger = first token, prescription = the rest.
+  const two = learn('vite.config.ts | 用 loadEnv 读环境变量');
+  assert.match(two.text, /Learned #\d+/);
+
+  // Too many segments is refused loudly rather than silently mangled.
+  const tooMany = learn('a | b | c | d');
+  assert.equal(tooMany.kind, 'error');
+  assert.match(tooMany.text, /expected/);
+});
