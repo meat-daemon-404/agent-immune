@@ -92,6 +92,22 @@ npm test          # 59 条
 
 ---
 
+## 激活验证（2026-11-06）
+
+宿主半区已在**真实 DSH profile 启动**中验证加载与激活：
+
+1. 最小 profile（dsh-base + 本插件）boot 曾失败，根因是第三方主题包
+   `@linxin666/dsh-client-ui-skin-blue-fantasy` 缺失（`dsh-web-ui-all` 的跨插件
+   依赖）——**与本项目无关**；如果 DSH web 启动报同样的包缺失，先补装它。
+2. 补齐后 boot 成功：50 秒运行窗口内 0 错误 0 崩溃（此前两次均死于皮肤包）。
+3. 激活证据：`8636c0f2f7cb7f49.sqlite`（= sha1("D:\deepseek harness\deepseek-harness")
+   前 16 位）的 WAL/SHM 时间戳落在 boot 窗口内——插件的
+   `ctx.inject(['webServer'])` 可选路由与全部事件注册在真实 cordis 树中执行。
+
+仍未验：浏览器侧 tab 的实际渲染（需要带 GUI 的 web 会话）。
+
+---
+
 ## 一句话
 
 > 契约已核实，不是猜的。要改就从 `dsh-adapter.ts` 一处改，
