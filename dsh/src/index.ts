@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
+import { matchGenericLesson } from '../../core/lessons.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import {
@@ -188,7 +189,9 @@ async function drain(store: ImmuneStore, budgetMs = 8000): Promise<void> {
         humanHint: job.human_hint ?? '',
       });
       if (result.ok) {
-        store.insert(result.antibody);
+        store.insertShared(result.antibody, {
+          generic: matchGenericLesson(result.antibody.symptom) !== null,
+        });
         store.finishJob(job.id, 'done');
       } else {
         store.finishJob(job.id, result.reason === 'skip' ? 'skipped' : 'failed', result.detail ?? '');

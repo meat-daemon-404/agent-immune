@@ -354,6 +354,48 @@ test('a database created by an older version gains the hint columns on open', ()
   s.close();
 });
 
+test('a generic lesson reaches a brand-new project through the shared library', async () => {
+  const { isPromotable } = await import('../dsh-immune-system/dist/core/store/global.js');
+  const { existsSync, rmSync } = await import('node:fs');
+
+  // Promotion rule: curated generics always; otherwise only when the rule
+  // names no project-shaped path and has proven itself.
+  assert.equal(isPromotable({ trigger_pattern: 't', prescription: 'p' }, true), true);
+  assert.equal(
+    isPromotable({ trigger_pattern: 'Edit a.ts', prescription: 'p', hit_count: 9 }, false),
+    false,
+    'a file name is project-shaped, so it must not be shared',
+  );
+  assert.equal(isPromotable({ trigger_pattern: 'Edit quoting', prescription: 'quote the path', hit_count: 5 }, false), true);
+  assert.equal(isPromotable({ trigger_pattern: 'Edit quoting', prescription: 'quote the path', hit_count: 2 }, false), false);
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-global-'));
+  try {
+    // Project A learns a generic lesson.
+    const a = new ImmuneStore({ dbPath: join(dir, 'a.sqlite') });
+    a.insertShared(
+      {
+        trigger_pattern: 'Edit file-modified-since-read 重读 re-read',
+        symptom: '文件被外部修改',
+        prescription: '先重新 Read 拿到当前内容再改',
+      },
+      { generic: true },
+    );
+    a.close();
+    assert.ok(existsSync(join(dir, 'global.sqlite')), 'the shared library is created');
+
+    // Project B has never learned anything, yet inherits it.
+    const b = new ImmuneStore({ dbPath: join(dir, 'b.sqlite') });
+    assert.equal(b.listAll().length, 0, 'project B starts empty');
+    const hits = b.match('文件被外部修改了怎么办', { limit: 3 });
+    assert.equal(hits.length, 1, 'the shared rule is recalled in a fresh project');
+    assert.equal(b.listAll().length, 0, 'recalling does not copy it into project B');
+    b.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('exports only proven antibodies as SKILL.md', () => {
   const s = store();
   const id = s.insert({ trigger_pattern: 'a.ts', symptom: 'bad', prescription: 'good' });

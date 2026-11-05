@@ -1,4 +1,5 @@
 import { distillEpisode } from '../../core/distiller.js';
+import { matchGenericLesson } from '../../core/lessons.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { selfMarkers } from './root-marker.js';
 /** Default wall-clock budget for one drain, in milliseconds. */
@@ -36,7 +37,11 @@ export async function drainJobs(store, budgetMs = drainBudgetMs()) {
             });
             processed += 1;
             if (result.ok) {
-                store.insert(result.antibody);
+                // A generic lesson is published to the shared library so the next
+                // project starts already knowing it.
+                store.insertShared(result.antibody, {
+                    generic: matchGenericLesson(result.antibody.symptom) !== null,
+                });
                 store.finishJob(job.id, 'done');
                 learned += 1;
             }

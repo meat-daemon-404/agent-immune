@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
+import { matchGenericLesson } from '../../core/lessons.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { DSH_EVENTS, PLUGIN_NAME, createPluginMessage, makeLogger, normaliseToolEvent, textOf, } from './dsh-adapter.js';
@@ -149,7 +150,9 @@ async function drain(store, budgetMs = 8000) {
                 humanHint: job.human_hint ?? '',
             });
             if (result.ok) {
-                store.insert(result.antibody);
+                store.insertShared(result.antibody, {
+                    generic: matchGenericLesson(result.antibody.symptom) !== null,
+                });
                 store.finishJob(job.id, 'done');
             }
             else {

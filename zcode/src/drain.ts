@@ -9,6 +9,7 @@
  */
 import type { ImmuneStore } from '../../core/store/index.js';
 import { distillEpisode } from '../../core/distiller.js';
+import { matchGenericLesson } from '../../core/lessons.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { selfMarkers } from './root-marker.js';
 
@@ -57,7 +58,11 @@ export async function drainJobs(store: ImmuneStore, budgetMs = drainBudgetMs()):
       });
       processed += 1;
       if (result.ok) {
-        store.insert(result.antibody);
+        // A generic lesson is published to the shared library so the next
+        // project starts already knowing it.
+        store.insertShared(result.antibody, {
+          generic: matchGenericLesson(result.antibody.symptom) !== null,
+        });
         store.finishJob(job.id, 'done');
         learned += 1;
       } else {

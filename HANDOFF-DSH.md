@@ -77,7 +77,7 @@ ZCode 是第二种（`PostToolUse` / `PostToolUseFailure`），而且有个坑�
 
 ```bash
 npm run build          # 必须 0 错误
-npm test               # 53 条，core 与 DSH 部分应全绿
+npm test               # 55 条，core 与 DSH 部分应全绿
 ```
 
 DSH 侧没有自动化测试，按这个顺序手验：

@@ -97,6 +97,42 @@ test('closed loop across separate hook processes', async (t) => {
   assert.match(payload.hookSpecificOutput.additionalContext, /<immune_memory>/);
 });
 
+test('the guard is off by default and denies only when asked', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-guard-'));
+  const base = { IMMUNE_DB_PATH: join(dir, 'immune.sqlite'), ZCODE_PROJECT_DIR: dir };
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const call = {
+    hook_event_name: 'PreToolUse',
+    session_id: 'g1',
+    tool_name: 'Bash',
+    tool_input: { command: 'git push --force origin main' },
+  };
+
+  // Default: advisory system only, and nothing learned yet means no output.
+  const silent = runHook('pre-tool-use', call, base);
+  assert.equal(silent.status, 0);
+  assert.equal(silent.stdout, '', 'guards must be opt-in');
+
+  // deny: the call is refused through the documented PreToolUse shape.
+  const denied = runHook('pre-tool-use', call, { ...base, IMMUNE_GUARD: 'deny' });
+  assert.equal(denied.status, 0);
+  const payload = JSON.parse(denied.stdout);
+  assert.equal(payload.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(payload.hookSpecificOutput.permissionDecisionReason, /force-push-main/);
+  assert.deepEqual(
+    Object.keys(payload.hookSpecificOutput).sort(),
+    ['hookEventName', 'permissionDecision', 'permissionDecisionReason'],
+    'an extra key would invalidate the hook and silently allow the call',
+  );
+
+  // warn: advisory, never a decision.
+  const warned = runHook('pre-tool-use', call, { ...base, IMMUNE_GUARD: 'warn' });
+  const warnPayload = JSON.parse(warned.stdout);
+  assert.equal(warnPayload.hookSpecificOutput.permissionDecision, undefined);
+  assert.match(warnPayload.hookSpecificOutput.additionalContext, /immune_guard/);
+});
+
 test('PreToolUse warns before a call that is known to fail', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'immune-'));
   const env = {

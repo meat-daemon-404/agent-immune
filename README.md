@@ -135,8 +135,29 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 未闭合的失败上，蒸馏时作为处方的最优来源（人类陈述规则，模型只能从 diff 里猜）。
 "继续""ok"这类空话会被 `isSubstantiveHint` 挡掉——否则会变成 `do: 继续` 这种废处方。
 
-**③ 注入卫生**
+**②⁺⁺⁺ 全局共享库（Shared library）**
 
+按项目隔离防串味，代价是新项目从零开踩。泛型抗体（`core/lessons.ts` 判定的，
+或触发词不含具体文件路径且命中 ≥5 次的）会同步到同目录的 `global.sqlite`，
+新项目召回不足时从它补齐。
+
+**没有用 `ATTACH DATABASE`**：SQLite 明确说明 WAL 模式下跨附加库的事务不原子，
+而本插件每进程短连接、多 hook 并发。改用两条独立连接——每次写入仍是单文件事务。
+代价只是召回变成两次查询，这个量级无所谓。项目库与共享库的 id 在合并时**从不按 id 混用**
+（两个库的 AUTOINCREMENT 各自独立，会撞）。
+
+**③ 事前检查（Guard，默认关闭）**
+
+提示词是软建议，长上下文里模型偶尔照样照错发。`IMMUNE_GUARD` 提供一层确定性检查：
+`off`（默认）/ `warn`（更醒目的提示）/ `deny`（拒绝执行该工具调用）。
+
+三条只在任何环境都错的规则：强推 main、`rm -rf /`、`git reset --hard`。
+**规则写在代码里，不进数据库**——蒸馏产物是模型输出，把它编译成正则去拦截工具调用
+等于让未经审阅的字符串获得停止工作的权力，还有 ReDoS 风险。
+`deny` 是唯一有破坏性的模式，所以它从不是默认值。目前仅 ZCode 侧接线；
+DSH 的 `PreToolDecision` 形状未经核实，不猜。
+
+**③ 注入卫生**
 注入内容只来自我们自己提炼的字段，从不放原始工具输出；抗体文本里的尖括号被剥离，
 无法闭合包裹标签；有长度上限；明确标注「仅供参考」，避免模型把它当成用户指令。
 一个回合最多注入一次、且只在回合第一步匹配（工具循环里每步都匹配既会重复灌入，
@@ -174,6 +195,8 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
 | `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；**默认中英双语** |
 | `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许环回/私有端点。**默认拒绝**，防 SSRF |
+| `IMMUNE_GLOBAL_LIBRARY` | 设为 `0` 关闭全局共享库。默认开启 |
+| `IMMUNE_GUARD` | `off`（默认）/ `warn` / `deny` —— 高危错招事前检查，见下 |
 | `IMMUNE_DEBUG_LOG` | 指定文件则记录执行细节，用于排障 |
 
 ### 安全
@@ -189,7 +212,7 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **53 条全绿**（31 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
+| `npm test` | **55 条全绿**（33 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import type { Antibody, AntibodyStatus, FailureSnapshot, NewAntibody } from '../types.js';
 import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
+import { GlobalStore, globalDbPathFor, isPromotable } from './global.js';
 import {
   bumpHits,
   exportableAntibodies,
@@ -45,6 +46,7 @@ export { resolveDbPath } from './path.js';
 export { tokenize, buildFtsQuery } from './tokenize.js';
 export type { DistillJob } from './jobs.js';
 export type { PenaltyContext } from './antibodies.js';
+export { GlobalStore, globalDbPathFor, isPromotable, GLOBAL_DB_FILE } from './global.js';
 
 export interface StoreOptions {
   /** Full path to the database file, or ':memory:' for tests. */
@@ -68,6 +70,8 @@ export interface MatchOptions {
 export class ImmuneStore {
   private db: DatabaseSync;
   readonly dbPath: string;
+  /** Shared library, opened on first need; undefined = not decided yet. */
+  private globalStore: GlobalStore | null | undefined;
 
   constructor(opts: StoreOptions = {}) {
     this.dbPath =
@@ -79,21 +83,107 @@ export class ImmuneStore {
     return insertAntibody(this.db, ab);
   }
 
+  /**
+   * Insert and, when the rule is provably generic, also publish it to the
+   * shared library so the next project starts already knowing it.
+   */
+  insertShared(ab: NewAntibody, opts: { generic?: boolean } = {}): number | null {
+    const id = insertAntibody(this.db, ab);
+    if (id === null) return null;
+    const global = this.global();
+    if (!global) return id;
+    try {
+      if (isPromotable({ ...ab, hit_count: 0 }, opts.generic === true)) {
+        global.insert({
+          trigger_pattern: ab.trigger_pattern,
+          symptom: ab.symptom,
+          prescription: ab.prescription,
+          tool_name: ab.tool_name ?? null,
+        });
+      }
+    } catch {
+      // Sharing is an optimisation; never let it cost the caller an insert.
+    }
+    return id;
+  }
+
+  /** Lazily open the shared library; null when sharing is disabled. */
+  private global(): GlobalStore | null {
+    if (this.globalStore !== undefined) return this.globalStore;
+    if (process.env.IMMUNE_GLOBAL_LIBRARY === '0' || this.dbPath === ':memory:') {
+      this.globalStore = null;
+      return null;
+    }
+    try {
+      this.globalStore = new GlobalStore(globalDbPathFor(this.dbPath));
+    } catch {
+      this.globalStore = null;
+    }
+    return this.globalStore;
+  }
+
   match(queryText: string, opts: MatchOptions = {}): Antibody[] {
-    let rows = findMatches(this.db, queryText, opts.limit ?? 3);
+    const limit = opts.limit ?? 3;
+    let own = findMatches(this.db, queryText, limit);
+
     // Opt-in dedup: a host whose injection happens per TURN (DSH) wants
     // re-injection in later turns; one that primes at session start plus
     // per-prompt matching (ZCode) asks for exclusion so the same rule is not
     // paid for twice within the injection TTL window.
     if (opts.excludeInjected && opts.sessionId) {
       const seen = new Set(this.injectedIds(opts.sessionId));
-      rows = rows.filter((r) => !seen.has(r.id));
+      own = own.filter((r) => !seen.has(r.id));
     }
-    if (rows.length > 0) {
-      bumpHits(this.db, rows.map((r) => r.id));
-      if (opts.sessionId) recordInjection(this.db, opts.sessionId, rows.map((r) => r.id));
+
+    if (own.length > 0) {
+      bumpHits(this.db, own.map((r) => r.id));
+      if (opts.sessionId) recordInjection(this.db, opts.sessionId, own.map((r) => r.id));
+
+      // Promote on the turn a rule crosses five successful injections: that is
+      // the proof-of-generality the promotion rule asks for, and checking the
+      // pre-bump count keeps it off the hot path on every other call.
+      const crossed = own.filter((r) => r.hit_count === 4 && isPromotable(r, false));
+      if (crossed.length > 0) {
+        const global = this.global();
+        for (const row of crossed) {
+          try {
+            global?.insert({
+              trigger_pattern: row.trigger_pattern,
+              symptom: row.symptom,
+              prescription: row.prescription,
+              tool_name: row.tool_name,
+            });
+          } catch {
+            // Sharing is best-effort.
+          }
+        }
+      }
     }
-    return rows;
+
+    // Fill the remaining slots from the shared library, so a fresh project is
+    // not defenceless before it has learned anything of its own.
+    //
+    // Project rows and shared rows are tracked in separate arrays, never merged
+    // by id: the two databases have independent AUTOINCREMENT sequences, so an
+    // id from one can collide with an unrelated row in the other.
+    const shared: Antibody[] = [];
+    if (own.length < limit) {
+      const global = this.global();
+      if (global) {
+        try {
+          const have = new Set(own.map((r) => r.prescription));
+          for (const candidate of global.match(queryText, limit - own.length)) {
+            if (have.has(candidate.prescription)) continue;
+            shared.push(candidate);
+            if (own.length + shared.length >= limit) break;
+          }
+        } catch {
+          // A broken shared library must not break the caller's turn.
+        }
+      }
+    }
+
+    return [...own, ...shared];
   }
 
   /** Record an injection that did not come through match() (session-start priming). */
@@ -181,6 +271,11 @@ export class ImmuneStore {
   }
 
   close(): void {
+    try {
+      this.globalStore?.close();
+    } catch {
+      // already closed
+    }
     this.db.close();
   }
 }

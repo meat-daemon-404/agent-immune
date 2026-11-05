@@ -71,8 +71,26 @@ export function emitContext(eventName: string, additionalContext: string): void 
   );
 }
 
-export async function readEvent(): Promise<HookEvent> {
-  const chunks: Buffer[] = [];
+/**
+ * Deny a tool call (PreToolUse only).
+ *
+ * Uses the one additional shape the schema allows for this event. Only the
+ * three documented keys are emitted — an extra key fails validation and the
+ * whole hook is discarded, which would silently turn a deny into an allow.
+ */
+export function emitDeny(eventName: string, reason: string): void {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: eventName,
+        permissionDecision: 'deny',
+        permissionDecisionReason: reason.slice(0, MAX_CONTEXT),
+      },
+    }),
+  );
+}
+
+export async function readEvent(): Promise<HookEvent> {  const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   }
