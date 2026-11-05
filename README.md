@@ -39,29 +39,24 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
 
 #### DSH
 
-插件包就是 `dsh-immune-system/` 目录本身（`package.json` 带 `main`、`dsh.bundle.patch`
-与 `permissions` 声明，`dist/` 随包提交，安装时无需构建）。
-
-**方式一：tarball（不需要 npm 账号，已验证）**
+**npm（现在可用，最简）**：
 
 ```bash
-cd dsh-immune-system && npm pack          # → dsh-immune-system-0.3.8.tgz
-dsh plugin add ./dsh-immune-system-0.3.8.tgz
+dsh plugin --profile <profile> add dsh-immune-system
 ```
 
-冒烟验证过：装进空项目后 `import('dsh-immune-system')` 能解析到 `apply()`，
-`cordis.patch.yml` 随包到位。
+包发布在 https://www.npmjs.com/package/dsh-immune-system ，`dist/` 预构建随包。
 
-**方式二：npm（需先发布）**
+**tarball / git**（等价，无需 npm 账号）：
 
 ```bash
-cd dsh-immune-system && npm publish      # 需要你自己的 npm 账号
-dsh plugin add dsh-immune-system
+cd dsh-immune-system && npm pack          # → dsh-immune-system-0.9.0.tgz
+dsh plugin --profile <profile> add ./dsh-immune-system-0.9.0.tgz
+dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
-**方式三：git** —— `dsh plugin add github:owner/repo` 会在安装时用 `prepare` 构建，
-而 pnpm 默认阻止依赖的构建脚本，需要把 pnpm 打印的 key 加进 profile 的
-`pnpm-workspace.yaml → allowBuilds` 才能装。除非你就要这个形态，否则用前两种。
+`git:` 安装会在安装时跑 `prepare` 构建，被 pnpm 默认拦截——需要把 pnpm 打印的 key
+加进 profile 的 `pnpm-workspace.yaml → allowBuilds`。除非你就要这个形态，否则用前两种。
 
 装完**重启 DSH**（bundle 是启动时装配的，运行中的进程不会自己加载）。
 `<profile>` 就是 `~/.dsh/profiles/` 下你实际在用的那个（桌面端通常是 `desktop`）。
