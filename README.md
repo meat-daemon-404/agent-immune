@@ -39,26 +39,38 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
 
 #### DSH
 
-插件以 **bundle** 形式安装：一个目录同时带 `package.json`（含 `dsh.bundle.patch`）与 `cordis.patch.yml`，
-登记进 profile 的 `dsh.profile.bundles` 即可。
+插件包就是 `dsh-immune-system/` 目录本身（`package.json` 带 `main`、`dsh.bundle.patch`
+与 `permissions` 声明，`dist/` 随包提交，安装时无需构建）。
 
-从本地源码装（已验证的做法）：
+**方式一：tarball（不需要 npm 账号，已验证）**
 
-```powershell
-# 1) 让 profile 能按裸包名解析到它（Windows 免管理员；Linux/macOS 用 ln -s）
-New-Item -ItemType Junction `
-  -Path  "$env:USERPROFILE\.dsh\profiles\<profile>\node_modules\dsh-immune-system" `
-  -Target "<repo>\dsh-immune-system"
-
-# 2) 在 profile 的 package.json 里登记两项
-#    dependencies["dsh-immune-system"] = "link:<repo>/dsh-immune-system"
-#    dsh.profile.bundles 追加 "dsh-immune-system"
+```bash
+cd dsh-immune-system && npm pack          # → dsh-immune-system-0.3.8.tgz
+dsh plugin add ./dsh-immune-system-0.3.8.tgz
 ```
 
-然后**重启 DSH**（bundle 是启动时装配的，运行中的进程不会自己加载）。
+冒烟验证过：装进空项目后 `import('dsh-immune-system')` 能解析到 `apply()`，
+`cordis.patch.yml` 随包到位。
+
+**方式二：npm（需先发布）**
+
+```bash
+cd dsh-immune-system && npm publish      # 需要你自己的 npm 账号
+dsh plugin add dsh-immune-system
+```
+
+**方式三：git** —— `dsh plugin add github:owner/repo` 会在安装时用 `prepare` 构建，
+而 pnpm 默认阻止依赖的构建脚本，需要把 pnpm 打印的 key 加进 profile 的
+`pnpm-workspace.yaml → allowBuilds` 才能装。除非你就要这个形态，否则用前两种。
+
+装完**重启 DSH**（bundle 是启动时装配的，运行中的进程不会自己加载）。
 `<profile>` 就是 `~/.dsh/profiles/` 下你实际在用的那个（桌面端通常是 `desktop`）。
 
 装完可用 `/immune` 自检：能返回「暂无抗体」就说明挂上了。
+
+**上架 DSH Plugin Hub**：仓库已打 `dsh-plugin` topic，Hub 会周期性自动抓取；
+也可在 `dsh-plugin.org/submit` 主动提交。注意 Hub 索引的是仓库条目，**安装仍走
+上面的 tarball / npm**。
 
 #### ZCode
 

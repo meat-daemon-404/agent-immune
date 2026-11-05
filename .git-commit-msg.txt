@@ -1,0 +1,21 @@
+feat(dist): make the DSH package installable as a tarball, add LICENSE
+
+Investigated what `dsh plugin add` actually accepts (apps/cli/src/plugin.ts):
+git specs build on install via `prepare`, which pnpm blocks until allowlisted;
+the documented path is an npm package or a tarball with lib/dist prebuilt.
+
+- dsh-immune-system/package.json: version synced to 0.3.8 (was 0.2.0 while the
+  plugin manifest said 0.3.8), plus homepage/bugs
+- verified end to end: npm pack -> install into an empty project -> bare
+  `import('dsh-immune-system')` resolves and exposes apply(), and
+  cordis.patch.yml ships in the tarball
+- LICENSE (MIT) added - it was referenced in conversation but the file did not
+  exist; package.json now declares license: MIT with a real file behind it
+- README install section rewritten around tarball/npm, with the git path's
+  pnpm allowBuilds caveat stated instead of hidden
+- *.tgz ignored
+
+Note: an earlier attempt restructured the root package.json into the DSH
+package. That was reverted - dsh-immune-system/ already carried the complete
+manifest (permissions, compatibility, peerDependencies), so duplicating it
+would have created two sources of truth plus a lib/ next to dist/.

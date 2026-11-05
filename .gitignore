@@ -10,3 +10,6 @@ node_modules/
 # Build output IS shipped inside the plugin directory on purpose: the plugin
 # must be installable without a toolchain. Rebuild with `npm run build` before
 # installing or updating.
+
+# npm pack output (build artifacts are committed; tarballs are not)
+*.tgz
