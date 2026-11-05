@@ -144,14 +144,40 @@ function main(argv: string[]): number {
         store.pruneStale();
         process.stdout.write('Pruned stale pending failures and injection records.\n');
         return 0;
+      case 'search': {
+        // Same read-only path as the dashboard: searching is not delivery.
+        const query = args.join(' ').trim();
+        if (!query) {
+          process.stderr.write('usage: immune search <query>\n');
+          return 2;
+        }
+        const rows = store.peek(query, 20);
+        if (rows.length === 0) {
+          process.stdout.write('没有匹配 / no match\n');
+          return 0;
+        }
+        for (const ab of rows) {
+          process.stdout.write(
+            `${pad(String(ab.id), 5)}${pad(String(ab.hit_count), 6)}${pad(ab.status, 9)}${clamp(ab.trigger_pattern, 64)}\n` +
+              `${' '.repeat(20)}  ${strings().avoid}: ${clamp(ab.symptom, 90)}\n` +
+              `${' '.repeat(20)}  ${strings().do}: ${clamp(ab.prescription, 90)}\n`,
+          );
+        }
+        return 0;
+      }
       case 'learn': {
         // Manual capture, borrowed from pro-workflow's /learn-rule: some rules
         // should not wait for a failed-then-fixed episode to prove them.
-        const [trigger, symptom, prescription] = args;
-        if (!trigger || !prescription) {
+        // Two forms: <trigger> <prescription> | <trigger> <symptom> <prescription>.
+        // Free text cannot be positionally split reliably, so the DSH command
+        // uses first/last tokens; here the shell already did the splitting.
+        const trigger = args[0] ?? '';
+        const prescription = args.length >= 3 ? args[args.length - 1] ?? '' : args[1] ?? '';
+        const symptom = args.length >= 3 ? args.slice(1, -1).join(' ') : '';
+        if (!trigger.trim() || !prescription.trim()) {
           process.stderr.write(
             'usage: immune learn <trigger> [symptom] <prescription>\n' +
-              'example: immune learn "pnpm-lock.yaml" "这个仓库用 pnpm 不是 npm"\n',
+              'example: immune learn "pnpm-lock.yaml 这个仓库" "用 pnpm 不是 npm"\n',
           );
           return 2;
         }
