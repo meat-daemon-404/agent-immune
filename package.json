@@ -1,22 +1,66 @@
 {
-  "name": "dsh-plugin-immune",
-  "version": "0.1.0",
-  "private": true,
+  "name": "dsh-immune-system",
+  "version": "0.3.8",
+  "description": "Self-evolving pitfall immunity for DeepSeek Harness: capture every failed-then-fixed tool episode, distil it into a reusable antibody stored in SQLite+FTS5, and inject the relevant ones before the agent repeats the mistake.",
   "type": "module",
-  "description": "Self-evolving pitfall-avoidance antibodies for coding agents. Monorepo: shared core, a runnable ZCode hook plugin, and a DSH adapter skeleton.",
-  "engines": {
-    "node": ">=22.5.0"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/meat-daemon-404/dsh-plugin-immune.git"
   },
-  "workspaces": [
-    "core",
-    "zcode",
-    "dsh"
+  "homepage": "https://github.com/meat-daemon-404/dsh-plugin-immune",
+  "bugs": {
+    "url": "https://github.com/meat-daemon-404/dsh-plugin-immune/issues"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "dsh-immune-system/dist/dsh/src/index.js",
+  "exports": {
+    ".": "./dsh-immune-system/dist/dsh/src/index.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "id": "dsh-immune-system",
+    "name": "DSH Immune System",
+    "version": "0.3.8",
+    "repo": "meat-daemon-404/dsh-plugin-immune",
+    "permissions": "读取工具调用结果与斜杠命令输入；在本机写 SQLite 抗体库（默认落在 $DSH_HOME/storages/dsh-immune-system/ 下按项目隔离）；仅在显式配置 IMMUNE_LLM_BASE_URL 与 IMMUNE_LLM_MODEL 时才向该端点发起请求；不读取其它插件的配置，不执行任意命令",
+    "bundle": {
+      "patch": "./dsh-immune-system/cordis.patch.yml"
+    },
+    "compatibility": {
+      "dshReleases": {
+        "0.2.0-rc.2": "compatible",
+        "0.2.1-rc.2": "compatible",
+        "0.2.1-rc.5": "compatible"
+      }
+    }
+  },
+  "files": [
+    "dsh-immune-system/dist/**/*.js",
+    "dsh-immune-system/cordis.patch.yml",
+    "dsh-immune-system/package.json",
+    "dsh-immune-system/README.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "cordis",
+    "cordis-plugin",
+    "ai-agent",
+    "self-improving",
+    "memory",
+    "pitfalls",
+    "sqlite"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "watch": "tsc -p tsconfig.json --watch",
-    "test": "node --test \"test/*.test.mjs\"",
-    "smoke": "node test/smoke.mjs"
+    "test": "node --test \"test/*.test.mjs\""
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
