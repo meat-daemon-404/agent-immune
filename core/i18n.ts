@@ -26,6 +26,7 @@ export interface Strings {
   noExport: string;
   exported: string;
   forgot: string;
+  learned: string;
   notFound: string;
   /** Zombie prune (never-injected, old). */
   pruned: string;
@@ -49,6 +50,7 @@ const BOTH: Strings = {
   noExport: '没有抗体达到导出阈值，暂时不值得分享。\nNo antibody reached the export threshold; nothing worth sharing yet.',
   exported: '已导出 / Exported',
   forgot: '已删除抗体 / Forgot antibody',
+  learned: '已学习 / Learned',
   notFound: '没有找到抗体 / No antibody found',
   pruned: '已退役僵尸抗体 / Retired zombies',
   purged: '已删除僵尸抗体 / Purged zombies',
@@ -65,6 +67,7 @@ const ZH: Strings = {
   noExport: '没有抗体达到导出阈值，暂时不值得分享。',
   exported: '已导出',
   forgot: '已删除抗体',
+  learned: '已学习',
   notFound: '没有找到抗体',
   pruned: '已退役僵尸抗体',
   purged: '已删除僵尸抗体',
@@ -81,6 +84,7 @@ const EN: Strings = {
   noExport: 'No antibody reached the export threshold; nothing worth sharing yet.',
   exported: 'Exported',
   forgot: 'Forgot antibody',
+  learned: 'Learned',
   notFound: 'No antibody found',
   pruned: 'Retired zombies',
   purged: 'Purged zombies',

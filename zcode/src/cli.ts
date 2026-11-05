@@ -142,6 +142,28 @@ function main(argv: string[]): number {
         store.pruneStale();
         process.stdout.write('Pruned stale pending failures and injection records.\n');
         return 0;
+      case 'learn': {
+        // Manual capture, borrowed from pro-workflow's /learn-rule: some rules
+        // should not wait for a failed-then-fixed episode to prove them.
+        const [trigger, symptom, prescription] = args;
+        if (!trigger || !prescription) {
+          process.stderr.write(
+            'usage: immune learn <trigger> [symptom] <prescription>\n' +
+              'example: immune learn "pnpm-lock.yaml" "这个仓库用 pnpm 不是 npm"\n',
+          );
+          return 2;
+        }
+        const id = store.insert({
+          trigger_pattern: trigger,
+          symptom: symptom || '(manual rule)',
+          prescription,
+          tool_name: null,
+        });
+        process.stdout.write(
+          id === null ? `${strings().notFound}\n` : `${strings().learned} #${id}.\n`,
+        );
+        return 0;
+      }
       case 'forget': {
         // --last  : undo the antibody the previous turn just learned
         // --prune : drop never-injected antibodies older than 14 days

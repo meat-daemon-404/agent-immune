@@ -444,6 +444,33 @@ function startPlugin(ctx: DshContext): void {
   });
 
   ctx.commands.register({
+    name: 'immune-learn',
+    description: 'Teach a rule directly: <trigger> [symptom] <prescription>',
+    input: { hint: '<trigger> [symptom] <prescription>' },
+    handler: ({ rawInput }): DshCommandResult => {
+      const parts = rawInput.trim().split(/\s+/);
+      // A 3-part split cannot work on free text, so the rule is: trigger is the
+      // first token, prescription is the last, symptom is whatever is between.
+      const trigger = parts[0] ?? '';
+      const prescription = parts.length >= 2 ? parts[parts.length - 1] ?? '' : '';
+      const symptom = parts.length >= 3 ? parts.slice(1, -1).join(' ') : '';
+      if (!trigger || !prescription) {
+        return {
+          kind: 'error',
+          text: `${t.notFound} — usage: <trigger> [symptom] <prescription>\nexample: pnpm-lock.yaml 这个仓库用 pnpm 不是 npm`,
+        };
+      }
+      const id = store.insert({
+        trigger_pattern: trigger,
+        symptom: symptom || '(manual rule)',
+        prescription,
+        tool_name: null,
+      });
+      return { kind: 'success', text: id === null ? t.notFound : `${t.learned} #${id}` };
+    },
+  });
+
+  ctx.commands.register({
     name: 'immune-export',
     description: 'Export proven antibodies as a project-pitfalls skill',
     handler: (): DshCommandResult => {
