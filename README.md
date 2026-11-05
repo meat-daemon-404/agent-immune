@@ -1,5 +1,10 @@
 # dsh-plugin-immune
 
+[![npm](https://img.shields.io/npm/v/dsh-immune-system)](https://www.npmjs.com/package/dsh-immune-system)
+![license](https://img.shields.io/badge/license-MIT-green)
+![node](https://img.shields.io/badge/node-%E2%89%A522.5-blue)
+[![DSH plugin](https://img.shields.io/badge/DSH-plugin%20hub-4f9cf9)](https://dsh-plugin.org/plugins)
+
 **自进化避坑免疫系统** — 让 Agent 踩一次坑，就自己长记性。
 
 Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**。
@@ -10,7 +15,7 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
 > mistake can repeat.
 
 支持两个宿主：**DSH**（DeepSeek Harness，已按真实宿主契约实测）与 **ZCode**（按实测 hook 契约）。
-两者共用同一份 `core/`。
+两者共用同一份 `core/`，npm 包同名发布，一次踩坑、处处免疫。
 
 [中文](#中文) · [English](#english)
 
@@ -296,18 +301,24 @@ against the real host contract) and **ZCode** (verified against its hooks).
 
 ### Install
 
-**DSH** — the plugin is a bundle: a directory carrying `package.json` (with
-`dsh.bundle.patch`) plus `cordis.patch.yml`, listed in the profile's
-`dsh.profile.bundles`. From a local checkout (verified path):
+**npm** — published as [`dsh-immune-system`](https://www.npmjs.com/package/dsh-immune-system),
+prebuilt, no toolchain needed:
 
-```powershell
-New-Item -ItemType Junction `
-  -Path  "$env:USERPROFILE\.dsh\profiles\<profile>\node_modules\dsh-immune-system" `
-  -Target "<repo>\dsh-immune-system"
-# then in that profile's package.json:
-#   dependencies["dsh-immune-system"] = "link:<repo>/dsh-immune-system"
-#   append "dsh-immune-system" to dsh.profile.bundles
+```bash
+dsh plugin --profile <profile> add dsh-immune-system
 ```
+
+**tarball / git** (equivalent, no npm account required):
+
+```bash
+cd dsh-immune-system && npm pack
+dsh plugin --profile <profile> add ./dsh-immune-system-0.9.0.tgz
+dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
+```
+
+`git:` installs build at install time via `prepare`, which pnpm blocks until
+allowlisted — see the Chinese section above for the exact fix. Prefer npm or the
+tarball.
 
 **Restart DSH** afterwards — bundles are composed at startup.
 
