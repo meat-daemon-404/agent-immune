@@ -87,6 +87,19 @@ identical-retry note).
 10. **Credentials are redacted before disk.** Traces may contain secrets from
     failed commands and can be exported into a shared SKILL.md.
 
+11. **The npm layout has a doubled `dsh-immune-system/` prefix — and that is
+    correct.** The package root is the repo root, and every shipped file lives
+    under the repo's `dsh-immune-system/` subdirectory, so inside
+    `node_modules/dsh-immune-system/` the paths are
+    `dsh-immune-system/dist/…`, `dsh-immune-system/client/client.js`, etc.
+    Every reference (`main`, `exports`, `dsh.bundle.patch`, `dsh.client`) uses
+    the same prefix, so the package is self-consistent. When verifying an npm
+    install, probe the PREFIXED paths — a probe on
+    `node_modules/dsh-immune-system/client/client.js` will report false and lie
+    to you (this has cost three verification rounds already). The npm package
+    intentionally ships no `hooks/` — that is ZCode-specific and reaches ZCode
+    through the marketplace source directory, not the registry.
+
 ## Verification
 
 ```bash
