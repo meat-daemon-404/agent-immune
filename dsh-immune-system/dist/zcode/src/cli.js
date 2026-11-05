@@ -12,6 +12,7 @@ import { dirname, join, resolve } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { strings } from '../../core/i18n.js';
+import { startUiServer } from '../../core/ui/server.js';
 import { dshDirOf } from './root-marker.js';
 const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/;
 /** Terminal columns a string occupies; CJK glyphs are double width. */
@@ -84,6 +85,29 @@ function cmdExport(store, args) {
 }
 function main(argv) {
     const [command = 'list', ...args] = argv;
+    // `ui` owns its own store (it lives for the whole server lifetime), so it is
+    // handled before the short-lived store below is opened.
+    if (command === 'ui') {
+        const portArg = args.indexOf('--port');
+        const wanted = portArg >= 0 ? Number(args[portArg + 1]) : 7788;
+        const port = Number.isInteger(wanted) && wanted >= 0 ? wanted : 7788;
+        startUiServer({ port })
+            .then((handle) => {
+            process.stdout.write(`免疫仪表盘 / Immune dashboard: ${handle.url}\n` +
+                `仅本机可访问 / bound to 127.0.0.1 · Ctrl+C 停止 / press Ctrl+C to stop\n`);
+            const stop = () => {
+                handle.close().then(() => process.exit(0));
+            };
+            process.on('SIGINT', stop);
+            process.on('SIGTERM', stop);
+        })
+            .catch((error) => {
+            process.stderr.write(`failed to start UI: ${error instanceof Error ? error.message : String(error)}\n`);
+            process.exit(1);
+        });
+        // The server keeps the event loop alive; no exit code is set.
+        return 0;
+    }
     const store = new ImmuneStore();
     try {
         switch (command) {

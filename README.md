@@ -99,9 +99,25 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `/dsh-immune-system:immune` | ZCode | 同上（加 `--all`） |
 | `/dsh-immune-system:immune-export` | ZCode | 同上 |
 | `/dsh-immune-system:immune-forget` | ZCode | 同上（`<id>` / `--last` / `--prune` / `--purge`） |
+| `/dsh-immune-system:immune-ui` | ZCode | 启动本地仪表盘，给出地址 |
+| `cli.js ui [--port N]` | 两者 | 同上（前台运行，默认 7788，端口占用自动顺延） |
 
 > 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）
 > 走参数化 LIKE 兜底**——trigram 压根无法索引 2 字词，只靠 MATCH 会把这类词整段漏掉。
+
+### 仪表盘
+
+`/dsh-immune-system:immune-ui`（或 `cli.js ui`）会起一个本地页面：
+
+- 搜索触发词/症状/处方，实时过滤；**浏览不计入命中数**，所以晋升和淘汰的统计不会被点鼠标污染
+- 每条可**退役 / 恢复 / 删除**，分「项目库」「共享库」两个页签
+- 顶部显示生效数、退役数、累计注入、共享库条数
+
+安全边界是刻意收窄的：只绑 `127.0.0.1`、每次启动生成随机 token 且所有 `/api` 都要带它
+（跨站简单 POST 不需要预检，只靠 Origin 判断不够）、严格 CSP、页面不加载任何外部资源。
+
+UI 是自建的而非宿主插件 UI——ZCode 插件没有 UI 插槽（只有 hooks/commands/skills/MCP），
+所以走本地 HTTP，两个宿主通用。
 
 ### 四个关键设计
 
@@ -217,7 +233,7 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **59 条全绿**（37 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试） |
+| `npm test` | **63 条全绿**（41 条 core + ZCode hooks + LLM mock，22 条 DSH 单元测试，含仪表盘 13 条） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

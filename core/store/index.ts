@@ -228,6 +228,29 @@ export class ImmuneStore {
     return listAntibodies(this.db, includeRetired);
   }
 
+  /**
+   * Read-only search over THIS project's rules, for tooling (the dashboard).
+   *
+   * Deliberately does NOT bump hit counts or record an injection: browsing in a
+   * UI is not the same as delivering a rule to a model, and letting the two
+   * share a counter would inflate the numbers that drive promotion and pruning.
+   */
+  peek(queryText: string, limit = 50): Antibody[] {
+    if (!queryText.trim()) return this.listAll(true).slice(0, limit);
+    return findMatches(this.db, queryText, limit);
+  }
+
+  /** Shared-library rows, for the dashboard's second tab. */
+  sharedAntibodies(limit = 100): Antibody[] {
+    const global = this.global();
+    if (!global) return [];
+    try {
+      return global.listAll(true).slice(0, limit);
+    } catch {
+      return [];
+    }
+  }
+
   remove(id: number): boolean {
     return removeAntibody(this.db, id);
   }
