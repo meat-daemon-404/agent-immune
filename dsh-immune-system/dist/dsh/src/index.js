@@ -139,11 +139,19 @@ function traceFor(event, outcome) {
 /**
  * Turn-end distillation budget, in milliseconds. Same env var and default as the
  * ZCode adapter (`zcode/src/drain.ts:23`), clamped so a typo cannot hang a turn.
+ * `/immune --budget <ms>` sets a process-wide override for the running session;
+ * it is deliberately in-memory only (a restart falls back to the env var), so a
+ * stray slash command can never persist a bad number into the project.
  */
+let budgetOverrideMs = null;
+function clampBudgetMs(value) {
+    return Math.min(60_000, Math.max(1_000, Math.trunc(value)));
+}
 function drainBudgetMs() {
+    if (budgetOverrideMs !== null)
+        return budgetOverrideMs;
     const raw = Number(process.env.IMMUNE_DISTILL_BUDGET_MS ?? '');
-    const budget = Number.isFinite(raw) && raw > 0 ? raw : 12_000;
-    return Math.min(60_000, Math.max(1_000, Math.trunc(budget)));
+    return clampBudgetMs(Number.isFinite(raw) && raw > 0 ? raw : 12_000);
 }
 /** Distil queued episodes. Called at turn end, never inside a tool result path. */
 async function drain(store, budgetMs = drainBudgetMs()) {
@@ -334,15 +342,37 @@ function startPlugin(ctx) {
     ctx.commands.register({
         name: 'immune',
         description: 'List the pitfall antibodies this project has learned',
-        input: { hint: '--all to include retired antibodies' },
+        input: { hint: '--all to include retired antibodies · --budget [ms] to view or set the drain budget' },
         handler: ({ rawInput }) => {
-            const rows = store.listAll(rawInput.includes('--all'));
+            const args = rawInput.trim().split(/\s+/).filter(Boolean);
+            if (args.includes('--budget')) {
+                const raw = args[args.indexOf('--budget') + 1];
+                if (raw === 'auto' || raw === 'reset' || raw === 'env') {
+                    budgetOverrideMs = null;
+                    return { kind: 'success', text: `distill budget reset to ${drainBudgetMs()} ms (env IMMUNE_DISTILL_BUDGET_MS / default)` };
+                }
+                const value = Number(raw ?? '');
+                if (raw === undefined || !Number.isFinite(value) || value <= 0) {
+                    const source = budgetOverrideMs === null ? 'env IMMUNE_DISTILL_BUDGET_MS / default' : 'session override';
+                    return {
+                        kind: 'success',
+                        text: `distill budget: ${drainBudgetMs()} ms (${source})\nset with: /immune --budget <ms>  ·  clamped to 1000–60000`,
+                    };
+                }
+                budgetOverrideMs = clampBudgetMs(value);
+                return {
+                    kind: 'success',
+                    text: `distill budget set to ${budgetOverrideMs} ms for this session (in-memory; a restart falls back to the env var)`,
+                };
+            }
+            const rows = store.listAll(args.includes('--all'));
+            const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · db ${store.dbPath}`;
             if (rows.length === 0)
-                return { kind: 'success', text: t.noAntibodies };
+                return { kind: 'success', text: t.noAntibodies + footer };
             const text = rows
                 .map((a) => `#${a.id} [hits ${a.hit_count}/fails ${a.fail_count}] ${a.status}\n  ${t.trigger}: ${a.trigger_pattern}\n  ${t.avoid}: ${a.symptom}\n  ${t.do}: ${a.prescription}`)
                 .join('\n\n');
-            return { kind: 'success', text };
+            return { kind: 'success', text: text + footer };
         },
     });
     ctx.commands.register({

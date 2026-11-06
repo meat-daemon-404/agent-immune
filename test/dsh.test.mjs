@@ -649,3 +649,37 @@ test('immune-learn preserves free-text prescriptions via pipe separators', async
   assert.equal(tooMany.kind, 'error');
   assert.match(tooMany.text, /expected/);
 });
+
+test('the immune command reports the distill budget and can override it per session', async (t) => {
+  const { fx } = await bootstrap(t);
+  const run = (raw) => fx.commands.find((c) => c.name === 'immune').handler({ rawInput: raw });
+
+  process.env.IMMUNE_DISTILL_BUDGET_MS = '9000';
+  try {
+    // View: falls back to the env var, and the source is named.
+    assert.match(run('--budget').text, /distill budget: 9000 ms \(env IMMUNE_DISTILL_BUDGET_MS/);
+
+    // Set: an in-session override takes effect immediately.
+    assert.match(run('--budget 2500').text, /set to 2500 ms/);
+    assert.match(run('--budget').text, /distill budget: 2500 ms \(session override\)/);
+
+    // Clamp both ends so a typo cannot hang a turn or starve the drain.
+    assert.match(run('--budget 500').text, /set to 1000 ms/);
+    assert.match(run('--budget 999999').text, /set to 60000 ms/);
+
+    // Reset returns to the environment.
+    assert.match(run('--budget auto').text, /reset to 9000 ms/);
+    assert.match(run('--budget').text, /distill budget: 9000 ms \(env/);
+  } finally {
+    delete process.env.IMMUNE_DISTILL_BUDGET_MS;
+  }
+});
+
+test('the immune listing footer surfaces queue depth and the database path', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const listed = fx.commands.find((c) => c.name === 'immune').handler({ rawInput: '' });
+  assert.equal(listed.kind, 'success');
+  assert.match(listed.text, /distill budget \d+ ms/);
+  assert.match(listed.text, /queued \d+/);
+  assert.ok(listed.text.includes(dbPath), 'the footer names the database in use');
+});

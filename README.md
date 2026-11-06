@@ -90,7 +90,7 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 
 | 命令 | 宿主 | 作用 |
 | --- | --- | --- |
-| `/immune` | DSH | 列出所有抗体（`/immune --all` 含已退役） |
+| `/immune` | DSH | 列出所有抗体（`/immune --all` 含已退役）；`/immune --budget` 查看蒸馏预算，`--budget <ms>` 本次会话内改（内存态，重启回到环境变量） |
 | `/immune-export` | DSH | 把经过验证的抗体导出成 `SKILL.md` |
 | `/immune-forget <id>` | DSH | 删除指定抗体 |
 | `/immune-forget --last` | DSH | 撤销上一回合刚学的那条 |
@@ -237,6 +237,32 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 所以它挂在 `agent/turn-stopping`（`@mode serial`，回合边界提交前 await）。
 未清空的队列还会在下次 `session-start` 由 `requeueStuckJobs()` 兜底。
 
+### 失败怎么被判出来（四层判定 × 三类失败）
+
+`judgeOutcome` 不是「看一个 boolean」，而是按权威顺序逐层走。三类常见失败在四层里的落点并不相同：
+
+| 层 | 判据 | bash 非零退出 | 超时 | 沙箱拒绝 |
+| --- | --- | --- | --- | --- |
+| 1 | `result.isError`（宿主**只**对基础设施失败置真） | ✗ 返回 `isError:false` | 可能 ✗ | 偶尔 ✓（file 工具抛异常） |
+| 2 | 沙箱标记 `[sandbox: file access denied under … mode]` | ✗ | ✗ | ✓ 命中 → 打 `sandboxDenied`，**不记录、不惩罚、不蒸馏** |
+| 3 | kill / timed-out 标记 + `value.timedOut` | ✗ | ✓ 命中（即便 `exitCode=0`） | ✗ |
+| 4 | 结构化 `value.exitCode`（shell 工具的权威判据） | ✓ 非 0 即失败 | — | — |
+| 5 | 尾标记 `[exit code: N]` / 特征词（**仅**当没有任何结构化状态） | 兜底 | 兜底 | — |
+
+```
+一次工具结果
+  ├─ isError ──────────────────────────────→ 失败（error.message 原样记入 trace）
+  ├─ 沙箱拒绝标记 ─────────────────────────→ 拒绝：不记录 / 不惩罚 / 不蒸馏
+  ├─ killed / timed out ───────────────────→ 失败
+  ├─ value.exitCode 存在 ──┬─ 0 ───────────→ 成功（此后不再扫文本）
+  │                        └─ ≠0 ──────────→ 失败
+  ├─ value 为非空对象（无退出码）──────────→ 成功（载荷即结论）
+  ├─ [exit code: N] / 特征词 ──────────────→ 失败
+  └─ 其余 ─────────────────────────────────→ 成功
+```
+
+要点：**结构化 exitCode 一旦存在就压过文本**——`grep` 命中内容、测试打印 `Error:` 都不会被误判成功/失败；而 bash 的非零退出正是靠第 4 层抓到的（宿主本身不会把它置成 `isError`）。这也解释了为什么「读一份含 `Error:` 的日志」不会凭空长出一条抗体。
+
 ### 存储
 
 抗体库是 SQLite 单文件（含 FTS5 trigram 索引，中文按 3 字窗口匹配）。
@@ -297,7 +323,7 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **81 条全绿**（34 条 core、7 条 ZCode hook、24 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
+| `npm test` | **83 条全绿**（34 条 core、7 条 ZCode hook、26 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
@@ -364,7 +390,10 @@ exiting non-zero is *not* an error result: ZCode's `PostToolUseFailure` only fir
 when a handler throws, and DSH documents that "non-zero exits are reported, not
 errored" — `isError` covers infrastructure failures only. Both ports therefore
 classify the result themselves (exit code, trailing `[exit code: N]` /
-`[killed by signal: X]` / timed-out markers, and a narrow marker regex).
+`[killed by signal: X]` / timed-out markers, and a narrow marker regex). A
+structured `value` is authoritative: a non-zero exit code is a failure and a
+zero one is a success even if the output mentions `Error:`; a payload object with
+no exit status is a success and is not text-scanned at all.
 
 **Anti-rot, relevance-guarded.** An injected antibody that still did not prevent
 the failure loses credit and is retired after three such episodes. The penalty is
