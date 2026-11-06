@@ -69,3 +69,29 @@ test('the ZCode and marketplace entries name the same plugin', () => {
   assert.equal(zcode.name, pkg.name);
   assert.equal(market.plugins?.[0]?.name, pkg.name);
 });
+
+/**
+ * The settings tab only ships when `client-modules` can discover it: it scans
+ * loaded packages for `dsh.client` with `platform: "web"` and then requires a
+ * string `exports["./client"]`. Ship the file without the declaration (or the
+ * declaration without the file) and the bundle is silently never served —
+ * `/plugins/<id>/client.js` 404s and the tab never appears. Pin all three.
+ */
+test('the web client half is declared the way client-modules discovers it', () => {
+  const pkg = readJson('dsh-immune-system/package.json');
+  assert.equal(pkg.dsh?.client?.platform, 'web', 'dsh.client.platform must be "web"');
+
+  const clientExport = pkg.exports?.['./client'];
+  const clientRel = typeof clientExport === 'string' ? clientExport : clientExport?.default;
+  assert.equal(typeof clientRel, 'string', 'exports["./client"] must resolve to a string');
+  assert.ok(!clientRel.startsWith('..'), `${clientRel} escapes the package root`);
+
+  const clientPath = join(ROOT, 'dsh-immune-system', clientRel);
+  assert.ok(existsSync(clientPath), `${clientRel} does not exist in the package`);
+
+  const src = readFileSync(clientPath, 'utf8');
+  assert.match(src, /window\.__ModuleLoader__\.load\(\{/u, 'bundle must register through the module loader');
+  assert.ok(src.includes(`'${pkg.name}'`), `bundle must register under the plugin id ${pkg.name}`);
+  assert.match(src, /exports\.apply\s*=/u, 'bundle must export apply (the Cordis plugin face)');
+  assert.match(src, /exports\.name\s*=/u, 'bundle must export name');
+});

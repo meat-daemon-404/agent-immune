@@ -131,6 +131,21 @@ identical-retry note).
     `http(s)://` anywhere (that is why the brand glyph and empty-state art are
     pure CSS, not inline SVG with `xmlns`).
 
+15. **The settings tab ships only if `client-modules` can discover it.** The web
+    half is NOT a patch row. At activation `ClientModuleRegistry`
+    (`packages/client/modules/src/index.ts`) scans the loaded Loader entries,
+    resolves each entry name's `package.json`, and composes a bundle row only
+    when the manifest sets `dsh.client.platform === "web"` AND
+    `exports["./client"]` is a string. It then serves that file verbatim at
+    `/plugins/<id>/client.js?rev=<hash>` and adds the row to
+    `window.__DSH_BOOT__`. Without the declaration the file exists but 404s and
+    the tab never renders — and the negative verdict is cached for the process,
+    so only a restart shows the fix. `dsh.client.inject` lists module-graph
+    edges, not services: `["@deepseek-ai/dsh-client-ui-settings"]` because that
+    package owns the `settings.plugins.tab` slot. `test/manifests.test.mjs` and
+    `scripts/verify-installed.mjs` pin the declaration, the export target, and
+    the bundle's own registration face.
+
 ## Verification
 
 ```bash

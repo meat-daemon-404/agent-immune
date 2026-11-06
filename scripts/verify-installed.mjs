@@ -58,7 +58,30 @@ if (patchPath && existsSync(patchPath)) {
   const insertRows = text.split('\n').filter((line) => /^\s*-\s*id:\s*/.test(line));
   check('patch has exactly one insert row', insertRows.length === 1, insertRows);
   check('insert row names this package', insertRows.length === 1 && insertRows[0].includes(PKG), insertRows);
-  check('patch has no accidental client bundle', !/client/i.test(text.replace(/^\s*#.*$/gm, '')));
+  // The client half is NOT a patch row: `client-modules` discovers it from the
+  // manifest's `dsh.client` + `exports["./client"]`. A patch row here would be
+  // a second, wrong registration path.
+  check('patch carries no client bundle row', !/client/i.test(text.replace(/^\s*#.*$/gm, '')));
+}
+
+// --- web client half: discovered by `packages/client/modules` (ClientModuleRegistry) ---
+// A package is only served as a browser bundle when it declares
+// `dsh.client.platform === "web"` AND exports a string `./client` target.
+const clientDecl = manifest.dsh?.client;
+check('manifest declares dsh.client.platform = web', clientDecl?.platform === 'web', clientDecl);
+const clientRel = typeof manifest.exports?.['./client'] === 'string'
+  ? manifest.exports['./client']
+  : manifest.exports?.['./client']?.default;
+check('manifest exports a string "./client" target', typeof clientRel === 'string', clientRel);
+if (typeof clientRel === 'string') {
+  const clientPath = join(pkgDir, clientRel);
+  check('client bundle file exists', existsSync(clientPath), clientPath);
+  if (existsSync(clientPath)) {
+    const src = readFileSync(clientPath, 'utf8');
+    check('client bundle registers via window.__ModuleLoader__.load', /window\.__ModuleLoader__\.load\(\{/.test(src));
+    check('client bundle declares this plugin id', src.includes(`id: '${PKG}'`) || src.includes(`id:'${PKG}'`) || src.includes(`id: "${PKG}"`));
+    check('client bundle exports an apply face', /exports\.apply\s*=/.test(src) && /exports\.name\s*=/.test(src));
+  }
 }
 
 const entry = join(pkgDir, manifest.main || 'dist/dsh/src/index.js');

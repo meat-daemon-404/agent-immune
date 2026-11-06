@@ -55,8 +55,8 @@ dsh plugin --profile <profile> add dsh-immune-system
 **tarball / git**（等价，无需 npm 账号）：
 
 ```bash
-cd dsh-immune-system && npm pack          # → dsh-immune-system-0.9.0.tgz
-dsh plugin --profile <profile> add ./dsh-immune-system-0.9.0.tgz
+cd dsh-immune-system && npm pack          # → dsh-immune-system-0.9.8.tgz
+dsh plugin --profile <profile> add ./dsh-immune-system-0.9.8.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
@@ -138,14 +138,21 @@ KPI（含预算）、搜索与清除、页签计数、排序、状态圆点、�
 - 数据走宿主路由 `/plugins/dsh-immune-system/api`，用
   `ctx.inject(['webServer'], …)` 注册——这是可选依赖，CLI/桌面 profile 没有 web 服务时
   插件照常工作，只是没有这个 tab
+- **manifest 必须同时声明** `dsh.client: { platform: "web" }` 与字符串
+  `exports["./client"]`。宿主的 `client-modules` 只按这两条把包认成「浏览器半」，
+  再把文件原样挂到 `/plugins/<id>/client.js?rev=<hash>`；少一条，文件在磁盘上存在
+  但路由 404、tab 永不出现（而且判定在本进程内缓存，必须重启才生效）。
+  `test/manifests.test.mjs` 与 `scripts/verify-installed.mjs` 把声明、导出目标与
+  文件内容三件事都钉死了
 - 变更类请求要求 `content-type: application/json` 且同源：JSON 会强制 CORS 预检，
   跨站页面过不去
 
 > 诚实说明：客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、
 > 跨源拒绝、无 web 服务时不注册、预算透传），布局则用真实 React 18 做过静态渲染自检
-> （含深色模式、空态、窄屏）。但**仍未在真实 web 应用里端到端跑通**——本机 web profile
-> 装了十几个第三方插件和 MCP 服务，启动日志淹没在它们的输出里。tab 是否如期出现，
-> 需要你重启 DSH 后看一眼。
+> （含深色模式、空态、窄屏）。**0.9.8 之前**它还从未被宿主真正当成浏览器半——根因是
+> manifest 漏了 `dsh.client` 声明（实测：`/plugins/dsh-immune-system/api` 返回 200，
+> 说明宿主半在跑；而 `/plugins/dsh-immune-system/client.js` 返回 404）。0.9.8 起已补齐，
+> 但需要**重启 DSH** 后到 `设置 → 插件` 确认 tab 出现。
 
 ### 同步与体检
 
@@ -328,11 +335,11 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **85 条全绿**（34 条 core、7 条 ZCode hook、27 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
+| `npm test` | **86 条全绿**（34 条 core、7 条 ZCode hook、27 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、4 条 manifest 一致性（含 `dsh.client` 浏览器半契约）） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
-| `scripts/verify-installed.mjs` | 16 断言（本机 profile 安装校验：bundles 登记、裸包名解析、patch 形状） |
+| `scripts/verify-installed.mjs` | desktop / web 各 22 断言（bundles 登记、裸包名解析、patch 形状，以及浏览器半的 `dsh.client` 声明 + `exports["./client"]` + 装载器注册面） |
 | `scripts/bench-tool-latency.mjs` | PASS，19 断言（慢速 mock 模型 1500 ms/次：`tools/post-execute` 中位 ~1 ms；`agent/turn-stopping` 按队列线性 1.5/3.0/4.6/7.5 s（1/2/3/5 条）；3000 ms 预算下 6 条只蒸馏 2 条、其余顺延） |
 
 ### 已知限制
@@ -369,7 +376,7 @@ dsh plugin --profile <profile> add dsh-immune-system
 
 ```bash
 cd dsh-immune-system && npm pack
-dsh plugin --profile <profile> add ./dsh-immune-system-0.9.0.tgz
+dsh plugin --profile <profile> add ./dsh-immune-system-0.9.8.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
