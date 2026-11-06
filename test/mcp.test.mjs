@@ -86,6 +86,7 @@ test('MCP handshake and tool listing follow the wire protocol', async (t) => {
     const tools = await server.call('tools/list', {});
     const names = tools.result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
+      'immune_export',
       'immune_forget',
       'immune_learn',
       'immune_list',

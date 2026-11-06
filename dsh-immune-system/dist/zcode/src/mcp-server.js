@@ -20,6 +20,7 @@
 import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { ImmuneStore } from '../../core/store/index.js';
+import { renderSkillMarkdown } from '../../core/export.js';
 const SERVER_INFO = { name: 'dsh-immune-system', version: '0.8.0' };
 const TOOLS = [
     {
@@ -38,6 +39,17 @@ const TOOLS = [
         name: 'immune_stats',
         description: 'Counts: active/retired rules, total injections, queued distillation jobs, database path.',
         inputSchema: { type: 'object', properties: {} },
+    },
+    {
+        name: 'immune_export',
+        description: 'Render the proven rules (hits >= threshold) as a SKILL.md document and return its text. Save the text to share the library with teammates or commit it.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                minHits: { type: 'number', description: 'Minimum hit count. Default 3.' },
+                title: { type: 'string', description: 'Skill title. Default "project-pitfalls".' },
+            },
+        },
     },
     {
         name: 'immune_learn',
@@ -115,6 +127,16 @@ export function callTool(store, name, args) {
                 `injections: ${all.reduce((s, a) => s + a.hit_count, 0)}\n` +
                 `queued distill jobs: ${store.pendingJobCount()}\n` +
                 `database: ${store.dbPath}`);
+        }
+        case 'immune_export': {
+            const minHits = typeof args.minHits === 'number' && args.minHits > 0 ? args.minHits : 3;
+            const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'project-pitfalls';
+            const rows = store.exportable(minHits);
+            if (rows.length === 0) {
+                return `No rule has reached ${minHits} hits yet; nothing worth sharing.`;
+            }
+            const md = renderSkillMarkdown(rows, { minHits, title });
+            return `Exported ${rows.length} rules as SKILL.md:\n\n${md}`;
         }
         case 'immune_learn': {
             const trigger = typeof args.trigger === 'string' ? args.trigger : '';
