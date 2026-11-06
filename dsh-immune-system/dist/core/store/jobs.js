@@ -24,6 +24,23 @@ export function claimJob(db) {
         .get(Date.now());
     return row ?? null;
 }
+/**
+ * Claim up to `count` pending jobs atomically.
+ *
+ * One statement per claim keeps the race posture of `claimJob`; batching is the
+ * caller's concern so a partial claim is still safe.
+ */
+export function claimJobs(db, count) {
+    const out = [];
+    const wanted = Math.max(1, Math.min(count, 16));
+    for (let i = 0; i < wanted; i += 1) {
+        const job = claimJob(db);
+        if (!job)
+            break;
+        out.push(job);
+    }
+    return out;
+}
 export function finishJob(db, id, status, note = '') {
     db.prepare('UPDATE distill_jobs SET status = ?, note = ?, updated_at = ? WHERE id = ?').run(status, note.slice(0, 400), Date.now(), id);
 }

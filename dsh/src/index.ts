@@ -23,6 +23,7 @@ import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
 import { matchGenericLesson } from '../../core/lessons.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
+import { targetSignature } from '../../core/pairing.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
 import { redact } from '../../core/redact.js';
 import { registerImmuneUiRoute } from './ui-route.js';
@@ -350,6 +351,11 @@ function startPlugin(ctx: DshContext): void {
   // `agent/session-start` docs name explicitly, and its content is visible to
   // the very first request.
   ctx.on(DSH_EVENTS.sessionStart, ({ agent, source }) => {
+    // resume / clear / compact start a new context: rules suppressed before
+    // them must be eligible again.
+    if (source === 'resume' || source === 'clear' || source === 'compact') {
+      store.resetTurnState(agent.id);
+    }
     store.pruneStale();
     const active = store.listAll(false);
     const block = renderMemory(active.slice(0, 3), t.promptPreamble, 1400);
@@ -376,7 +382,13 @@ function startPlugin(ctx: DshContext): void {
     const prompt = lastHumanPrompt(decision.messages) || lastPrompts.get(agent.id) || '';
     if (!prompt) return decision;
 
-    const hits = store.match(prompt, { limit: 3, sessionId: agent.id });
+    const hits = store.match(prompt, {
+      limit: 3,
+      sessionId: agent.id,
+      // Consecutive turns about the same file must not re-inject an identical
+      // block, nor inflate hit_count by doing so.
+      suppressRepeats: true,
+    });
     const block = renderMemory(hits, t.promptPreamble, 1400);
     if (!block) return decision;
 
@@ -426,10 +438,12 @@ function startPlugin(ctx: DshContext): void {
         // and distilling it would only restate the same command. It also must
         // not penalise the injected antibodies — they were not what got refused.
         if (event.sandboxDenied) return downstream;
+        const failedTarget = targetSignature(event.toolName, event.toolInput);
         const snapshot = store.recordFailure(
           event.sessionId,
           event.toolName,
           traceFor(event, `error=${event.errorText}`),
+          failedTarget.signature,
         );
         const retired = store.penalize(snapshot.injected_ids, {
           failureText: snapshot.trace,
@@ -450,7 +464,8 @@ function startPlugin(ctx: DshContext): void {
         return downstream;
       }
 
-      const failure = store.claimFailure(event.sessionId, event.toolName);
+      const successTarget = targetSignature(event.toolName, event.toolInput);
+      const failure = store.claimFailure(event.sessionId, event.toolName, successTarget);
       if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
         store.enqueueJob(
           event.toolName,

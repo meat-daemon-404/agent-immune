@@ -53,6 +53,23 @@ export function claimJob(db: DatabaseSync): DistillJob | null {
   return row ?? null;
 }
 
+/**
+ * Claim up to `count` pending jobs atomically.
+ *
+ * One statement per claim keeps the race posture of `claimJob`; batching is the
+ * caller's concern so a partial claim is still safe.
+ */
+export function claimJobs(db: DatabaseSync, count: number): DistillJob[] {
+  const out: DistillJob[] = [];
+  const wanted = Math.max(1, Math.min(count, 16));
+  for (let i = 0; i < wanted; i += 1) {
+    const job = claimJob(db);
+    if (!job) break;
+    out.push(job);
+  }
+  return out;
+}
+
 export function finishJob(
   db: DatabaseSync,
   id: number,

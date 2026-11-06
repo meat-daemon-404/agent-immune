@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { FailureSnapshot } from '../types.js';
 import { redactAndClamp } from '../redact.js';
+import { canCloseEpisode } from '../pairing.js';
 
 /** A failure is abandoned if no success follows within this window. */
 export const PENDING_TTL_MS = 30 * 60 * 1000;
@@ -72,6 +73,7 @@ export function recordFailure(
   sessionId: string,
   toolName: string,
   trace: unknown,
+  targetSignature = '',
 ): FailureSnapshot {
   const now = Date.now();
   const injected = injectedIds(db, sessionId);
@@ -88,13 +90,14 @@ export function recordFailure(
   // this failure may already have arrived, and it must not be wiped by a second
   // failing call in the same turn.
   db.prepare(
-    `INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, created_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, target_signature, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id, tool_name) DO UPDATE SET
        trace = excluded.trace,
        injected_ids = excluded.injected_ids,
+       target_signature = excluded.target_signature,
        created_at = excluded.created_at`,
-  ).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), now);
+  ).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), targetSignature, now);
 
   return snapshot;
 }
@@ -125,10 +128,20 @@ export function attachHumanHint(db: DatabaseSync, sessionId: string, hint: unkno
  * Claim a pending failure for `toolName`, deleting it so one failure is only
  * ever paired once. Returns null when there is nothing to pair.
  */
+/**
+ * Claim a pending failure for `toolName`, deleting it so one failure is only
+ * ever paired once.
+ *
+ * `incoming` is the successful call that might close the episode. When it is
+ * a read-only probe, or aimed at a different target, the failure is LEFT
+ * PENDING — a `git status` between an error and its real fix must not consume
+ * the episode, and the same tool called on another file must not either.
+ */
 export function claimFailure(
   db: DatabaseSync,
   sessionId: string,
   toolName: string,
+  incoming?: { signature: string; probeOnly: boolean },
 ): FailureSnapshot | null {
   pruneStale(db);
   const row = db
@@ -140,10 +153,14 @@ export function claimFailure(
         trace: string;
         injected_ids: string;
         human_hint?: string;
+        target_signature?: string;
         created_at: number;
       }
     | undefined;
   if (!row) return null;
+
+  const failedSignature = typeof row.target_signature === 'string' ? row.target_signature : '';
+  if (incoming && !canCloseEpisode(failedSignature, incoming)) return null;
 
   db.prepare('DELETE FROM pending_failures WHERE session_id = ? AND tool_name = ?').run(
     sessionId,

@@ -422,7 +422,104 @@ use and drained once at turn end under `IMMUNE_DISTILL_BUDGET_MS` (default
 12 s). Measured with a slow mock model (`scripts/bench-tool-latency.mjs`):
 `tools/post-execute` stays ~1 ms median, while `agent/turn-stopping` pays one
 round trip per queued job (~1.5 s each at 1500 ms/call) and defers whatever the
-budget cannot fit to the next boundary.
+budget cannot fit to the next boundary. With a model configured the drain now
+**batches four episodes per request**, so a backlog fits in one budget window
+instead of four.
+
+**Failure judgement — four layers.** A tool result is classified in this order,
+and the first layer that yields a verdict wins:
+
+| # | Signal | Verdict |
+| --- | --- | --- |
+| 1 | structured `value.exitCode` | non-zero = failure, zero = success — authoritative, output text is not scanned |
+| 2 | `isError` / `error` payload | failure, and its message becomes the symptom |
+| 3 | trailing markers (`[exit code: N]`, `[killed by signal: X]`, timed out) | failure when N≠0 |
+| 4 | narrow marker regex over the body (`ENOENT`, `npm ERR!`, `Cannot find module`, …) | failure; a healthy log that merely mentions "error" does not match |
+
+**Repeat suppression.** Asking three questions in a row about the same file
+would otherwise inject the identical block three times and count three hits.
+When the candidate set is unchanged and fewer than four turns have passed, the
+injection is skipped and `hit_count` is left alone — that counter drives
+promotion and anti-rot, so inflating it would corrupt the library's own
+statistics. `resume` / `clear` / `compact` reset the state.
+
+**Target-scoped pairing.** A failure only pairs with a success that is the
+*same kind of work*: same file for file tools, same program family for commands
+(`npm`/`npx`/`pnpm` are one family — a build failing under `npm` and passing
+under `npx` is the same task's fix; `npm …` then `git …` is not). Read-only
+probes (`ls`, `pwd`, `cat`, `git status`, `git log`, `git diff`, `which`, …)
+never close an episode: they cannot have fixed anything, and they sit between
+an error and its real fix constantly.
+
+**Jaccard near-duplicate merge.** Before inserting, prescriptions within the
+same trigger are compared with character-3-gram Jaccard (blended with a
+character-set Jaccard for short CJK sentences, where inserting one character
+shifts every trigram). At ≥0.70 the rule merges into the existing row and its
+hit count increments; a human correction or a model rewrite then overwrites the
+stored wording, because it outranks whatever was there.
+
+**Path-affinity rerank.** Retrieval fetches twice the requested limit, then
+re-ranks in memory: ×1.5 when the trigger names a file or directory the prompt
+mentions, ×0.85 for shared-library rules (project rules always win ties), and a
+time decay of `1 / (1 + 0.02 × days)` so a rule nobody has needed for a year
+does not outrank a fresh one.
+
+### Dashboard
+
+`cli.js ui` serves a local page at `http://127.0.0.1:7788/`: search, retire /
+restore / delete, project and shared tabs, live counts. Browsing is a
+read-only path — it never counts as an injection.
+
+Boundaries are deliberately narrow: binds `127.0.0.1` only, a random per-run
+token is required on every `/api` call (a cross-origin simple POST needs no
+preflight, so Origin checking alone would not do), strict CSP, and the page
+loads nothing external.
+
+### Native UI (dsh.client)
+
+The DSH web app gets a real settings tab instead of a separate page. The client
+is `dsh-immune-system/client/client.js`, hand-written against the module-loader
+contract (`window.__ModuleLoader__.load({ id, factory })`) — no bundler, no JSX,
+no new dependency. Data comes from a host route registered as an *optional*
+`webServer` dependency, so CLI and desktop profiles still work without it.
+Mutations require same-origin JSON, which forces a CORS preflight.
+
+### Sync & Doctor
+
+Library snapshots are plain tagged JSON, and merging is conservative:
+prescription is the identity, tallies take the MAX (two machines count
+independently and must not multiply), status is active when either side says
+so, and malformed rows are counted invalid rather than aborting the import.
+
+```bash
+node "<plugin>/dist/zcode/src/cli.js" export-json library.json
+node "<plugin>/dist/zcode/src/cli.js" import-json library.json
+node "<plugin>/dist/zcode/src/cli.js" doctor
+```
+
+`doctor` reports node version, an FTS5 trigram probe, database and shared-library
+readability, the plugin marker, the MCP script, the native-UI contract
+(`dsh.client` + `exports["./client"]` + a loader-registered bundle) and counts.
+Any failure exits non-zero, so it can gate a script.
+
+### Guard (IMMUNE_GUARD)
+
+Advisory text can be dropped by a model in a long turn, so a short curated list
+of calls that are wrong in essentially every environment also gets a
+deterministic pre-execution check: force-push to main, `rm -rf /`,
+`git reset --hard`.
+
+```bash
+IMMUNE_GUARD=off   # default: no check
+IMMUNE_GUARD=warn  # louder advisory (ZCode only)
+IMMUNE_GUARD=deny  # refuse the call (both hosts)
+```
+
+Patterns live in code, never in the database: a distilled rule is model output,
+and compiling it into a regex that can block tool calls would hand an
+unreviewed string the power to stop work, plus ReDoS risk. `deny` is never the
+default. `warn` is ZCode-only because DSH's `PreToolDecision` carries no
+context channel.
 
 ### Layout
 
@@ -437,7 +534,7 @@ dsh/                   DSH adapter — verified against the real host contract
 dsh-immune-system/     installable bundle (manifest, patch, commands, dist)
 zcode/                 ZCode adapter (hooks, CLI)
 docs/                  dsh-host-contract.md — every contract claim with file:line
-scripts/               the four verification scripts above
+scripts/               the five verification & benchmark scripts above
 test/                  node:test
 ```
 

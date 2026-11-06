@@ -8,8 +8,8 @@
  * Every check returns a row; the CLI prints them and exits non-zero when any
  * check failed, so it can gate a script.
  */
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ImmuneStore } from '../../core/store/index.js';
 import { GlobalStore, globalDbPathFor } from '../../core/store/global.js';
@@ -104,13 +104,61 @@ function mcpCheck() {
         detail: ok ? server : `missing: ${server}`,
     };
 }
+/** Check the native web-UI wiring declared by the plugin manifests. */
+function nativeUiCheck() {
+    const name = 'Native UI contract';
+    try {
+        const here = fileURLToPath(import.meta.url);
+        // Compiles to <plugin>/dist/zcode/src/doctor.js, so the package root is
+        // FOUR levels up: src -> zcode -> dist -> <plugin>.
+        const pluginRoot = join(here, '..', '..', '..', '..');
+        const manifests = [
+            join(pluginRoot, 'package.json'),
+            // When run from the repo instead of an installed copy, the manifest that
+            // actually declares the client lives one level down.
+            join(pluginRoot, 'dsh-immune-system', 'package.json'),
+        ];
+        for (const manifestPath of manifests) {
+            if (!existsSync(manifestPath))
+                continue;
+            const raw = JSON.parse(readFileSync(manifestPath, 'utf8'));
+            const dsh = (raw.dsh ?? {});
+            const client = (dsh.client ?? null);
+            const exportsField = (raw.exports ?? {});
+            const clientExport = exportsField['./client'];
+            if (!client)
+                return { name, ok: false, detail: `${manifestPath}: dsh.client missing` };
+            if (typeof clientExport !== 'string') {
+                return { name, ok: false, detail: `${manifestPath}: exports["./client"] missing` };
+            }
+            // Resolve the declared bundle and prove it is a loader-registered module.
+            const bundlePath = join(dirname(manifestPath), clientExport.replace(/^\.\//, ''));
+            if (!existsSync(bundlePath)) {
+                return { name, ok: false, detail: `client bundle not found: ${bundlePath}` };
+            }
+            const source = readFileSync(bundlePath, 'utf8');
+            if (!source.includes('__ModuleLoader__')) {
+                return { name, ok: false, detail: `client bundle lacks __ModuleLoader__: ${bundlePath}` };
+            }
+            return {
+                name,
+                ok: true,
+                detail: `dsh.client + exports["./client"] -> ${clientExport} (loader-registered)`,
+            };
+        }
+        return { name, ok: false, detail: 'no plugin manifest found next to the build' };
+    }
+    catch (error) {
+        return { name, ok: false, detail: error instanceof Error ? error.message : String(error) };
+    }
+}
 /** Run every check. `store` is the caller's live store (its DB is probed). */
 export function runDoctor(store, options = {}) {
     const results = [nodeVersionOk(), ftsProbe()];
     results.push(...databaseChecks(store));
     if (!options.pluginRoot)
         results.push(...markerChecks());
-    results.push(mcpCheck());
+    results.push(mcpCheck(), nativeUiCheck());
     results.push({
         name: 'counts',
         ok: true,

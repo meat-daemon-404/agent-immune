@@ -15,6 +15,7 @@
  */
 import { ImmuneStore } from '../../../core/store/index.js';
 import { isSelfEpisode } from '../../../core/selfnoise.js';
+import { targetSignature } from '../../../core/pairing.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
@@ -26,11 +27,12 @@ await runHook('PostToolUse', (event) => {
   const toolName = toolNameOf(event);
   const outcome = classifyOutcome(record);
   const trace = `${summarizeToolCall(toolName, event.tool_input)} result=${outcome.text}`;
+  const target = targetSignature(toolName, event.tool_input);
 
   const store = new ImmuneStore();
   try {
     if (outcome.failed) {
-      const snapshot = store.recordFailure(sessionId, toolName, trace);
+      const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
       const retired = store.penalize(snapshot.injected_ids, {
         failureText: snapshot.trace,
         toolName,
@@ -51,7 +53,7 @@ await runHook('PostToolUse', (event) => {
       return null;
     }
 
-    const failure = store.claimFailure(sessionId, toolName);
+    const failure = store.claimFailure(sessionId, toolName, target);
     if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
       store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids, failure.human_hint);
     }

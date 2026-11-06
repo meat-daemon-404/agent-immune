@@ -21,6 +21,12 @@ import { drainJobs } from '../drain.js';
 await runHook('SessionStart', async (event) => {
     const store = new ImmuneStore();
     try {
+        // resume / clear / compact are new contexts: a rule suppressed before them
+        // must be eligible again.
+        const source = typeof event.source === 'string' ? event.source : '';
+        if (source === 'resume' || source === 'clear' || source === 'compact') {
+            store.resetTurnState(sessionIdOf(event));
+        }
         await drainJobs(store);
         const top = store.listAll(false).slice(0, 3);
         if (top.length > 0) {

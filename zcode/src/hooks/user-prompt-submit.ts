@@ -32,6 +32,9 @@ await runHook('UserPromptSubmit', (event) => {
       // Session-start priming already delivered these within the TTL window;
       // re-injecting them at the first prompt would pay twice for one block.
       excludeInjected: true,
+      // Asking several things in a row about the same file must not re-inject
+      // an identical block (or inflate hit_count) on every turn.
+      suppressRepeats: true,
     });
     return formatImmuneContext(hits);
   } finally {

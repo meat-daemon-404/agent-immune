@@ -50,8 +50,17 @@ export const SCHEMA_STATEMENTS = [
     trace        TEXT    NOT NULL,
     injected_ids TEXT    NOT NULL DEFAULT '[]',
     human_hint   TEXT    NOT NULL DEFAULT '',
+    target_signature TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (session_id, tool_name)
+  )`,
+    // Repeat suppression: what was injected last turn in this session, and how
+    // many turns have passed without it changing.
+    `CREATE TABLE IF NOT EXISTS session_turns (
+    session_id TEXT    PRIMARY KEY,
+    signature  TEXT    NOT NULL DEFAULT '',
+    turns      INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL
   )`,
     `CREATE TABLE IF NOT EXISTS session_injections (
     session_id    TEXT    PRIMARY KEY,

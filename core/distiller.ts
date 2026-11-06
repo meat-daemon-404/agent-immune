@@ -14,6 +14,8 @@ import { chat, readLlmConfig, type LlmConfig } from './llm.js';
 import { extractError, extractInvocation } from './trace.js';
 import { normalizeKeyword, meaningfulTokens } from './keywords.js';
 import { matchGenericLesson } from './lessons.js';
+import type { BatchEpisode } from './prompts.js';
+import { BATCH_DISTILL_PROMPT, buildBatchInput, parseBatchOutput } from './prompts.js';
 
 /** Failures with no reuse value: the retry usually just works. */
 const TRANSIENT =
@@ -181,5 +183,98 @@ export async function distillEpisode(
   } catch {
     // Model unreachable or misconfigured: the rule-based path keeps the loop alive.
     return fallback();
+  }
+}
+
+/** Apply the curated generic table to a model-produced rule. */
+function normaliseLesson(
+  result: DistillResult,
+  toolName: string,
+): DistillResult {
+  if (!result.ok) return result;
+  const lesson = matchGenericLesson(result.antibody.symptom);
+  if (!lesson) return result;
+  return {
+    ok: true,
+    antibody: {
+      trigger_pattern: lesson.trigger,
+      symptom: lesson.symptom,
+      prescription: lesson.prescription,
+      tool_name: toolName,
+    },
+  };
+}
+
+/**
+ * Distil several episodes in ONE model request.
+ *
+ * The queue drains at turn end under a time budget, so the per-request latency
+ * is what limits throughput: batching four episodes turns four round trips into
+ * one. Everything that could go wrong degrades to the deterministic rule per
+ * episode, so a malformed or partial batch never loses work.
+ *
+ * Returns a map keyed by episode id; every input id is present.
+ */
+export async function distillBatch(
+  episodes: readonly BatchEpisode[],
+  opts: { llm?: LlmConfig | null; signal?: AbortSignal } = {},
+): Promise<Map<number, DistillResult>> {
+  const results = new Map<number, DistillResult>();
+  if (episodes.length === 0) return results;
+
+  const perEpisode = async (): Promise<Map<number, DistillResult>> => {
+    for (const episode of episodes) {
+      results.set(
+        episode.id,
+        await distillEpisode(episode.toolName, episode.failedTrace, episode.fixedTrace, {
+          llm: opts.llm,
+          signal: opts.signal,
+          humanHint: episode.humanHint ?? '',
+        }),
+      );
+    }
+    return results;
+  };
+
+  const llm = opts.llm === undefined ? readLlmConfig() : opts.llm;
+  // One episode is not a batch: the single-episode prompt carries more context
+  // per request, and it is the path the existing tests pin.
+  if (!llm || episodes.length < 2) return perEpisode();
+
+  try {
+    const raw = await chat(llm, BATCH_DISTILL_PROMPT, buildBatchInput(episodes), opts.signal);
+    const parsed = parseBatchOutput(raw, episodes.map((episode) => episode.id), 'batch');
+
+    for (const episode of episodes) {
+      const answer = parsed.get(episode.id);
+
+      // The model declined: respect it.
+      if (answer && !answer.ok && answer.reason === 'skip') {
+        results.set(episode.id, answer);
+        continue;
+      }
+
+      if (answer?.ok) {
+        // The batch response carries ids, not tool names — re-stamp it, and let
+        // the curated generic table normalise it exactly as the single path does.
+        const stamped: DistillResult = {
+          ok: true,
+          antibody: { ...answer.antibody, tool_name: episode.toolName },
+        };
+        results.set(episode.id, normaliseLesson(stamped, episode.toolName));
+        continue;
+      }
+
+      // Missing or malformed for this id: the deterministic rule fills the gap
+      // so no queued episode is lost.
+      results.set(
+        episode.id,
+        ruleDistill(episode.toolName, episode.failedTrace, episode.fixedTrace, episode.humanHint),
+      );
+    }
+    return results;
+  } catch {
+    // Transport or parse failure: everything falls back to the rule path.
+    return perEpisode();
   }
 }

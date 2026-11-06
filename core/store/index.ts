@@ -11,6 +11,14 @@ import type { Antibody, AntibodyStatus, FailureSnapshot, NewAntibody } from '../
 import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
 import { GlobalStore, globalDbPathFor, isPromotable } from './global.js';
+import { rerank } from './rerank.js';
+import {
+  bumpTurn,
+  clearTurnState,
+  readTurnState,
+  recordTurnInjection,
+  shouldSuppress,
+} from './turn-state.js';
 import {
   bumpHits,
   exportableAntibodies,
@@ -36,6 +44,7 @@ import {
 } from './episodes.js';
 import {
   claimJob,
+  claimJobs,
   enqueueJob,
   finishJob,
   pendingJobCount,
@@ -67,6 +76,12 @@ export interface MatchOptions {
    * session start and then match per prompt (ZCode) set it.
    */
   excludeInjected?: boolean;
+  /**
+   * Suppress an injection whose id set is identical to last turn's, for up to
+   * SUPPRESS_WINDOW turns, without counting a hit. Callers that run once per
+   * user turn (UserPromptSubmit, agent/pre-step) set this.
+   */
+  suppressRepeats?: boolean;
 }
 
 export class ImmuneStore {
@@ -89,8 +104,14 @@ export class ImmuneStore {
    * Insert and, when the rule is provably generic, also publish it to the
    * shared library so the next project starts already knowing it.
    */
-  insertShared(ab: NewAntibody, opts: { generic?: boolean } = {}): number | null {
-    const id = insertAntibody(this.db, ab);
+  insertShared(
+    ab: NewAntibody,
+    opts: { generic?: boolean; humanHint?: boolean; fromLlm?: boolean } = {},
+  ): number | null {
+    const id = insertAntibody(this.db, ab, {
+      humanHint: opts.humanHint === true,
+      fromLlm: opts.fromLlm === true,
+    });
     if (id === null) return null;
     const global = this.global();
     if (!global) return id;
@@ -126,46 +147,37 @@ export class ImmuneStore {
 
   match(queryText: string, opts: MatchOptions = {}): Antibody[] {
     const limit = opts.limit ?? 3;
+    // Retrieve wide, then rerank: BM25 answers "is the text related", not "is
+    // this about the file I am touching right now".
+    const wide = limit * 2;
 
-    // Prescriptions already delivered this session. Shared rules live in a
-    // different database with its own id sequence, so text is the only stable
-    // key to deduplicate them against project rules.
     const sent =
       opts.excludeInjected && opts.sessionId
         ? new Set(injectedPrescriptions(this.db, opts.sessionId))
         : null;
 
-    let own = findMatches(this.db, queryText, limit);
-    // Opt-in dedup: a host whose injection happens per TURN (DSH) wants
-    // re-injection in later turns; one that primes at session start plus
-    // per-prompt matching (ZCode) asks for exclusion so the same rule is not
-    // paid for twice within the injection TTL window.
+    let own = findMatches(this.db, queryText, wide);
     if (opts.excludeInjected && opts.sessionId) {
       const seen = new Set(this.injectedIds(opts.sessionId));
       own = own.filter((r) => !seen.has(r.id));
     }
 
-    // Fill the remaining slots from the shared library, so a fresh project is
-    // not defenceless before it has learned anything of its own.
-    //
-    // Project rows and shared rows are tracked in separate arrays, never merged
-    // by id: the two databases have independent AUTOINCREMENT sequences, so an
-    // id from one can collide with an unrelated row in the other.
+    // Shared-library candidates compete on the same terms, with a discount.
     const shared: Antibody[] = [];
+    const sharedIds = new Set<number>();
     const delivered = new Set(own.map((r) => r.prescription));
-    if (own.length < limit) {
+    if (own.length < wide) {
       const global = this.global();
       if (global) {
         try {
-          // Ask for a little extra so deduplicated candidates do not shrink
-          // the result below what the caller asked for.
-          const want = limit - own.length + (sent?.size ?? 0);
+          const want = wide - own.length + (sent?.size ?? 0);
           for (const candidate of global.match(queryText, want)) {
             if (delivered.has(candidate.prescription)) continue;
             if (sent?.has(candidate.prescription)) continue;
             shared.push(candidate);
+            sharedIds.add(candidate.id);
             delivered.add(candidate.prescription);
-            if (own.length + shared.length >= limit) break;
+            if (own.length + shared.length >= wide) break;
           }
         } catch {
           // A broken shared library must not break the caller's turn.
@@ -173,13 +185,29 @@ export class ImmuneStore {
       }
     }
 
-    if (own.length > 0) {
-      bumpHits(this.db, own.map((r) => r.id));
+    const ranked = rerank([...own, ...shared], { query: queryText, sharedIds }).slice(0, limit);
+    const rankedOwn = ranked.filter((r) => !sharedIds.has(r.id));
+    const rankedShared = ranked.filter((r) => sharedIds.has(r.id));
+
+    // ---- Repeat suppression (per turn) -------------------------------------
+    // Same set as last turn and fewer than SUPPRESS_WINDOW turns since: say
+    // nothing and do not count a hit. Re-injecting an identical block costs
+    // context, and inflating hit_count corrupts promotion and anti-rot.
+    if (opts.suppressRepeats && opts.sessionId) {
+      const state = readTurnState(this.db, opts.sessionId);
+      if (shouldSuppress(state, rankedOwn.map((r) => r.id))) {
+        bumpTurn(this.db, opts.sessionId);
+        return [];
+      }
+    }
+
+    if (rankedOwn.length > 0) {
+      bumpHits(this.db, rankedOwn.map((r) => r.id));
 
       // Promote on the turn a rule crosses five successful injections: that is
       // the proof-of-generality the promotion rule asks for, and checking the
       // pre-bump count keeps it off the hot path on every other call.
-      const crossed = own.filter((r) => r.hit_count === 4 && isPromotable(r, false));
+      const crossed = rankedOwn.filter((r) => r.hit_count === 4 && isPromotable(r, false));
       if (crossed.length > 0) {
         const global = this.global();
         for (const row of crossed) {
@@ -197,31 +225,40 @@ export class ImmuneStore {
       }
     }
 
-    if (shared.length > 0) {
-      // The shared library is a real library, not a read-only mirror: its rules
-      // must accumulate hits or they can never age, retire, or be pruned.
+    if (rankedShared.length > 0) {
       try {
-        this.global()?.countInjection(shared.map((r) => r.id));
+        this.global()?.countInjection(rankedShared.map((r) => r.id));
       } catch {
         // Counting is best-effort.
       }
     }
 
-    if (opts.sessionId && (own.length > 0 || shared.length > 0)) {
+    if (opts.sessionId && (rankedOwn.length > 0 || rankedShared.length > 0)) {
       recordInjection(
         this.db,
         opts.sessionId,
-        own.map((r) => r.id),
-        [...delivered],
+        rankedOwn.map((r) => r.id),
+        ranked.map((r) => r.prescription),
       );
+      if (opts.suppressRepeats) recordTurnInjection(this.db, opts.sessionId, rankedOwn.map((r) => r.id));
     }
 
-    return [...own, ...shared];
+    return ranked;
   }
 
   /** Record an injection that did not come through match() (session-start priming). */
   recordInjection(sessionId: string, ids: number[], prescriptions: string[] = []): void {
     if (ids.length > 0) recordInjection(this.db, sessionId, ids, prescriptions);
+  }
+
+  /**
+   * Forget this session's repeat-suppression history.
+   *
+   * Called on resume / clear / compact: those are new contexts, so a rule that
+   * was suppressed before must be eligible again.
+   */
+  resetTurnState(sessionId: string): void {
+    clearTurnState(this.db, sessionId);
   }
 
   listAll(includeRetired = true): Antibody[] {
@@ -276,8 +313,13 @@ export class ImmuneStore {
     return setAntibodyStatus(this.db, id, status);
   }
 
-  recordFailure(sessionId: string, toolName: string, trace: unknown): FailureSnapshot {
-    return recordFailure(this.db, sessionId, toolName, trace);
+  recordFailure(
+    sessionId: string,
+    toolName: string,
+    trace: unknown,
+    targetSignature = '',
+  ): FailureSnapshot {
+    return recordFailure(this.db, sessionId, toolName, trace, targetSignature);
   }
 
   /** Annotate pending failures with what the human said in the next turn. */
@@ -285,8 +327,12 @@ export class ImmuneStore {
     return attachHumanHint(this.db, sessionId, hint);
   }
 
-  claimFailure(sessionId: string, toolName: string): FailureSnapshot | null {
-    return claimFailure(this.db, sessionId, toolName);
+  claimFailure(
+    sessionId: string,
+    toolName: string,
+    incoming?: { signature: string; probeOnly: boolean },
+  ): FailureSnapshot | null {
+    return claimFailure(this.db, sessionId, toolName, incoming);
   }
 
   injectedIds(sessionId: string): number[] {
@@ -327,6 +373,11 @@ export class ImmuneStore {
 
   claimJob(): DistillJob | null {
     return claimJob(this.db);
+  }
+
+  /** Claim up to `count` pending jobs, for batch distillation. */
+  claimJobs(count: number): DistillJob[] {
+    return claimJobs(this.db, count);
   }
 
   finishJob(id: number, status: 'done' | 'failed' | 'skipped', note = ''): void {

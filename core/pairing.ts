@@ -1,0 +1,198 @@
+/**
+ * Target signatures for failure/recovery pairing.
+ *
+ * A failure and a later success are only an episode when they are about the SAME
+ * thing. Pairing by tool name alone conflates unrelated calls: `npm run build`
+ * failing and then `git status` succeeding would distil a rule that teaches
+ * nothing.
+ *
+ * Two additional guards:
+ *  - read-only probes (`ls`, `git status`, …) must never close an episode: they
+ *    cannot have fixed anything, and they are extremely common between an error
+ *    and its real fix.
+ *  - paths are normalised to a project-relative form so a failure in
+ *    `./src/a.ts` and a success in `<cwd>/src/a.ts` still match.
+ */
+import { basename, isAbsolute, relative, sep } from 'node:path';
+
+export interface TargetSignature {
+  /** Stable identity used for compatibility checks. */
+  signature: string;
+  /** True when the call only inspects state and cannot fix anything. */
+  probeOnly: boolean;
+}
+
+/** Programs that never change state; their success proves nothing. */
+const PROBE_PROGRAMS = new Set([
+  'ls',
+  'dir',
+  'pwd',
+  'cd',
+  'echo',
+  'cat',
+  'type',
+  'which',
+  'where',
+  'head',
+  'tail',
+  'wc',
+  'stat',
+]);
+
+/** `git` subcommands that only read. */
+const GIT_PROBE_SUBCOMMANDS = new Set([
+  'status',
+  'log',
+  'diff',
+  'show',
+  'branch',
+  'remote',
+  'rev-parse',
+  'describe',
+  'blame',
+]);
+
+const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'ApplyPatch', 'NotebookEdit']);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/** First string field among `keys`, if any. */
+function pickString(obj: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+/**
+ * Normalise a path to a project-relative, forward-slash form.
+ *
+ * Absolute paths outside the project are collapsed to their basename so two
+ * checkouts of the same file still match.
+ */
+export function normaliseTargetPath(rawPath: string, cwd?: string): string {
+  const normalised = rawPath.replace(/\\/g, '/').trim();
+  if (!normalised) return '';
+
+  if (cwd && isAbsolute(normalised)) {
+    const rel = relative(cwd, normalised).replace(/\\/g, '/');
+    if (rel && !rel.startsWith('..')) return rel;
+    return basename(normalised);
+  }
+  if (isAbsolute(normalised) || /^[A-Za-z]:\//.test(normalised)) return basename(normalised);
+  return normalised.replace(/^\.\//, '');
+}
+
+/** Split a shell command into `program` and its first non-flag subcommand. */
+export function parseCommand(command: string): { program: string; sub: string } {
+  const tokens = command
+    .split(/\s*(?:&&|\|\||[;|])\s*/)
+    .join(' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  // Skip leading env assignments (FOO=bar cmd).
+  let index = 0;
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? '')) index += 1;
+  const program = basename((tokens[index] ?? '').replace(/^["']|["']$/g, ''));
+  let sub = '';
+  for (let i = index + 1; i < tokens.length; i += 1) {
+    const token = tokens[i] ?? '';
+    if (!token || token === '-') continue;
+    if (token.startsWith('-') || token.startsWith('/')) continue;
+    sub = token.replace(/^["']|["']$/g, '');
+    break;
+  }
+  return { program: program.toLowerCase(), sub: sub.toLowerCase() };
+}
+
+/** Compute the pairing signature for one tool call. */
+export function targetSignature(
+  toolName: string,
+  input: unknown,
+  cwd?: string,
+): TargetSignature {
+  const obj = asRecord(input);
+
+  if (FILE_TOOLS.has(toolName)) {
+    const raw = pickString(obj, ['file_path', 'path', 'notebook_path']);
+    const target = raw ? normaliseTargetPath(raw, cwd) : '';
+    return { signature: `${toolName}:${target || '?'}`, probeOnly: toolName === 'Read' };
+  }
+
+  if (toolName === 'Bash') {
+    const command = pickString(obj, ['command', 'cmd', 'script']) ?? '';
+    if (!command) return { signature: 'Bash:?', probeOnly: false };
+    const { program, sub } = parseCommand(command);
+
+    const probeOnly =
+      PROBE_PROGRAMS.has(program) || (program === 'git' && GIT_PROBE_SUBCOMMANDS.has(sub));
+
+    return { signature: `Bash:${program || '?'}:${sub || '-'}`, probeOnly };
+  }
+
+  // Unknown tool: fall back to its name plus the first path-ish field.
+  const raw = pickString(obj, ['file_path', 'path', 'command']);
+  return {
+    signature: `${toolName}:${raw ? normaliseTargetPath(raw, cwd) : '?'}`,
+    probeOnly: false,
+  };
+}
+
+/**
+ * Programs that belong to the same toolchain: a fix for one routinely uses
+ * another (`npm run build` fails, `npx vite build` works; `pnpm` replaced by
+ * `npm` and vice versa).
+ */
+const PROGRAM_FAMILIES: ReadonlyArray<ReadonlySet<string>> = [
+  new Set(['npm', 'npx', 'pnpm', 'yarn', 'bun', 'bunx', 'node', 'corepack']),
+  new Set(['python', 'python3', 'py', 'pip', 'pip3', 'uv', 'poetry']),
+  new Set(['git', 'gh']),
+  new Set(['docker', 'docker-compose', 'podman']),
+];
+
+/** Family id for a program, or the program itself when it has none. */
+function programFamily(program: string): string {
+  for (const family of PROGRAM_FAMILIES) {
+    if (family.has(program)) return [...family][0] ?? program;
+  }
+  return program;
+}
+
+/**
+ * Whether an incoming success may close a stored failure's episode.
+ *
+ * The rule is "same kind of work on the same target":
+ *  - a read-only probe never closes anything (it cannot have fixed it);
+ *  - file tools must name the same file;
+ *  - commands must belong to the same PROGRAM FAMILY (npm/npx/pnpm are one
+ *    family: a build failing under npm and succeeding under npx is the same
+ *    task's fix), while `npm …` then `git …` is not;
+ *  - a missing target on either side is tolerated, since some tools omit it.
+ */
+export function canCloseEpisode(failedSignature: string, incoming: TargetSignature): boolean {
+  if (incoming.probeOnly) return false;
+  if (!failedSignature || failedSignature === '?') return true;
+  if (failedSignature === incoming.signature) return true;
+
+  const failedParts = failedSignature.split(':');
+  const incomingParts = incoming.signature.split(':');
+  const failedTool = failedParts[0] ?? '';
+  const incomingTool = incomingParts[0] ?? '';
+  if (failedTool !== incomingTool) return false;
+
+  const failedTarget = failedParts[1] ?? '';
+  const incomingTarget = incomingParts[1] ?? '';
+
+  if (failedTool === 'Bash') {
+    if (!failedTarget || !incomingTarget) return true;
+    return programFamily(failedTarget) === programFamily(incomingTarget);
+  }
+
+  return !failedTarget || failedTarget === '?' || !incomingTarget || incomingTarget === '?';
+}
+
+export { sep as pathSeparator };

@@ -315,8 +315,41 @@ test('pre-step injects at most once per turn, and never after step 1', async (t)
   assert.equal(repeat.messages.length, 1, 'the same turn does not inject twice');
   const stepTwo = await preStepAt(fx, agent, [prompt], 2, 2);
   assert.equal(stepTwo.messages.length, 1, 'step 2 of a turn never injects');
+
+  // Repeat suppression: an unchanged candidate set stays silent for
+  // SUPPRESS_WINDOW turns, and must not inflate hit_count while it is silent.
   const nextTurn = await preStepAt(fx, agent, [prompt], 3, 1);
-  assert.equal(nextTurn.messages.length, 2, 'a later turn may inject again');
+  assert.equal(nextTurn.messages.length, 1, 'an identical set is suppressed next turn');
+
+  const hitsWhileSuppressed = queryAll(dbPath, 'SELECT hit_count FROM antibodies')[0].hit_count;
+  assert.ok(hitsWhileSuppressed >= 1, 'the first injection still counted');
+
+  // After the window expires the same set is delivered again.
+  for (let turn = 4; turn <= 6; turn += 1) await preStepAt(fx, agent, [prompt], turn, 1);
+  const afterWindow = await preStepAt(fx, agent, [prompt], 7, 1);
+  assert.equal(afterWindow.messages.length, 2, 'after the window it injects again');
+});
+
+test('a changed candidate set is not suppressed', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-change');
+  await learnViteRule(fx, agent);
+  await runTurnStopping(fx, agent, 1);
+
+  const [row] = queryAll(dbPath, 'SELECT trigger_pattern FROM antibodies');
+  const first = await preStepAt(
+    fx,
+    agent,
+    [userMessage('m-1', `how do I fix ${row.trigger_pattern} while building`)],
+    2,
+    1,
+  );
+  assert.equal(first.messages.length, 2);
+
+  // A prompt that matches nothing has a different (empty) candidate set, so it
+  // must not be treated as a repeat of the previous injection.
+  const unrelated = await preStepAt(fx, agent, [userMessage('m-2', 'hello there')], 3, 1);
+  assert.equal(unrelated.messages.length, 1, 'no candidates, nothing to inject');
 });
 
 /* ================================================================== *

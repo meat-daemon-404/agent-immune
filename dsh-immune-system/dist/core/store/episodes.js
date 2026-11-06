@@ -1,4 +1,5 @@
 import { redactAndClamp } from '../redact.js';
+import { canCloseEpisode } from '../pairing.js';
 /** A failure is abandoned if no success follows within this window. */
 export const PENDING_TTL_MS = 30 * 60 * 1000;
 /** Injected antibodies are only penalised for failures within this window. */
@@ -57,7 +58,7 @@ export function injectedPrescriptions(db, sessionId) {
  * Record a failed tool call, capturing which antibodies were in context so they
  * can be penalised if they failed to prevent this.
  */
-export function recordFailure(db, sessionId, toolName, trace) {
+export function recordFailure(db, sessionId, toolName, trace, targetSignature = '') {
     const now = Date.now();
     const injected = injectedIds(db, sessionId);
     const snapshot = {
@@ -71,12 +72,13 @@ export function recordFailure(db, sessionId, toolName, trace) {
     // A repeat failure keeps any hint already attached: the human explanation for
     // this failure may already have arrived, and it must not be wiped by a second
     // failing call in the same turn.
-    db.prepare(`INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, created_at)
-     VALUES (?, ?, ?, ?, ?)
+    db.prepare(`INSERT INTO pending_failures (session_id, tool_name, trace, injected_ids, target_signature, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(session_id, tool_name) DO UPDATE SET
        trace = excluded.trace,
        injected_ids = excluded.injected_ids,
-       created_at = excluded.created_at`).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), now);
+       target_signature = excluded.target_signature,
+       created_at = excluded.created_at`).run(sessionId, toolName, snapshot.trace, JSON.stringify(injected), targetSignature, now);
     return snapshot;
 }
 /**
@@ -103,12 +105,24 @@ export function attachHumanHint(db, sessionId, hint) {
  * Claim a pending failure for `toolName`, deleting it so one failure is only
  * ever paired once. Returns null when there is nothing to pair.
  */
-export function claimFailure(db, sessionId, toolName) {
+/**
+ * Claim a pending failure for `toolName`, deleting it so one failure is only
+ * ever paired once.
+ *
+ * `incoming` is the successful call that might close the episode. When it is
+ * a read-only probe, or aimed at a different target, the failure is LEFT
+ * PENDING — a `git status` between an error and its real fix must not consume
+ * the episode, and the same tool called on another file must not either.
+ */
+export function claimFailure(db, sessionId, toolName, incoming) {
     pruneStale(db);
     const row = db
         .prepare('SELECT * FROM pending_failures WHERE session_id = ? AND tool_name = ?')
         .get(sessionId, toolName);
     if (!row)
+        return null;
+    const failedSignature = typeof row.target_signature === 'string' ? row.target_signature : '';
+    if (incoming && !canCloseEpisode(failedSignature, incoming))
         return null;
     db.prepare('DELETE FROM pending_failures WHERE session_id = ? AND tool_name = ?').run(sessionId, toolName);
     return {

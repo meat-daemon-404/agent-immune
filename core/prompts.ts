@@ -12,8 +12,12 @@ You are given a FAILED tool call and a later SUCCESSFUL tool call of the same to
 
 Output strictly JSON, no prose, no markdown fence.
 
-If the failure was a transient accident with no reuse value (network blip, one-off typo,
-rate limit), output: {"skip": true}
+Skip the episode when it has no cross-session value. Output {"skip": true} when the
+failure was caused only by:
+- a transient network blip, timeout, rate limit or 5xx
+- a one-off typo in the agent's own command
+- a sandbox or permission denial that will recur identically regardless of approach
+- a missing binary that the environment provisions elsewhere
 
 Otherwise output exactly:
 {"trigger_pattern": "...", "symptom": "...", "prescription": "..."}
@@ -27,6 +31,105 @@ Rules:
 - Write symptom and prescription in the language the agent was working in.
 - Be specific. "be careful" is not a prescription.
 - Never include secrets, tokens, or hostnames in any field.`;
+
+export const BATCH_DISTILL_PROMPT = `You extract reusable rules from several failed-then-fixed attempts at once.
+
+You are given a JSON array of episodes: [{ id, failedTrace, fixedTrace, humanHint? }].
+
+Output strictly a JSON ARRAY with one object per input id, no prose, no markdown fence:
+[{"id": 1, "trigger_pattern": "...", "symptom": "...", "prescription": "..."},
+ {"id": 2, "skip": true}]
+
+Skip an episode ({"id": N, "skip": true}) when it has no cross-session value:
+transient network blips, timeouts, rate limits, one-off typos in the agent's own
+command, sandbox or permission denials that recur identically, or missing binaries
+the environment provisions elsewhere.
+
+Field rules are the same as single-episode distillation:
+- trigger_pattern: file names, package names, commands, env vars, error keywords;
+  space separated, at most 8 items, no sentences.
+- symptom: one sentence, at most 35 characters, the wrong instinct.
+- prescription: one sentence, at most 60 characters, the verified correct move.
+- Write in the language the agent was working in.
+- Never include secrets, tokens, or hostnames.
+
+Every input id must appear exactly once in the output.`;
+
+/** One episode in a batch request. */
+export interface BatchEpisode {
+  id: number;
+  toolName: string;
+  failedTrace: string;
+  fixedTrace: string;
+  humanHint?: string;
+}
+
+/** Build the batch payload: a JSON array, as the prompt asks for. */
+export function buildBatchInput(episodes: readonly BatchEpisode[]): string {
+  return JSON.stringify(
+    episodes.map((episode) => ({
+      id: episode.id,
+      failedTrace: episode.failedTrace,
+      fixedTrace: episode.fixedTrace,
+      ...(episode.humanHint ? { humanHint: episode.humanHint } : {}),
+    })),
+    null,
+    1,
+  );
+}
+
+/**
+ * Parse a batch response into per-id results.
+ *
+ * Anything the model failed to answer for is simply absent from the map, and the
+ * caller falls back to the deterministic rule for those items — a partial answer
+ * must never cost a queued episode.
+ */
+export function parseBatchOutput(
+  raw: string,
+  expectedIds: readonly number[],
+  toolName: string,
+): Map<number, DistillResult> {
+  const out = new Map<number, DistillResult>();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripFence(raw));
+  } catch {
+    return out;
+  }
+  if (!Array.isArray(parsed)) return out;
+
+  const allowed = new Set(expectedIds);
+  for (const item of parsed) {
+    if (typeof item !== 'object' || item === null) continue;
+    const obj = item as Record<string, unknown>;
+    const id = typeof obj.id === 'number' ? obj.id : Number.NaN;
+    // Refuse ids the model invented: an echo of a made-up id must not create a
+    // rule that no episode produced.
+    if (!Number.isInteger(id) || !allowed.has(id)) continue;
+    out.set(id, resultFromObject(obj, toolName));
+  }
+  return out;
+}
+
+/** Shared field extraction for one distilled object. */
+function resultFromObject(obj: Record<string, unknown>, toolName: string): DistillResult {
+  if (obj.skip === true) return { ok: false, reason: 'skip' };
+  const trigger = field(obj.trigger_pattern, 240);
+  const prescription = field(obj.prescription, 240);
+  if (!trigger || !prescription) {
+    return { ok: false, reason: 'invalid', detail: 'missing trigger_pattern or prescription' };
+  }
+  return {
+    ok: true,
+    antibody: {
+      trigger_pattern: trigger,
+      symptom: field(obj.symptom, 240) ?? '(no symptom recorded)',
+      prescription,
+      tool_name: toolName,
+    },
+  };
+}
 
 /** Build the user-side payload for one failure/success pair. */
 export function buildDistillInput(

@@ -10,6 +10,7 @@
  */
 import { ImmuneStore } from '../../../core/store/index.js';
 import { isSelfEpisode } from '../../../core/selfnoise.js';
+import { targetSignature } from '../../../core/pairing.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeFailure } from '../format.js';
 import { selfMarkers } from '../root-marker.js';
@@ -17,10 +18,16 @@ import { selfMarkers } from '../root-marker.js';
 await runHook('PostToolUseFailure', (event) => {
   const sessionId = sessionIdOf(event);
   const toolName = toolNameOf(event);
+  const target = targetSignature(toolName, event.tool_input);
 
   const store = new ImmuneStore();
   try {
-    const snapshot = store.recordFailure(sessionId, toolName, summarizeFailure(event));
+    const snapshot = store.recordFailure(
+      sessionId,
+      toolName,
+      summarizeFailure(event),
+      target.signature,
+    );
 
     // Anti-rot: antibodies injected this turn that did not prevent the failure
     // lose credit, and are retired once they keep failing. The penalty is

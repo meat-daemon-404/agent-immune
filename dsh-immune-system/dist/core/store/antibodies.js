@@ -1,9 +1,20 @@
 import { buildFtsQuery, cjkBigrams } from './tokenize.js';
 import { isRelated } from '../relevance.js';
+import { prescriptionSimilarity } from '../similarity.js';
 /** An antibody is retired after this many injected-but-still-failed episodes. */
 export const RETIRE_AFTER_FAILURES = 3;
-/** Insert a new antibody. Returns its id, or null when the input is unusable. */
-export function insertAntibody(db, ab) {
+/** Prescriptions at or above this similarity are the same rule. */
+export const MERGE_THRESHOLD = 0.7;
+/**
+ * Insert a new antibody, merging near-duplicates.
+ *
+ * Exact prescription equality is the cheap first check. Beyond that, a rule
+ * whose prescription is ≥70% similar (character 3-gram Jaccard) to an existing
+ * active rule about the same trigger is the same lesson in different words:
+ * inserting it would give the library two rows that say the same thing and halve
+ * the observed hit count of each.
+ */
+export function insertAntibody(db, ab, options = {}) {
     // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
     // Without these, one bloated rule dominates every later injection.
     const trigger = ab.trigger_pattern.trim().slice(0, 200);
@@ -11,15 +22,33 @@ export function insertAntibody(db, ab) {
     const prescription = ab.prescription.trim().slice(0, 200);
     if (!trigger || !prescription)
         return null;
-    // De-duplicate on the prescription: it is the actionable part of the rule.
-    const dupe = db
+    const now = Date.now();
+    // 1. Exact prescription match.
+    const exact = db
         .prepare('SELECT id FROM antibodies WHERE prescription = ? LIMIT 1')
         .get(prescription);
-    if (dupe) {
-        db.prepare('UPDATE antibodies SET updated_at = ? WHERE id = ?').run(Date.now(), dupe.id);
-        return dupe.id;
+    if (exact) {
+        db.prepare('UPDATE antibodies SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(now, exact.id);
+        return exact.id;
     }
-    const now = Date.now();
+    // 2. Near-duplicate: same trigger, similar prescription.
+    const candidates = db
+        .prepare(`SELECT id, prescription, symptom FROM antibodies
+        WHERE status = 'active' AND trigger_pattern = ?
+        LIMIT 25`)
+        .all(trigger);
+    for (const candidate of candidates) {
+        if (prescriptionSimilarity(candidate.prescription, prescription) < MERGE_THRESHOLD)
+            continue;
+        if (options.humanHint || options.fromLlm) {
+            // A human correction or a model rewrite outranks the stored wording.
+            db.prepare('UPDATE antibodies SET prescription = ?, symptom = ?, hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(prescription, symptom || candidate.symptom, now, candidate.id);
+        }
+        else {
+            db.prepare('UPDATE antibodies SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(now, candidate.id);
+        }
+        return candidate.id;
+    }
     const info = db
         .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?)`)
