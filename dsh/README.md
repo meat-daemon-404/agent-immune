@@ -213,7 +213,7 @@ dsh.profile.bundles 里的包名
 | 命令 | 实测结果 |
 | --- | --- |
 | `npm run build` | exit 0，0 错误 |
-| `npm test` | 86 条全绿（34 条 core、7 条 ZCode hook、27 条 `test/dsh.test.mjs` 假 Context 单测、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、4 条 manifest 一致性（含「浏览器半按 `dsh.client` 契约可被发现」）；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」「读含 `Error:` 的日志不算失败」「预算查看/覆盖」「列表页脚显示队列与库路径」） |
+| `npm test` | 87 条全绿（34 条 core、7 条 ZCode hook、27 条 `test/dsh.test.mjs` 假 Context 单测、4 条 `test/dsh-ui.test.mjs` tab 契约、3 条 MCP、3 条 LLM、5 条 UI 查询层、4 条 manifest 一致性（含「浏览器半按 `dsh.client` 契约可被发现」）；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」「读含 `Error:` 的日志不算失败」「预算查看/覆盖」「列表页脚显示队列与库路径」） |
 | 三步手验（`scripts/verify-step1.mjs`） | 15 断言全过（含 bash 非零退出必须判失败） |
 | 三步手验（`scripts/verify-steps23.mjs`） | 22 断言全过（失败→成功在 `turn-stopping` 产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
 | 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |
@@ -233,3 +233,20 @@ dsh.profile.bundles 里的包名
 - 反腐烂：一条抗体注入后工具**仍然**失败满 3 次（`RETIRE_AFTER_FAILURES`）即退役并联合新证据重蒸；
 - 落盘前凭据脱敏；
 - `SKILL.md` 导出格式。
+
+---
+
+## 八、故障排查：设置页 tab 不出现
+
+宿主半（`/plugins/dsh-immune-system/api` 能返回 JSON）正常、但「设置 → 插件」里没有「免疫」这一栏时，按顺序查三件事：
+
+1. **manifest 的两处声明**。`dsh-immune-system/package.json` 必须同时有
+   `"dsh": { "client": { "platform": "web", ... } }` 与 `"exports": { "./client": "./client/client.js" }`。
+   `npm test`（`test/manifests.test.mjs`）和 `scripts/verify-installed.mjs` 都会钉住这两点。
+2. **进程启动时间必须晚于文件修改时间**。`client-modules` 对「没有浏览器半」的判定按进程**永久缓存**，所以改完 manifest 只刷新窗口没用，必须**完全退出应用再启动**。用 `/immune` 看页脚：
+   `— distill budget 12000 ms · queued 0 · web tab registered · db …`
+   `web tab` 有三个值：`registered`（宿主已组装 bundle 行）、`not registered`（服务在、但没组装——多半是 manifest 未生效或需要重启）、`not loaded`（该宿主没有 `clientModules` 服务）。
+3. **浏览器半的接口面**。`scripts/verify-client-serve.mjs` 用**宿主自身的** `ClientModuleRegistry` 在进程内组装并调真实路由处理器；它绿就说明「按契约一定可服务」，剩下的只是重启。
+
+> 注意：不要用 `curl http://127.0.0.1:<port>/plugins/dsh-immune-system/client.js` 判断。桌面版的该端口是网关，未带会话凭据时对**所有**插件的 `client.js` 都返回 401/404（实测 23 个插件一律 404），这个探测会产生假阴性。以 `/immune` 的 `web tab` 字段或设置页实见为准。
+

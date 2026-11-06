@@ -197,6 +197,35 @@ function drainBudgetMs(): number {
   return clampBudgetMs(Number.isFinite(raw) && raw > 0 ? raw : 12_000);
 }
 
+/**
+ * Whether the host actually composed our web-client bundle row.
+ *
+ * `client-modules` only serves `/plugins/<id>/client.js` for a package whose
+ * manifest declares `dsh.client.platform === "web"` and `exports["./client"]`,
+ * and it caches a negative verdict for the life of the process. That is why a
+ * settings tab can stay missing after an upgrade until the app is restarted;
+ * surfacing the live answer in `/immune` turns that into a one-line check
+ * instead of a guess. `ctx.get('clientModules')` is a read-only service lookup
+ * (no inject edge), per `packages\context\agent-instructions\src\index.ts:116`.
+ */
+function describeWebTab(ctx: DshContext): string {
+  const get = ctx.get;
+  if (typeof get !== 'function') return 'unknown';
+  let registry: unknown;
+  try {
+    registry = get.call(ctx, 'clientModules');
+  } catch {
+    return 'unknown';
+  }
+  const clientPath = (registry as { clientPath?: (id: string) => string | undefined } | undefined)?.clientPath;
+  if (typeof clientPath !== 'function') return 'not loaded';
+  try {
+    return clientPath.call(registry, PLUGIN_NAME) === undefined ? 'not registered' : 'registered';
+  } catch {
+    return 'error';
+  }
+}
+
 /** Distil queued episodes. Called at turn end, never inside a tool result path. */
 async function drain(store: ImmuneStore, budgetMs = drainBudgetMs()): Promise<void> {
   const deadline = Date.now() + budgetMs;
@@ -438,7 +467,7 @@ function startPlugin(ctx: DshContext): void {
       }
 
       const rows = store.listAll(args.includes('--all'));
-      const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · db ${store.dbPath}`;
+      const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · web tab ${describeWebTab(ctx)} · db ${store.dbPath}`;
       if (rows.length === 0) return { kind: 'success', text: t.noAntibodies + footer };
       const text = rows
         .map(

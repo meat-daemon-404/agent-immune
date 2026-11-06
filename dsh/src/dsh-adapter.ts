@@ -281,6 +281,13 @@ export interface DshContext {
     /** `packages\interaction\commands\src\index.ts:270-277`. */
     register(definition: DshCommandDefinition): () => void;
   };
+  /**
+   * Service lookup without an `inject` edge (cordis `ctx.get`, as used by
+   * `packages\context\agent-instructions\src\index.ts:116` for `fs`). Read-only
+   * here: it reports whether the host composed the web client row, so a missing
+   * settings tab can be diagnosed from `/immune` instead of guessed at.
+   */
+  get?(name: string): unknown;
 }
 
 /** Normalised tool outcome, so call sites never read raw host fields. */

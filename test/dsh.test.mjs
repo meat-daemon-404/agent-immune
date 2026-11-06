@@ -114,7 +114,7 @@ function userMessage(id, text) {
  * Only the surface `apply(ctx)` touches: `logger`, `on`, `effect` and the
  * injected `commands` service (cordis `Context` + dsh-commands).
  */
-function fakeContext() {
+function fakeContext(services = {}) {
   const listeners = new Map();
   const disposers = [];
   const logs = [];
@@ -124,6 +124,10 @@ function fakeContext() {
     logger: {
       info: (message) => logs.push({ level: 'info', message: String(message) }),
       warn: (message) => logs.push({ level: 'warn', message: String(message) }),
+    },
+    // cordis `ctx.get(name)` — a read-only service lookup, no inject edge.
+    get(name) {
+      return services[name];
     },
     on(event, listener) {
       const bucket = listeners.get(event) ?? [];
@@ -181,13 +185,13 @@ function fakeContext() {
 }
 
 /** Temp database + an applied plugin instance, torn down with the test. */
-async function bootstrap(t) {
+async function bootstrap(t, services = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'immune-dsh-'));
   const dbPath = join(dir, 'immune.sqlite');
   const previous = process.env.IMMUNE_DB_PATH;
   process.env.IMMUNE_DB_PATH = dbPath;
 
-  const fx = fakeContext();
+  const fx = fakeContext(services);
   plugin.apply(fx.ctx);
 
   t.after(() => {
@@ -681,5 +685,22 @@ test('the immune listing footer surfaces queue depth and the database path', asy
   assert.equal(listed.kind, 'success');
   assert.match(listed.text, /distill budget \d+ ms/);
   assert.match(listed.text, /queued \d+/);
+  assert.match(listed.text, /web tab (not loaded|not registered|registered|unknown|error)/);
   assert.ok(listed.text.includes(dbPath), 'the footer names the database in use');
 });
+
+test('the footer reports whether the host composed the web client row', async (t) => {
+  // client-modules serves /plugins/<id>/client.js only for a declared bundle and
+  // caches a negative verdict for the process; /immune has to be able to say.
+  const cases = [
+    [{ clientModules: { clientPath: () => '/plugins/dsh-immune-system/client.js?rev=abc' } }, /web tab registered/],
+    [{ clientModules: { clientPath: () => undefined } }, /web tab not registered/],
+    [{ clientModules: {} }, /web tab not loaded/],
+  ];
+  for (const [services, expected] of cases) {
+    const { fx } = await bootstrap(t, services);
+    const listed = fx.commands.find((c) => c.name === 'immune').handler({ rawInput: '' });
+    assert.match(listed.text, expected);
+  }
+});
+

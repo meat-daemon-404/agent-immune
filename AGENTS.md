@@ -148,6 +148,11 @@ identical-retry note).
     mounts the real `ClientModuleRegistry` and invokes its real route handler
     (10 assertions: row composed, url shaped, 200 + `text/javascript` + byte-
     identical body), so the check fails for exactly the reasons a host would.
+    Because the negative verdict is cached for the process, `/immune` prints a
+    `web tab registered | not registered | not loaded` field in its footer (read
+    via `ctx.get('clientModules').clientPath(...)`) so the live answer is one
+    command away. Do not "verify" the tab with `curl /plugins/<id>/client.js`:
+    the desktop port is an auth-gated gateway that 404s *every* plugin's bundle.
 
 ## Verification
 
