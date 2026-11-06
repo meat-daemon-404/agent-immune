@@ -104,10 +104,11 @@ function timedOutOf(value) {
     return value.timedOut === true;
 }
 /**
- * Decide success vs failure from the three signals DSH actually provides.
+ * Decide success vs failure from the signals DSH actually provides.
  *
  * Authority order, highest first:
- *  1. `isError` — the host already classified it;
+ *  1. `isError` — the host already classified it (but a thrown file tool can
+ *     still carry the sandbox marker in its message, so it is checked too);
  *  2. a sandbox file-access denial — reported, but flagged so it is not learned;
  *  3. a kill signal / timeout — a status marker that can co-exist with exit 0;
  *  4. the structured `value.exitCode` — **authoritative for shell tools**;
@@ -118,7 +119,14 @@ function timedOutOf(value) {
  */
 function judgeOutcome(result, resultText) {
     if (result.isError) {
-        return { ok: false, errorText: result.error.message, sandboxDenied: false };
+        const message = result.error.message;
+        // A file tool that throws on a denied path surfaces the same marker as a
+        // shell tool that reports it; neither is a project pitfall.
+        if (SANDBOX_DENIED.test(message)) {
+            const mode = /\[sandbox: file access denied under ([^\]\n]+) mode\]/.exec(message);
+            return { ok: false, errorText: `sandbox denied (${mode?.[1] ?? 'unknown'} mode)`, sandboxDenied: true };
+        }
+        return { ok: false, errorText: message, sandboxDenied: false };
     }
     if (SANDBOX_DENIED.test(resultText)) {
         const marker = /\[sandbox: file access denied under ([^\]\n]+) mode\]/.exec(resultText);

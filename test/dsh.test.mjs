@@ -474,6 +474,16 @@ test('a sandbox denial is flagged, and never becomes a learning episode', async 
   assert.equal(event.ok, false);
   assert.equal(event.sandboxDenied, true);
 
+  // A file tool that *throws* on a denied path carries the same marker in its
+  // error message; it must be flagged the same way, not learned as a pitfall.
+  const thrownDenial = thrownResult(
+    'write failed: [sandbox: file access denied under workspace-write mode]',
+  );
+  const thrownEvent = normaliseToolEvent(makeExec(makeAgent('sess-sbx')), thrownDenial);
+  assert.ok(thrownEvent);
+  assert.equal(thrownEvent.ok, false);
+  assert.equal(thrownEvent.sandboxDenied, true, 'a thrown sandbox denial is still a denial');
+
   // End to end: a denial followed by a success on the same tool must not
   // distil an antibody (there is nothing project-specific to learn).
   const { fx, dbPath } = await bootstrap(t);
