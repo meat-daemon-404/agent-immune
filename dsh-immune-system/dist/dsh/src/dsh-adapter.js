@@ -103,6 +103,12 @@ function timedOutOf(value) {
         return false;
     return value.timedOut === true;
 }
+/** True when the tool returned a structured, non-empty `value` payload. */
+function hasStructuredPayload(value) {
+    if (typeof value !== 'object' || value === null)
+        return false;
+    return Object.keys(value).length > 0;
+}
 /**
  * Decide success vs failure from the signals DSH actually provides.
  *
@@ -112,8 +118,10 @@ function timedOutOf(value) {
  *  2. a sandbox file-access denial — reported, but flagged so it is not learned;
  *  3. a kill signal / timeout — a status marker that can co-exist with exit 0;
  *  4. the structured `value.exitCode` — **authoritative for shell tools**;
- *  5. the rendered `[exit code: N]` trailer;
- *  6. `FAILURE_MARKERS` text — only for results that carry *no* structured
+ *  5. a structured `value` payload with no exit status — the tool encoded its
+ *     own outcome, so its text is data and is not scanned;
+ *  6. the rendered `[exit code: N]` trailer;
+ *  7. `FAILURE_MARKERS` text — only for results that carry *no* structured
  *     status, since a successful command may legitimately print `Error:` or
  *     `command not found` in its own output (grep, test runners, docs).
  */
@@ -148,6 +156,15 @@ function judgeOutcome(result, resultText) {
         return exitCode === 0
             ? { ok: true, errorText: '', sandboxDenied: false }
             : { ok: false, errorText: `exit code ${exitCode}`, sandboxDenied: false };
+    }
+    // A tool that returned a non-empty structured payload but no usable exit
+    // status has already encoded its own outcome — the payload IS the verdict.
+    // Its text is data (a file's contents, grep matches, a tool's JSON result),
+    // so scanning it for `Error:` / `[exit code: 1]` would turn a successful
+    // `read` of a log file into a recorded failure. Text heuristics are only for
+    // tools that returned nothing structured at all.
+    if (hasStructuredPayload(result.value)) {
+        return { ok: true, errorText: '', sandboxDenied: false };
     }
     if (EXIT_CODE.test(resultText)) {
         const code = EXIT_CODE.exec(resultText);

@@ -111,6 +111,14 @@ identical-retry note).
     explains with an escalation hint — distilling it can only restate the same
     command, and it must not penalise antibodies that were not what got refused.
 
+13. **A structured payload is a verdict; text is only a fallback.** After the
+    exit-status checks, a result that carries a non-empty `value` object but no
+    exit status is treated as a success and its text is *not* scanned. Only
+    tools that returned nothing structured are judged by `[exit code: N]` /
+    `FAILURE_MARKERS`. Otherwise reading a log (or this repo's own docs) that
+    contains `Error:` would be recorded as a failure and distilled into a bogus
+    antibody.
+
 ## Verification
 
 ```bash
@@ -118,6 +126,7 @@ npm test          # node:test; counts grow as coverage does — green is the bar
 node scripts/verify-step1.mjs     # 15  — outcome classification
 node scripts/verify-steps23.mjs   # 22  — loop end-to-end (fake Cordis host)
 node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
+node scripts/bench-tool-latency.mjs  # where distillation cost lands (slow mock model)
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
 ```
 

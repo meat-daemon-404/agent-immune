@@ -53,12 +53,15 @@
    （超时可能带 `exitCode: 0`，所以要同时看标志位）
 4. 结构化 `value.exitCode`（`packages\shell\tool-bash\src\index.ts:159-182`）——
    **有则权威**：0 即成功，非 0 即失败，**不再看文本**
-5. 文本末行 `[exit code: N]`
-6. `FAILURE_MARKERS` 特征词——**仅当上面没有任何结构化状态时**才用
+5. 有结构化 `value` 但没有退出状态 → **判成功且不扫文本**：工具已经用自己的
+   载荷表态了，正文是数据（文件内容、grep 命中、工具 JSON 结果）。否则「读一个
+   含 `Error:` 的日志文件」会被记成失败
+6. 文本末行 `[exit code: N]`
+7. `FAILURE_MARKERS` 特征词——**仅当上面没有任何结构化状态时**才用
 
-第 4 步压过第 6 步是刻意的：`grep`、测试运行器、文档正文里出现 `command not found`
+第 4 步压过第 7 步是刻意的：`grep`、测试运行器、文档正文里出现 `command not found`
 或 `Error:` 是常态，一条**退出码 0** 的命令不该因为它们被记成失败。反过来，只打印错误
-文本、没有结构化状态的工具仍靠第 6 步兜底。
+文本、没有任何结构化状态的工具（返回 `value: {}` 或不返回 `value`）仍靠第 7 步兜底。
 
 ### 3. 怎么把文字塞给模型
 
@@ -209,11 +212,12 @@ dsh.profile.bundles 里的包名
 | 命令 | 实测结果 |
 | --- | --- |
 | `npm run build` | exit 0，0 错误 |
-| `npm test` | 79 条全绿（34 条 core、7 条 ZCode hook、22 条 `test/dsh.test.mjs` 假 Context 单测、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」） |
+| `npm test` | 81 条全绿（34 条 core、7 条 ZCode hook、24 条 `test/dsh.test.mjs` 假 Context 单测、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」「读含 `Error:` 的日志不算失败」） |
 | 三步手验（`scripts/verify-step1.mjs`） | 15 断言全过（含 bash 非零退出必须判失败） |
 | 三步手验（`scripts/verify-steps23.mjs`） | 22 断言全过（失败→成功在 `turn-stopping` 产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
 | 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |
 | 本机安装验证（`scripts/verify-installed.mjs`） | 16 断言全过（profile bundles 已登记、包可从 profile `node_modules` 解析、`dsh.bundle.patch` 存在且只有一行 insert、入口模块按裸包名导入且导出插件形状） |
+| 延迟基准（`scripts/bench-tool-latency.mjs`） | PASS：慢速 mock 模型 1500ms/次、3 个回合任务下，`tools/post-execute` 中位 **0.9ms**（工具路径上无 HTTP），`agent/turn-stopping` 共 **4.5s**（每任务一次模型往返）；若把蒸馏塞回 post-execute，每次工具调用将多付 ~4.5s |
 
 ---
 

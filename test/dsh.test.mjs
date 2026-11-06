@@ -502,6 +502,31 @@ test('a sandbox denial is flagged, and never becomes a learning episode', async 
   );
 });
 
+test('a successful content tool is not failed by error words in its payload', () => {
+  // `read` / `grep` return the file body or matches as the structured value.
+  // Reading a log (or this repo's own docs) that contains `Error:` must not be
+  // recorded as a failure — the payload is the verdict, the text is data.
+  const readResult = {
+    isError: false,
+    content: [{ type: 'text', text: 'Error: disk quota exceeded (a line in the log we are reading)' }],
+    value: { path: 'logs/app.log', content: 'Error: disk quota exceeded' },
+  };
+  const event = normaliseToolEvent(makeExec(makeAgent('sess-read'), { name: 'read' }), readResult);
+  assert.ok(event);
+  assert.equal(event.ok, true, 'a structured payload means the tool already succeeded');
+});
+
+test('a payload-less tool that reports failure only in text is still caught', () => {
+  const result = {
+    isError: false,
+    content: [{ type: 'text', text: 'Error: connection refused' }],
+    value: {},
+  };
+  const event = normaliseToolEvent(makeExec(makeAgent('sess-mcp'), { name: 'mcp_call' }), result);
+  assert.ok(event);
+  assert.equal(event.ok, false, 'no payload + a failure marker is still a failure');
+});
+
 test('a call with no agent normalises to undefined', () => {
   const exec = makeExec(undefined);
   assert.equal(normaliseToolEvent(exec, BASH_EXIT_1), undefined);

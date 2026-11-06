@@ -172,9 +172,11 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 
 所以两版都自己判结果。DSH 侧的判据按权威度排序：
 `isError` → sandbox 拒绝标记（判失败但**不入库学习**）→ kill/timeout（含 `value.timedOut`）→
-结构化 `value.exitCode`（**有则权威：0 成功、非 0 失败，不再看文本**）→ 行尾 `[exit code: N]` →
-窄口径失败标记正则（**仅当无结构化状态**）。最后一步刻意让位给退出码：一条退出 0 的命令
-在 `grep` 输出里顺带印出 `command not found` 是常事，不该被记成失败。
+结构化 `value.exitCode`（**有则权威：0 成功、非 0 失败，不再看文本**）→
+有结构化 `value` 但无退出状态（**载荷即结论，正文是数据，不扫**）→ 行尾 `[exit code: N]` →
+窄口径失败标记正则（**仅当无任何结构化状态**）。后面两步刻意让位给结构化信号：一条退出 0
+的命令在 `grep` 输出里顺带印出 `command not found` 是常事，而 `read` 一个含 `Error:` 的日志
+文件更是日常——都不该被记成失败。
 
 **② 抗体失效会被淘汰（Anti-Rot）**
 
@@ -277,11 +279,12 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **79 条全绿**（34 条 core、7 条 ZCode hook、22 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
+| `npm test` | **81 条全绿**（34 条 core、7 条 ZCode hook、24 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
 | `scripts/verify-installed.mjs` | 16 断言（本机 profile 安装校验：bundles 登记、裸包名解析、patch 形状） |
+| `scripts/bench-tool-latency.mjs` | PASS（慢速 mock 模型下 `tools/post-execute` 中位 0.9 ms、`agent/turn-stopping` 4.5 s／3 个任务；证明蒸馏不落在工具路径上） |
 
 ### 已知限制
 
