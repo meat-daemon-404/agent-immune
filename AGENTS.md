@@ -1,4 +1,4 @@
-# AGENTS.md â€?for AI agents maintaining this repository
+# AGENTS.md â€” for AI agents maintaining this repository
 
 This project is maintained primarily by coding agents. This file is the
 load-bearing summary: what the system is, which decisions are load-bearing, and
@@ -11,7 +11,7 @@ Human-oriented docs live in [README.md](README.md) (usage) and
 ## What this is
 
 A hook-based plugin that turns every *failed-then-fixed* tool call into an
-"antibody" (trigger â†?avoid â†?prescription), stores it in SQLite+FTS5, and
+"antibody" (trigger â†’ avoid â†’ prescription), stores it in SQLite+FTS5, and
 injects the relevant ones before the agent repeats the mistake. Two hosts share
 one core:
 
@@ -25,14 +25,14 @@ dsh-immune-system/  the installable package (manifest, hooks.json, commands,
 ```
 
 Build: `npm run build` (tsc, emits into `dsh-immune-system/dist/`). Zero runtime
-dependencies â€?`node:sqlite` only. `dist/` and `client/client.js` are committed
+dependencies â€” `node:sqlite` only. `dist/` and `client/client.js` are committed
 so installs need no toolchain; bump versions in **four** manifests
 (`package.json` Ã—2 fields, `dsh-immune-system/package.json` Ã—2,
 `dsh-immune-system/.zcode-plugin/plugin.json`, `marketplace.json`).
 
 ## Load-bearing decisions (do not "simplify" these away)
 
-Each of these was settled by evidence â€?measurement, source reading, or a failed
+Each of these was settled by evidence â€” measurement, source reading, or a failed
 attempt that is recorded in a comment. Re-litigating one without new evidence
 cost the project a regression before (see `core/distiller.ts`, the
 identical-retry note).
@@ -41,7 +41,8 @@ identical-retry note).
    tool *handler throws*; a bash command exiting non-zero returns normally with
    `isError:false` (DSH: `packages/shell/tool-bash/src/render.ts:17-21`).
    ZCode classifies in `zcode/src/outcome.ts`; DSH's `judgeOutcome` walks
-   `isError` â†?sandbox denial â†?kill/timeout â†?structured `value.exitCode` â†?   `[exit code: N]` trailer â†?`FAILURE_MARKERS`. The structured exit code is
+   `isError` â†’ sandbox denial â†’ kill/timeout â†’ structured `value.exitCode` â†’
+   `[exit code: N]` trailer â†’ `FAILURE_MARKERS`. The structured exit code is
    **authoritative** for shell tools: a passing command may print `Error:` /
    `command not found` in its own output (grep, test runners), so the text
    heuristics only apply to results that carry no structured status.
@@ -60,21 +61,22 @@ identical-retry note).
    module-level `Map` survives nothing. (`pending_failures`,
    `session_injections`, `distill_jobs`.)
 
-5. **FTS5 `trigram` cannot index 2-character terms.** Measured: `è·¨åŸŸ` â†?0 rows.
+5. **FTS5 `trigram` cannot index 2-character terms.** Measured: `è·¨åŸŸ` â†’ 0 rows.
    The LIKE fallback (`cjkBigrams`, windows taken inside CJK runs) is the fix. A
-   "minimum 2 matched windows" relevance gate was tried and REVERTED â€?it cannot
+   "minimum 2 matched windows" relevance gate was tried and REVERTED â€” it cannot
    separate `æ€Žä¹ˆè§£å†³è·¨åŸŸ` (real) from `æ”¹ä¸€ä¸‹è¿™ä¸ªæ–‡ä»¶` (noise); the trade-off
    note lives in `core/store/antibodies.ts`.
 
 6. **Self-noise gate is physical, not configured.** It resolves the module's own
    real path (junction/symlink aware) and fingerprints any path in the trace up
    to its `package.json`. Path-prefix checks against cwd miss dev checkouts that
-   live elsewhere â€?this shipped as a documented blind spot once; do not
+   live elsewhere â€” this shipped as a documented blind spot once; do not
    reintroduce it.
 
 7. **Shared library = two connections, never `ATTACH`.** WAL does not make
    cross-database transactions atomic, and hooks run as concurrent short-lived
-   processes. Also: project rows and shared rows are never matched by id â€?   the two databases have independent AUTOINCREMENT sequences that collide.
+   processes. Also: project rows and shared rows are never matched by id â€”
+   the two databases have independent AUTOINCREMENT sequences that collide.
    Deduplicate shared rules by **prescription text**.
 
 8. **Guard patterns live in code, never in the database.** Distilled rules are
@@ -83,30 +85,30 @@ identical-retry note).
    the default (`IMMUNE_GUARD=off|warn|deny`).
 
 9. **Browsing is not injection.** The dashboard and MCP `immune_list` use
-   read-only paths (`peek`, plain queries) that never bump `hit_count` â€?those
-   counters drive promotion (â‰?) and anti-rot retirement (3 fails).
+   read-only paths (`peek`, plain queries) that never bump `hit_count` â€” those
+   counters drive promotion (â‰¥5) and anti-rot retirement (3 fails).
 
 10. **Credentials are redacted before disk.** Traces may contain secrets from
     failed commands and can be exported into a shared SKILL.md.
 
-11. **The npm layout has a doubled `dsh-immune-system/` prefix â€?and that is
+11. **The npm layout has a doubled `dsh-immune-system/` prefix â€” and that is
     correct.** The package root is the repo root, and every shipped file lives
     under the repo's `dsh-immune-system/` subdirectory, so inside
     `node_modules/dsh-immune-system/` the paths are
     `dsh-immune-system/dist/â€¦`, `dsh-immune-system/client/client.js`, etc.
     Every reference (`main`, `exports`, `dsh.bundle.patch`, `dsh.client`) uses
     the same prefix, so the package is self-consistent. When verifying an npm
-    install, probe the PREFIXED paths â€?a probe on
+    install, probe the PREFIXED paths â€” a probe on
     `node_modules/dsh-immune-system/client/client.js` will report false and lie
     to you (this has cost three verification rounds already). The npm package
-    intentionally ships no `hooks/` â€?that is ZCode-specific and reaches ZCode
+    intentionally ships no `hooks/` â€” that is ZCode-specific and reaches ZCode
     through the marketplace source directory, not the registry.
 
 12. **A sandbox denial is reported, never learned.** When the failure is a
-    file-access policy denial (`[sandbox: file access denied under â€?mode]`),
+    file-access policy denial (`[sandbox: file access denied under â€¦ mode]`),
     `judgeOutcome` sets `sandboxDenied` and the adapter returns before
     `recordFailure`/`penalize`. It is a permission negotiation the host already
-    explains with an escalation hint â€?distilling it can only restate the same
+    explains with an escalation hint â€” distilling it can only restate the same
     command, and it must not penalise antibodies that were not what got refused.
 
 13. **A structured payload is a verdict; text is only a fallback.** After the
@@ -122,12 +124,18 @@ identical-retry note).
     (`dsh-immune-system/client/client.js`) share the same KPI row (including the
     effective distill budget), tabs with counts, sort, status pills, skeleton and
     empty states. The tab injects ONE static `<style>` scoped under `.imm`
-    (so hover/media-query/`--dsh-*` theme tokens work â€?do not regress to inline
+    (so hover/media-query/`--dsh-*` theme tokens work â€” do not regress to inline
     style objects), and the budget comes from a `getBudgetMs` getter passed into
     `registerImmuneUiRoute`, not from the env default, so a `/immune --budget`
     override is visible in the UI. The dashboard page must stay offline: no
     `http(s)://` anywhere (that is why the brand glyph and empty-state art are
-    pure CSS, not inline SVG with `xmlns`).
+    pure CSS, not inline SVG with `xmlns`). The tab renders **inside a shadow
+    root** (`attachShadow({mode:'open'})` + `ReactDOM.createPortal`): the
+    settings modal is an unknown host and its global stylesheet reshaped bare
+    `table`/`td`/`div` in the live tab, collapsing every row and hiding the sort
+    control (0.9.12). Shadow DOM seals both directions; only inherited
+    properties cross, so `.imm` pins `line-height`, `font-family` and explicit
+    `display` for table parts as a belt-and-braces fallback.
 
 15. **The settings tab ships only if `client-modules` can discover it.** The web
     half is NOT a patch row. At activation `ClientModuleRegistry`
@@ -137,7 +145,7 @@ identical-retry note).
     `exports["./client"]` is a string. It then serves that file verbatim at
     `/plugins/<id>/client.js?rev=<hash>` and adds the row to
     `window.__DSH_BOOT__`. Without the declaration the file exists but 404s and
-    the tab never renders â€?and the negative verdict is cached for the process,
+    the tab never renders â€” and the negative verdict is cached for the process,
     so only a restart shows the fix. `dsh.client.inject` lists module-graph
     edges, not services: `["@deepseek-ai/dsh-client-ui-settings"]` because that
     package owns the `settings.plugins.tab` slot. `test/manifests.test.mjs` and
@@ -149,30 +157,31 @@ identical-retry note).
     Because the negative verdict is cached for the process, `/immune` prints a
     `web tab registered | not registered | not loaded` field in its footer (read
     via `ctx.get('clientModules').clientPath(...)`) so the live answer is one
-    command away, and the first module-graph flush logs `[immune] web tab: <state>`
-    once at startup. Do not "verify" the tab with `curl /plugins/<id>/client.js`:
+    command away, and the first module-graph flush logs `[immune] web tab:
+    <state>` once at startup. Do not "verify" the tab with `curl
+    /plugins/<id>/client.js`:
     the desktop port is an auth-gated gateway that 404s *every* plugin's bundle.
 
 ## Verification
 
 ```bash
-npm test          # node:test; counts grow as coverage does â€?green is the bar
-node scripts/verify-step1.mjs     # 15  â€?outcome classification
-node scripts/verify-steps23.mjs   # 22  â€?loop end-to-end (fake Cordis host)
-node scripts/verify-live-host.mjs # 20  â€?real Cordis event bus + SQLite
+npm test          # node:test; counts grow as coverage does â€” green is the bar
+node scripts/verify-step1.mjs     # 15  â€” outcome classification
+node scripts/verify-steps23.mjs   # 22  â€” loop end-to-end (fake Cordis host)
+node scripts/verify-live-host.mjs # 20  â€” real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
-node scripts/verify-client-serve.mjs # 10  â€?mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
+node scripts/verify-client-serve.mjs # 10  â€” mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
 ```
 
 The acceptance scripts encode the product's intended behaviour. When one fails
-after your change, treat it as **your regression until proven otherwise** â€?this
+after your change, treat it as **your regression until proven otherwise** â€” this
 has already caught one "obvious improvement" (an identical-retry gate) that
 silently broke the canonical episode shape.
 
 ## Where things live (change map)
 
-| To changeâ€?| Edit | Pinned by |
+| To changeâ€¦ | Edit | Pinned by |
 | --- | --- | --- |
 | Antibody storage / retrieval | `core/store/antibodies.ts`, `tokenize.ts` | `test/core.test.mjs` |
 | Distillation prompt / parser | `core/prompts.ts` | parser tests |
@@ -188,7 +197,7 @@ silently broke the canonical episode shape.
 ## Known limits (do not file these as bugs)
 
 - ZCode's `SessionEnd`, `PreCompact`, `Notification`, `SubagentStop` do not
-  exist â€?only seven events, see README.
+  exist â€” only seven events, see README.
 - `UserPromptSubmit`/`Stop` matchers are inert in the current ZCode build (no
   match value is passed); never rely on one.
 - SessionStart sources `clear`/`compact` are documented but not dispatched.
@@ -205,4 +214,4 @@ silently broke the canonical episode shape.
 4. Commit (message file + `git commit -F`), push
 5. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
    Release, update the installed copy:
-   `node "D:/zcode/resources/glm/zcode.cjs" plugins marketplace update dev-dsh-plugin-immune && â€?plugins update dsh-immune-system@dev-dsh-plugin-immune`
+   `node "D:/zcode/resources/glm/zcode.cjs" plugins marketplace update dev-dsh-plugin-immune && â€¦ plugins update dsh-immune-system@dev-dsh-plugin-immune`

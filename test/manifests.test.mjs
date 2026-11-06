@@ -95,3 +95,21 @@ test('the web client half is declared the way client-modules discovers it', () =
   assert.match(src, /exports\.apply\s*=/u, 'bundle must export apply (the Cordis plugin face)');
   assert.match(src, /exports\.name\s*=/u, 'bundle must export name');
 });
+
+/**
+ * The settings modal is an unknown host. In 0.9.12 the live tab rendered with
+ * collapsed rows and an invisible sort control because the host stylesheet
+ * reshaped bare `table`/`td`/`div` inside a plugin tab. The fix renders the
+ * panel inside a shadow root, which seals both directions. Pin that, because
+ * silently dropping it would restore the same visual break with no test failure.
+ */
+test('the settings tab renders inside a shadow root so host CSS cannot reshape it', () => {
+  const pkg = readJson('dsh-immune-system/package.json');
+  const clientExport = pkg.exports?.['./client'];
+  const clientRel = typeof clientExport === 'string' ? clientExport : clientExport?.default;
+  const src = readFileSync(join(ROOT, 'dsh-immune-system', clientRel), 'utf8');
+  assert.match(src, /attachShadow\(\{\s*mode:\s*'open'\s*\}\)/u, 'tab must attach a shadow root');
+  assert.match(src, /createPortal\(/u, 'panel must be portalled into the shadow root');
+  assert.match(src, /line-height:1\.45/u, 'inherited line-height must be pinned explicitly');
+});
+

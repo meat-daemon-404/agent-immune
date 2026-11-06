@@ -213,7 +213,7 @@ dsh.profile.bundles 里的包名
 | 命令 | 实测结果 |
 | --- | --- |
 | `npm run build` | exit 0，0 错误 |
-| `npm test` | 89 条全绿（34 条 core、7 条 ZCode hook、29 条 `test/dsh.test.mjs` 假 Context 单测、4 条 `test/dsh-ui.test.mjs` tab 契约、3 条 MCP、3 条 LLM、5 条 UI 查询层、4 条 manifest 一致性（含「浏览器半按 `dsh.client` 契约可被发现」）；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」「读含 `Error:` 的日志不算失败」「预算查看/覆盖」「列表页脚显示队列与库路径」） |
+| `npm test` | 90 条全绿（34 条 core、7 条 ZCode hook、29 条 `test/dsh.test.mjs` 假 Context 单测、4 条 `test/dsh-ui.test.mjs` tab 契约、3 条 MCP、3 条 LLM、5 条 UI 查询层、5 条 manifest 一致性（含「浏览器半按 `dsh.client` 契约可被发现」与「tab 在 shadow root 里渲染」）；其中 DSH 单测含「存储打不开时 apply 只告警不崩会话」「一步回合只注入一次」「蒸馏只在 turn-stopping 落库」「结构化成功不被自身输出里的错误字样推翻」「超时带退出码 0 仍判失败」「沙箱拒绝不入库」「读含 `Error:` 的日志不算失败」「预算查看/覆盖」「列表页脚显示队列与库路径」） |
 | 三步手验（`scripts/verify-step1.mjs`） | 15 断言全过（含 bash 非零退出必须判失败） |
 | 三步手验（`scripts/verify-steps23.mjs`） | 22 断言全过（失败→成功在 `turn-stopping` 产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
 | 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |

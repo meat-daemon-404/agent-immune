@@ -25,6 +25,12 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     var React = require('react');
     var h = React.createElement;
+    var ReactDOM = null;
+    try {
+      ReactDOM = require('react-dom');
+    } catch (error) {
+      ReactDOM = null;
+    }
 
     var API = '/plugins/dsh-immune-system/api';
     var STYLE_ID = 'dsh-immune-system-style';
@@ -108,6 +114,16 @@ window.__ModuleLoader__.load({
       '.imm tbody td::before{content:attr(data-label);flex:0 0 76px;color:var(--i-faint);font-size:10.5px;',
       'text-transform:uppercase;letter-spacing:.05em;padding-top:2px}',
       '.imm td.id{width:auto}.imm td.trigger,.imm td.txt{max-width:none}}',
+      // Defensive layout: the settings modal is an unknown host, so nothing here
+      // may depend on inherited line-height, block-ness or table display.
+      '.imm{line-height:1.45;font-family:inherit}',
+      '.imm .kpi .v,.imm .kpi .k{display:block}',
+      '.imm table{display:table;table-layout:auto}',
+      '.imm thead{display:table-header-group}.imm tbody{display:table-row-group}',
+      '.imm tr{display:table-row}.imm th,.imm td{display:table-cell}',
+      '.imm select{color:var(--i-text)}',
+      '.imm select option{color:var(--i-text);background:var(--i-panel)}',
+      '.imm .shield{display:block;width:100%;min-width:0}',
     ].join('');
 
     function request(path, init) {
@@ -135,7 +151,7 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function ImmuneTab() {
+    function ImmunePanel() {
       var state = React.useState({ loading: true, error: '', stats: null, rows: [], budgetMs: null });
       var view = React.useState('project');
       var query = React.useState('');
@@ -438,6 +454,48 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * Render the panel inside a shadow root.
+     *
+     * The settings modal is an unknown host: its global stylesheet can (and in
+     * practice does) reshape bare `table`/`td`/`div` inside a plugin tab, which
+     * collapsed our rows and hid the sort control. A shadow root seals both
+     * directions — the host CSS cannot reach in, and our tokens cannot leak out.
+     * Only inherited properties (font, colour, line-height) cross the boundary,
+     * so `.imm` still pins those explicitly.
+     *
+     * If the browser has no shadow DOM, or react-dom is unavailable for portals,
+     * fall back to plain rendering; the defensive CSS in the style block keeps
+     * that readable.
+     */
+    function ImmuneTab() {
+      var host = React.useRef(null);
+      var target = React.useState(null);
+      var mount = target[0];
+      var setMount = target[1];
+
+      React.useEffect(function () {
+        var node = host.current;
+        if (!node || !ReactDOM || typeof node.attachShadow !== 'function') return undefined;
+        var shadow = node.shadowRoot || node.attachShadow({ mode: 'open' });
+        var slot = shadow.querySelector('div[data-immune-root]');
+        if (!slot) {
+          slot = document.createElement('div');
+          slot.setAttribute('data-immune-root', '1');
+          shadow.appendChild(slot);
+        }
+        setMount(slot);
+        return undefined;
+      }, []);
+
+      var ready = mount !== null && ReactDOM !== null && typeof ReactDOM.createPortal === 'function';
+      return h(
+        'div',
+        { ref: host, className: 'shield', style: { display: 'block', width: '100%', minWidth: 0 } },
+        ready ? ReactDOM.createPortal(h(ImmunePanel, null), mount) : null,
+      );
+    }
+
     function apply(ctx) {
       ctx.slots.inject('settings.plugins.tab', function () {
         return ctx.slots.register(
@@ -457,6 +515,9 @@ window.__ModuleLoader__.load({
     exports.name = 'dsh-immune-system';
     exports.inject = ['slots'];
     exports.apply = apply;
+    // Exposed for the offline render harness (scripts/render-tab.mjs); the host
+    // only uses `apply`. Harmless if a future host ignores it.
+    exports.__tab = ImmuneTab;
     return module.exports;
   },
 });
