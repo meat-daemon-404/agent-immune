@@ -44,11 +44,21 @@
 解析函数 `parseExitStatus` 在 `packages\shell\shell\src\render.ts:36-41`，`tool-bash` 在
 `render.ts:103` 复用。pwsh 工具共用同一套标记。）
 
-所以 `dsh-adapter.ts` 的 `judgeOutcome()` 依次读三个信号，缺一不可：
+所以 `dsh-adapter.ts` 的 `judgeOutcome()` 按**权威度**依次读：
 
 1. `result.isError`（权威，但只覆盖基础设施失败）
-2. 结构化 `value.exitCode !== 0`（`packages\shell\tool-bash\src\index.ts:159-182`）
-3. 文本末行标记 / 沙箱拒绝标记 / 常见失败特征词
+2. 沙箱拒绝标记 `[sandbox: file access denied under … mode]` → 判失败但打上
+   `sandboxDenied`，**不入库学习**（权限协商不是项目坑，宿主已自带升级提示）
+3. `[killed by signal: X]` / `[timed out after Nms]` 或 `value.timedOut === true`
+   （超时可能带 `exitCode: 0`，所以要同时看标志位）
+4. 结构化 `value.exitCode`（`packages\shell\tool-bash\src\index.ts:159-182`）——
+   **有则权威**：0 即成功，非 0 即失败，**不再看文本**
+5. 文本末行 `[exit code: N]`
+6. `FAILURE_MARKERS` 特征词——**仅当上面没有任何结构化状态时**才用
+
+第 4 步压过第 6 步是刻意的：`grep`、测试运行器、文档正文里出现 `command not found`
+或 `Error:` 是常态，一条**退出码 0** 的命令不该因为它们被记成失败。反过来，只打印错误
+文本、没有结构化状态的工具仍靠第 6 步兜底。
 
 ### 3. 怎么把文字塞给模型
 

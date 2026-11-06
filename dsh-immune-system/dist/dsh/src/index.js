@@ -284,6 +284,12 @@ function startPlugin(ctx) {
         if (!event)
             return downstream;
         if (!event.ok) {
+            // A sandbox file-access denial is a permission negotiation, not a
+            // project pitfall: the host already hands the model an escalation hint,
+            // and distilling it would only restate the same command. It also must
+            // not penalise the injected antibodies — they were not what got refused.
+            if (event.sandboxDenied)
+                return downstream;
             const snapshot = store.recordFailure(event.sessionId, event.toolName, traceFor(event, `error=${event.errorText}`));
             const retired = store.penalize(snapshot.injected_ids, {
                 failureText: snapshot.trace,

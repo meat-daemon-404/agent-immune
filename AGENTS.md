@@ -40,8 +40,12 @@ identical-retry note).
 1. **Failure is judged, not trusted.** `PostToolUseFailure` only fires when a
    tool *handler throws*; a bash command exiting non-zero returns normally with
    `isError:false` (DSH: `packages/shell/tool-bash/src/render.ts:17-21`).
-   ZCode classifies in `zcode/src/outcome.ts`; DSH reads structured exitCode →
-   isError → rendered trailing marker in `judgeOutcome`.
+   ZCode classifies in `zcode/src/outcome.ts`; DSH's `judgeOutcome` walks
+   `isError` → sandbox denial → kill/timeout → structured `value.exitCode` →
+   `[exit code: N]` trailer → `FAILURE_MARKERS`. The structured exit code is
+   **authoritative** for shell tools: a passing command may print `Error:` /
+   `command not found` in its own output (grep, test runners), so the text
+   heuristics only apply to results that carry no structured status.
 
 2. **Hook stdout is a strict schema.** An unknown key makes the whole hook fail
    and its output is discarded. Emit only
@@ -99,6 +103,13 @@ identical-retry note).
     to you (this has cost three verification rounds already). The npm package
     intentionally ships no `hooks/` — that is ZCode-specific and reaches ZCode
     through the marketplace source directory, not the registry.
+
+12. **A sandbox denial is reported, never learned.** When the failure is a
+    file-access policy denial (`[sandbox: file access denied under … mode]`),
+    `judgeOutcome` sets `sandboxDenied` and the adapter returns before
+    `recordFailure`/`penalize`. It is a permission negotiation the host already
+    explains with an escalation hint — distilling it can only restate the same
+    command, and it must not penalise antibodies that were not what got refused.
 
 ## Verification
 

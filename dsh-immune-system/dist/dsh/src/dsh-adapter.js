@@ -94,38 +94,61 @@ function exitCodeOf(value) {
     return typeof exitCode === 'number' ? exitCode : undefined;
 }
 /**
+ * `timedOut: true` from `canonicalBashResult` (`packages\shell\tool-bash\src\index.ts:159-182`).
+ * A timeout can still carry `exitCode: 0`, so it must be judged from the flag as
+ * well as the rendered marker.
+ */
+function timedOutOf(value) {
+    if (typeof value !== 'object' || value === null)
+        return false;
+    return value.timedOut === true;
+}
+/**
  * Decide success vs failure from the three signals DSH actually provides.
  *
- * The order matters: `isError` is authoritative when set, the structured exit
- * code beats any text heuristic, and only then do we scan the rendered text.
+ * Authority order, highest first:
+ *  1. `isError` — the host already classified it;
+ *  2. a sandbox file-access denial — reported, but flagged so it is not learned;
+ *  3. a kill signal / timeout — a status marker that can co-exist with exit 0;
+ *  4. the structured `value.exitCode` — **authoritative for shell tools**;
+ *  5. the rendered `[exit code: N]` trailer;
+ *  6. `FAILURE_MARKERS` text — only for results that carry *no* structured
+ *     status, since a successful command may legitimately print `Error:` or
+ *     `command not found` in its own output (grep, test runners, docs).
  */
 function judgeOutcome(result, resultText) {
     if (result.isError) {
-        return { ok: false, errorText: result.error.message };
-    }
-    const exitCode = exitCodeOf(result.value);
-    if (exitCode !== undefined && exitCode !== 0) {
-        return { ok: false, errorText: `exit code ${exitCode}` };
-    }
-    const killed = KILLED_BY_SIGNAL.exec(resultText);
-    if (killed?.[1] !== undefined) {
-        return { ok: false, errorText: `killed by signal ${killed[1]}` };
-    }
-    if (TIMED_OUT.test(resultText)) {
-        return { ok: false, errorText: 'timed out' };
+        return { ok: false, errorText: result.error.message, sandboxDenied: false };
     }
     if (SANDBOX_DENIED.test(resultText)) {
         const marker = /\[sandbox: file access denied under ([^\]\n]+) mode\]/.exec(resultText);
-        return { ok: false, errorText: `sandbox denied (${marker?.[1] ?? 'unknown'} mode)` };
+        return {
+            ok: false,
+            errorText: `sandbox denied (${marker?.[1] ?? 'unknown'} mode)`,
+            sandboxDenied: true,
+        };
+    }
+    const killed = KILLED_BY_SIGNAL.exec(resultText);
+    if (killed?.[1] !== undefined) {
+        return { ok: false, errorText: `killed by signal ${killed[1]}`, sandboxDenied: false };
+    }
+    if (TIMED_OUT.test(resultText) || timedOutOf(result.value)) {
+        return { ok: false, errorText: 'timed out', sandboxDenied: false };
+    }
+    const exitCode = exitCodeOf(result.value);
+    if (exitCode !== undefined) {
+        return exitCode === 0
+            ? { ok: true, errorText: '', sandboxDenied: false }
+            : { ok: false, errorText: `exit code ${exitCode}`, sandboxDenied: false };
     }
     if (EXIT_CODE.test(resultText)) {
         const code = EXIT_CODE.exec(resultText);
-        return { ok: false, errorText: `exit code ${code?.[1] ?? '?'}` };
+        return { ok: false, errorText: `exit code ${code?.[1] ?? '?'}`, sandboxDenied: false };
     }
     if (FAILURE_MARKERS.test(resultText)) {
-        return { ok: false, errorText: 'failure marker in tool output' };
+        return { ok: false, errorText: 'failure marker in tool output', sandboxDenied: false };
     }
-    return { ok: true, errorText: '' };
+    return { ok: true, errorText: '', sandboxDenied: false };
 }
 /**
  * Convert a real `(exec, result)` pair from `tools/post-execute` into the shape
@@ -140,7 +163,7 @@ export function normaliseToolEvent(exec, result) {
     if (agent === undefined)
         return undefined;
     const resultText = textOf(result.content);
-    const { ok, errorText } = judgeOutcome(result, resultText);
+    const { ok, errorText, sandboxDenied } = judgeOutcome(result, resultText);
     return {
         sessionId: agent.id,
         toolName: exec.name,
@@ -148,6 +171,7 @@ export function normaliseToolEvent(exec, result) {
         ok,
         errorText,
         resultText,
+        sandboxDenied,
     };
 }
 /**

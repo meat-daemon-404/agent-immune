@@ -170,8 +170,11 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 - DSH：`result.isError` **只覆盖基础设施失败**（spawn 错误、abort、监听器抛错），
   非零退出被明确设计为「reported, not errored」，模型自己决定怎么办。
 
-所以两版都自己判结果。DSH 侧的判据顺序是
-`isError` → `value.exitCode` → 行尾 `[exit code: N]` / `[killed by signal: X]` / `[timed out after Nms]` / sandbox 拒绝标记 → 窄口径失败标记正则。
+所以两版都自己判结果。DSH 侧的判据按权威度排序：
+`isError` → sandbox 拒绝标记（判失败但**不入库学习**）→ kill/timeout（含 `value.timedOut`）→
+结构化 `value.exitCode`（**有则权威：0 成功、非 0 失败，不再看文本**）→ 行尾 `[exit code: N]` →
+窄口径失败标记正则（**仅当无结构化状态**）。最后一步刻意让位给退出码：一条退出 0 的命令
+在 `grep` 输出里顺带印出 `command not found` 是常事，不该被记成失败。
 
 **② 抗体失效会被淘汰（Anti-Rot）**
 

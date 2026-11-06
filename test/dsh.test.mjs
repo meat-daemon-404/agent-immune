@@ -318,6 +318,7 @@ test('bash non-zero exit is a FAILURE even though isError is false', () => {
     'errorText',
     'ok',
     'resultText',
+    'sandboxDenied',
     'sessionId',
     'toolInput',
     'toolName',
@@ -436,6 +437,59 @@ test('a failure marker in the body is caught with no structured code at all', ()
 
   assert.ok(event);
   assert.equal(event.ok, false, 'a report-only tool still says "Cannot find module"');
+});
+
+test('a structured success is NOT overturned by error words in its own output', () => {
+  // A passing command may legitimately print "command not found" (grep over
+  // docs), "Error:" (a handled branch), "npm ERR!" (a tolerated step). Exit 0
+  // is authoritative for a shell tool, so the body text must not flip it.
+  const result = bashResult({
+    exitCode: 0,
+    text: 'docs/troubleshooting.md: sh: foo: command not found\nError: handled\n[stderr]\nnpm ERR! tolerated',
+  });
+  const event = normaliseToolEvent(makeExec(makeAgent('sess-3')), result);
+
+  assert.ok(event);
+  assert.equal(event.ok, true, 'exit 0 wins over body heuristics');
+  assert.equal(event.errorText, '');
+});
+
+test('a timeout that still reports exitCode 0 is a failure (flag, not text)', () => {
+  const result = bashResult({ exitCode: 0, text: 'still running…', timedOut: true });
+  const event = normaliseToolEvent(makeExec(makeAgent('sess-timeout')), result);
+
+  assert.ok(event);
+  assert.equal(event.ok, false);
+  assert.equal(event.errorText, 'timed out');
+});
+
+test('a sandbox denial is flagged, and never becomes a learning episode', async (t) => {
+  const denied = {
+    isError: false,
+    content: [{ type: 'text', text: '[sandbox: file access denied under read-only mode]' }],
+    value: { exitCode: 1, signal: null, timedOut: false, aborted: false },
+  };
+  const event = normaliseToolEvent(makeExec(makeAgent('sess-sbx')), denied);
+  assert.ok(event);
+  assert.equal(event.ok, false);
+  assert.equal(event.sandboxDenied, true);
+
+  // End to end: a denial followed by a success on the same tool must not
+  // distil an antibody (there is nothing project-specific to learn).
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-sbx2');
+  await postTool(fx, makeExec(agent, { arguments: { command: 'cat /etc/shadow' } }), denied);
+  await postTool(
+    fx,
+    makeExec(agent, { arguments: { command: 'cat /etc/shadow' } }),
+    bashResult({ exitCode: 0, text: 'root:x:0:0' }),
+  );
+  await runTurnStopping(fx, agent, 1);
+  assert.equal(
+    queryAll(dbPath, 'SELECT id FROM antibodies').length,
+    0,
+    'a sandbox denial must not seed an episode',
+  );
 });
 
 test('a call with no agent normalises to undefined', () => {

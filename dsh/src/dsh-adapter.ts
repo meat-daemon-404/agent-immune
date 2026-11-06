@@ -292,6 +292,12 @@ export interface NormalisedToolEvent {
   errorText: string;
   /** The model-facing result text; used to capture the fix on the success leg. */
   resultText: string;
+  /**
+   * The call was refused by the sandbox's file-access policy, not by the tool.
+   * A permission negotiation is environmental, so it is reported but never
+   * learned from: distilling it can only restate the same command.
+   */
+  sandboxDenied: boolean;
 }
 
 /**
@@ -334,44 +340,69 @@ function exitCodeOf(value: unknown): number | undefined {
 }
 
 /**
+ * `timedOut: true` from `canonicalBashResult` (`packages\shell\tool-bash\src\index.ts:159-182`).
+ * A timeout can still carry `exitCode: 0`, so it must be judged from the flag as
+ * well as the rendered marker.
+ */
+function timedOutOf(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  return (value as { timedOut?: unknown }).timedOut === true;
+}
+
+/**
  * Decide success vs failure from the three signals DSH actually provides.
  *
- * The order matters: `isError` is authoritative when set, the structured exit
- * code beats any text heuristic, and only then do we scan the rendered text.
+ * Authority order, highest first:
+ *  1. `isError` — the host already classified it;
+ *  2. a sandbox file-access denial — reported, but flagged so it is not learned;
+ *  3. a kill signal / timeout — a status marker that can co-exist with exit 0;
+ *  4. the structured `value.exitCode` — **authoritative for shell tools**;
+ *  5. the rendered `[exit code: N]` trailer;
+ *  6. `FAILURE_MARKERS` text — only for results that carry *no* structured
+ *     status, since a successful command may legitimately print `Error:` or
+ *     `command not found` in its own output (grep, test runners, docs).
  */
 function judgeOutcome(
   result: DshToolResult,
   resultText: string,
-): { ok: boolean; errorText: string } {
+): { ok: boolean; errorText: string; sandboxDenied: boolean } {
   if (result.isError) {
-    return { ok: false, errorText: result.error.message };
+    return { ok: false, errorText: result.error.message, sandboxDenied: false };
   }
 
-  const exitCode = exitCodeOf(result.value);
-  if (exitCode !== undefined && exitCode !== 0) {
-    return { ok: false, errorText: `exit code ${exitCode}` };
+  if (SANDBOX_DENIED.test(resultText)) {
+    const marker = /\[sandbox: file access denied under ([^\]\n]+) mode\]/.exec(resultText);
+    return {
+      ok: false,
+      errorText: `sandbox denied (${marker?.[1] ?? 'unknown'} mode)`,
+      sandboxDenied: true,
+    };
   }
 
   const killed = KILLED_BY_SIGNAL.exec(resultText);
   if (killed?.[1] !== undefined) {
-    return { ok: false, errorText: `killed by signal ${killed[1]}` };
+    return { ok: false, errorText: `killed by signal ${killed[1]}`, sandboxDenied: false };
   }
-  if (TIMED_OUT.test(resultText)) {
-    return { ok: false, errorText: 'timed out' };
-  }
-  if (SANDBOX_DENIED.test(resultText)) {
-    const marker = /\[sandbox: file access denied under ([^\]\n]+) mode\]/.exec(resultText);
-    return { ok: false, errorText: `sandbox denied (${marker?.[1] ?? 'unknown'} mode)` };
-  }
-  if (EXIT_CODE.test(resultText)) {
-    const code = EXIT_CODE.exec(resultText);
-    return { ok: false, errorText: `exit code ${code?.[1] ?? '?'}` };
-  }
-  if (FAILURE_MARKERS.test(resultText)) {
-    return { ok: false, errorText: 'failure marker in tool output' };
+  if (TIMED_OUT.test(resultText) || timedOutOf(result.value)) {
+    return { ok: false, errorText: 'timed out', sandboxDenied: false };
   }
 
-  return { ok: true, errorText: '' };
+  const exitCode = exitCodeOf(result.value);
+  if (exitCode !== undefined) {
+    return exitCode === 0
+      ? { ok: true, errorText: '', sandboxDenied: false }
+      : { ok: false, errorText: `exit code ${exitCode}`, sandboxDenied: false };
+  }
+
+  if (EXIT_CODE.test(resultText)) {
+    const code = EXIT_CODE.exec(resultText);
+    return { ok: false, errorText: `exit code ${code?.[1] ?? '?'}`, sandboxDenied: false };
+  }
+  if (FAILURE_MARKERS.test(resultText)) {
+    return { ok: false, errorText: 'failure marker in tool output', sandboxDenied: false };
+  }
+
+  return { ok: true, errorText: '', sandboxDenied: false };
 }
 
 /**
@@ -390,7 +421,7 @@ export function normaliseToolEvent(
   if (agent === undefined) return undefined;
 
   const resultText = textOf(result.content);
-  const { ok, errorText } = judgeOutcome(result, resultText);
+  const { ok, errorText, sandboxDenied } = judgeOutcome(result, resultText);
 
   return {
     sessionId: agent.id,
@@ -399,6 +430,7 @@ export function normaliseToolEvent(
     ok,
     errorText,
     resultText,
+    sandboxDenied,
   };
 }
 
