@@ -260,11 +260,29 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | `IMMUNE_LLM_BASE_URL` | OpenAI 兼容端点，如 `https://api.example.com/v1` |
 | `IMMUNE_LLM_MODEL` | 模型名，与上面配对使用 |
 | `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
+| `IMMUNE_DISTILL_BUDGET_MS` | 单次回合末蒸馏的时间预算，默认 `12000`（两版同名同默认，钳制在 1–60 s）；超预算的队列留到下次边界 |
 | `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；**默认中英双语** |
 | `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许环回/私有端点。**默认拒绝**，防 SSRF |
 | `IMMUNE_GLOBAL_LIBRARY` | 设为 `0` 关闭全局共享库。默认开启 |
 | `IMMUNE_GUARD` | `off`（默认）/ `warn` / `deny` —— 高危错招事前检查，见下 |
 | `IMMUNE_DEBUG_LOG` | 指定文件则记录执行细节，用于排障 |
+
+### 什么时候值得开 LLM 蒸馏（成本 / 收益）
+
+不配 `IMMUNE_LLM_*` 时走离线规则蒸馏器：零成本、结果确定，只从失败/成功的调用串里抽关键词拼出 trigger / prescription。配上模型后，同一段「失败→成功」会被改写成一句更像人话的处方（跨项目复用、导出成 `SKILL.md` 都更好），代价是**每条蒸馏一次模型往返**。
+
+实测（`scripts/bench-tool-latency.mjs`，mock 端点 1500 ms/次）：
+
+| 队列深度 | `agent/turn-stopping` 耗时 | 蒸馏条数 |
+| --- | --- | --- |
+| 1 | ~1.5 s | 1 |
+| 2 | ~3.0 s | 2 |
+| 3 | ~4.6 s | 3 |
+| 5 | ~7.5 s | 5 |
+
+- 成本只落在**回合边界**一次（`agent/turn-stopping`），不落在工具调用上——`tools/post-execute` 中位稳定在 ~1 ms。
+- 预算默认 12 s（`IMMUNE_DISTILL_BUDGET_MS`）。队列超过预算时，多出的任务留到下一次边界：实测 3000 ms 预算 + 6 个任务只蒸馏 2 个，其余 4 个顺延。
+- 经验阈值：**每回合最多攒几条**「失败→成功」时才开模型。如果一个回合常常攒十几条，先跑离线规则蒸馏，或把 `IMMUNE_DISTILL_BUDGET_MS` 调小、让它跨多个回合摊平。
 
 ### 安全
 
@@ -284,7 +302,7 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
 | `scripts/verify-installed.mjs` | 16 断言（本机 profile 安装校验：bundles 登记、裸包名解析、patch 形状） |
-| `scripts/bench-tool-latency.mjs` | PASS（慢速 mock 模型下 `tools/post-execute` 中位 0.9 ms、`agent/turn-stopping` 4.5 s／3 个任务；证明蒸馏不落在工具路径上） |
+| `scripts/bench-tool-latency.mjs` | PASS，19 断言（慢速 mock 模型 1500 ms/次：`tools/post-execute` 中位 ~1 ms；`agent/turn-stopping` 按队列线性 1.5/3.0/4.6/7.5 s（1/2/3/5 条）；3000 ms 预算下 6 条只蒸馏 2 条、其余顺延） |
 
 ### 已知限制
 
@@ -357,6 +375,13 @@ blamed for any Bash failure.
 **Injection hygiene.** Injected text comes only from our own distilled fields,
 never raw tool output; brackets are stripped so a line cannot close its wrapper
 tag; length-capped; labelled advisory.
+
+**Distillation cost sits at the turn boundary.** Jobs are queued during tool
+use and drained once at turn end under `IMMUNE_DISTILL_BUDGET_MS` (default
+12 s). Measured with a slow mock model (`scripts/bench-tool-latency.mjs`):
+`tools/post-execute` stays ~1 ms median, while `agent/turn-stopping` pays one
+round trip per queued job (~1.5 s each at 1500 ms/call) and defers whatever the
+budget cannot fit to the next boundary.
 
 ### Layout
 

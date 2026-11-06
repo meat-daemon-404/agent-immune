@@ -200,6 +200,7 @@ dsh.profile.bundles 里的包名
 | `IMMUNE_LLM_API_KEY` | Bearer 令牌 |
 | `IMMUNE_LLM_TIMEOUT_MS` | 单次蒸馏超时，默认 `20000` |
 | `IMMUNE_LLM_MAX_TOKENS` | 蒸馏输出上限，默认 `400` |
+| `IMMUNE_DISTILL_BUDGET_MS` | 回合末单次蒸馏预算，默认 `12000`（与 ZCode 版同名同默认，钳制 1–60 s）；超出的队列顺延到下一次边界 |
 | `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许回环/内网端点（默认拒绝，防 SSRF） |
 | `IMMUNE_LOCALE` | `zh-CN` / `en` 强制单语；默认中英双语 |
 
@@ -217,7 +218,7 @@ dsh.profile.bundles 里的包名
 | 三步手验（`scripts/verify-steps23.mjs`） | 22 断言全过（失败→成功在 `turn-stopping` 产出 1 行 antibodies；新 session 注入 `<immune_memory>`） |
 | 真实宿主验证（`scripts/verify-live-host.mjs`） | 20 断言全过（真 Cordis Context + 真事件总线 + 真 sqlite：`tools/post-execute` 判失败→蒸馏落库，`agent/pre-step` 跨会话注入，`agent/session-start` 预热注入，冷启动空批次仍注入） |
 | 本机安装验证（`scripts/verify-installed.mjs`） | 16 断言全过（profile bundles 已登记、包可从 profile `node_modules` 解析、`dsh.bundle.patch` 存在且只有一行 insert、入口模块按裸包名导入且导出插件形状） |
-| 延迟基准（`scripts/bench-tool-latency.mjs`） | PASS：慢速 mock 模型 1500ms/次、3 个回合任务下，`tools/post-execute` 中位 **0.9ms**（工具路径上无 HTTP），`agent/turn-stopping` 共 **4.5s**（每任务一次模型往返）；若把蒸馏塞回 post-execute，每次工具调用将多付 ~4.5s |
+| 延迟基准（`scripts/bench-tool-latency.mjs`） | PASS，19 断言：慢速 mock 模型 1500ms/次下 `tools/post-execute` 中位 **~1ms**（工具路径上无 HTTP）；`agent/turn-stopping` 随队列线性 1.5/3.0/4.6/7.5s（1/2/3/5 条）；`IMMUNE_DISTILL_BUDGET_MS=3000` 时 6 条只蒸馏 2 条、其余顺延 |
 
 ---
 

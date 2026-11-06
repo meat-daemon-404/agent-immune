@@ -136,8 +136,17 @@ function traceFor(event, outcome) {
     }
     return `tool=${event.toolName} input=${input} ${outcome}`;
 }
+/**
+ * Turn-end distillation budget, in milliseconds. Same env var and default as the
+ * ZCode adapter (`zcode/src/drain.ts:23`), clamped so a typo cannot hang a turn.
+ */
+function drainBudgetMs() {
+    const raw = Number(process.env.IMMUNE_DISTILL_BUDGET_MS ?? '');
+    const budget = Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+    return Math.min(60_000, Math.max(1_000, Math.trunc(budget)));
+}
 /** Distil queued episodes. Called at turn end, never inside a tool result path. */
-async function drain(store, budgetMs = 8000) {
+async function drain(store, budgetMs = drainBudgetMs()) {
     const deadline = Date.now() + budgetMs;
     store.requeueStuckJobs();
     for (;;) {

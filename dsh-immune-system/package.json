@@ -1,6 +1,6 @@
 {
   "name": "dsh-immune-system",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Self-evolving pitfall immunity for coding agents: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
   "type": "module",
   "main": "./dist/dsh/src/index.js",
@@ -24,7 +24,7 @@
   "dsh": {
     "id": "dsh-immune-system",
     "name": "DSH Immune System",
-    "version": "0.9.4",
+    "version": "0.9.5",
     "repo": "meat-daemon-404/dsh-plugin-immune",
     "permissions": "读取工具调用结果与斜杠命令输入；在本机写 SQLite 抗体库（默认落在 $DSH_HOME/storages/dsh-immune-system/ 下按项目隔离）；仅在显式配置 IMMUNE_LLM_BASE_URL 与 IMMUNE_LLM_MODEL 时才向该端点发起请求；不读取其它插件的配置，不执行任意命令",
     "bundle": {
