@@ -55,8 +55,8 @@ dsh plugin --profile <profile> add dsh-immune-system
 **tarball / git**（等价，无需 npm 账号）：
 
 ```bash
-cd dsh-immune-system && npm pack          # → dsh-immune-system-0.9.8.tgz
-dsh plugin --profile <profile> add ./dsh-immune-system-0.9.8.tgz
+cd dsh-immune-system && npm pack          # → dsh-immune-system-<version>.tgz
+dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
@@ -149,10 +149,13 @@ KPI（含预算）、搜索与清除、页签计数、排序、状态圆点、�
 
 > 诚实说明：客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、
 > 跨源拒绝、无 web 服务时不注册、预算透传），布局则用真实 React 18 做过静态渲染自检
-> （含深色模式、空态、窄屏）。**0.9.8 之前**它还从未被宿主真正当成浏览器半——根因是
-> manifest 漏了 `dsh.client` 声明（实测：`/plugins/dsh-immune-system/api` 返回 200，
-> 说明宿主半在跑；而 `/plugins/dsh-immune-system/client.js` 返回 404）。0.9.8 起已补齐，
-> 但需要**重启 DSH** 后到 `设置 → 插件` 确认 tab 出现。
+> （含深色模式、空态、窄屏）。
+>
+> **已在真实宿主里验证过**：0.9.8 补齐 `dsh.client` 声明后，`设置 → 插件` 里的 tab
+> 确实出现了（此前 `/plugins/dsh-immune-system/client.js` 返回 404，只有宿主半在跑）。
+> 0.9.12 进一步把它放进 **shadow root**——真实的设置弹窗会用自己的样式表重排裸
+> `table`/`td`/`div`，导致行被压成几像素、下拉框空白；shadow root 双向隔离，
+> 宿主 CSS 进不来、我们的样式也出不去。
 
 ### 同步与体检
 
@@ -346,9 +349,12 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 
 - **模型端点默认拒绝环回**：本地 Ollama 类服务需显式设 `IMMUNE_ALLOW_PRIVATE_ENDPOINT=1`。
   这是防 SSRF 的代价，不是疏漏。
-- **外部 LLM 蒸馏未实测**：规则蒸馏器全流程有测试；接真实模型端点的路径只有 mock 覆盖。
+- **外部 LLM 蒸馏未实测**：规则蒸馏器全流程有测试；接真实模型端点的路径只有 mock 覆盖
+  （含批量路径的降级链）。
 - **真实 agent 端到端未验**：验证期间模型额度返回 402，turn 到不了工具阶段。同一条链路改为
   向安装副本投喂真实事件载荷验证（含真 Cordis 宿主的 20 条断言）。
+- **`IMMUNE_GUARD=warn` 仅 ZCode 有效**：DSH 的 `PreToolDecision` 没有携带上下文的字段，
+  那边只能"拦或不拦"。
 
 ---
 
@@ -376,7 +382,7 @@ dsh plugin --profile <profile> add dsh-immune-system
 
 ```bash
 cd dsh-immune-system && npm pack
-dsh plugin --profile <profile> add ./dsh-immune-system-0.9.8.tgz
+dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
