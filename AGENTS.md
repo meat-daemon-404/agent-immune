@@ -144,7 +144,10 @@ identical-retry note).
     edges, not services: `["@deepseek-ai/dsh-client-ui-settings"]` because that
     package owns the `settings.plugins.tab` slot. `test/manifests.test.mjs` and
     `scripts/verify-installed.mjs` pin the declaration, the export target, and
-    the bundle's own registration face.
+    the bundle's own registration face; `scripts/verify-client-serve.mjs`
+    mounts the real `ClientModuleRegistry` and invokes its real route handler
+    (10 assertions: row composed, url shaped, 200 + `text/javascript` + byte-
+    identical body), so the check fails for exactly the reasons a host would.
 
 ## Verification
 
@@ -154,6 +157,7 @@ node scripts/verify-step1.mjs     # 15  — outcome classification
 node scripts/verify-steps23.mjs   # 22  — loop end-to-end (fake Cordis host)
 node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
+node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
 ```
 
