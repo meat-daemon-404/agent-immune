@@ -335,7 +335,7 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **87 条全绿**（34 条 core、7 条 ZCode hook、27 条 DSH 单元、4 条原生 UI（tab 契约）、3 条 MCP、3 条 LLM、5 条 UI 查询层、4 条 manifest 一致性（含 `dsh.client` 浏览器半契约）） |
+| `npm test` | **89 条全绿**（34 条 core、7 条 ZCode hook、29 条 DSH 单元、4 条原生 UI（tab 契约）、3 条 MCP、3 条 LLM、5 条 UI 查询层、4 条 manifest 一致性（含 `dsh.client` 浏览器半契约）） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

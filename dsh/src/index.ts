@@ -204,25 +204,65 @@ function drainBudgetMs(): number {
  * manifest declares `dsh.client.platform === "web"` and `exports["./client"]`,
  * and it caches a negative verdict for the life of the process. That is why a
  * settings tab can stay missing after an upgrade until the app is restarted;
- * surfacing the live answer in `/immune` turns that into a one-line check
- * instead of a guess. `ctx.get('clientModules')` is a read-only service lookup
- * (no inject edge), per `packages\context\agent-instructions\src\index.ts:116`.
+ * surfacing the live answer in `/immune` and at startup turns that into a
+ * one-line check instead of a guess. `ctx.get('clientModules')` is a read-only
+ * service lookup (no inject edge), per
+ * `packages\context\agent-instructions\src\index.ts:116`.
  */
-function describeWebTab(ctx: DshContext): string {
-  const get = ctx.get;
-  if (typeof get !== 'function') return 'unknown';
-  let registry: unknown;
-  try {
-    registry = get.call(ctx, 'clientModules');
-  } catch {
-    return 'unknown';
-  }
-  const clientPath = (registry as { clientPath?: (id: string) => string | undefined } | undefined)?.clientPath;
+export function readWebTabState(registry: unknown): string {
+  const clientPath = (registry as { clientPath?: (id: string) => string | undefined } | undefined)
+    ?.clientPath;
   if (typeof clientPath !== 'function') return 'not loaded';
   try {
     return clientPath.call(registry, PLUGIN_NAME) === undefined ? 'not registered' : 'registered';
   } catch {
     return 'error';
+  }
+}
+
+function describeWebTab(ctx: DshContext): string {
+  const get = ctx.get;
+  if (typeof get !== 'function') return 'unknown';
+  try {
+    return readWebTabState(get.call(ctx, 'clientModules'));
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Log the web-tab verdict once the host has composed its module graph.
+ *
+ * Activation order is not guaranteed: at `apply()` time `clientModules` may not
+ * exist yet, and even when it does the graph is flushed later. So subscribe to
+ * the registry's `onGraphChanged` (pull model: re-read `clientPath`) and also
+ * check once immediately, logging the first answer only.
+ */
+function reportWebTabWhenComposed(ctx: DshContext, log: ReturnType<typeof makeLogger>): void {
+  const inject = ctx.inject;
+  if (typeof inject !== 'function') return;
+  try {
+    inject.call(ctx, ['clientModules'], (child: unknown) => {
+      const registry = (child as { clientModules?: unknown } | undefined)?.clientModules;
+      let logged = false;
+      const report = (): void => {
+        if (logged) return;
+        logged = true;
+        log.info(`[immune] web tab: ${readWebTabState(registry)}`);
+      };
+      const onGraphChanged = (registry as { onGraphChanged?: (cb: () => void) => unknown } | undefined)
+        ?.onGraphChanged;
+      if (typeof onGraphChanged === 'function') {
+        try {
+          onGraphChanged.call(registry, report);
+        } catch {
+          /* a host that exposes the hook but rejects it must not break us */
+        }
+      }
+      report();
+    });
+  } catch {
+    /* no cordis-style injection: the plugin still works without a web UI */
   }
 }
 
@@ -289,6 +329,8 @@ function startPlugin(ctx: DshContext): void {
   // Optional on purpose — CLI and desktop profiles expose no `webServer`, and
   // requiring one would stop the plugin activating there at all.
   registerImmuneUiRoute(ctx, store, () => drainBudgetMs());
+
+  reportWebTabWhenComposed(ctx, log);
 
   // Remember every human prompt as it lands, so a resumed session can still be
   // matched even when its first pre-step batch carries no human message.

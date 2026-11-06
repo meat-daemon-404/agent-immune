@@ -119,6 +119,7 @@ function fakeContext(services = {}) {
   const disposers = [];
   const logs = [];
   const commands = [];
+  const injections = [];
 
   const ctx = {
     logger: {
@@ -152,6 +153,14 @@ function fakeContext(services = {}) {
         return () => {};
       },
     },
+    // cordis `ctx.inject(deps, cb)` — activate once the named services exist.
+    // The fake immediately provides `services._child` (if any) so a test can
+    // observe the startup web-tab report without a real module graph.
+    inject(deps, callback) {
+      injections.push({ deps, callback });
+      if (services._child !== undefined) callback(services._child);
+      return () => {};
+    },
   };
 
   return {
@@ -160,6 +169,7 @@ function fakeContext(services = {}) {
     commands,
     disposers,
     listeners,
+    injections,
     /** Register a listener after the plugin did, i.e. downstream of it. */
     on: (event, listener) => ctx.on(event, listener),
     /** Fire a plain (non-waterfall) event. */
@@ -703,4 +713,20 @@ test('the footer reports whether the host composed the web client row', async (t
     assert.match(listed.text, expected);
   }
 });
+
+test('startup logs the web-tab state once the client registry is available', async (t) => {
+  const { fx } = await bootstrap(t, {
+    _child: { clientModules: { clientPath: () => '/plugins/dsh-immune-system/client.js?rev=abc' } },
+  });
+  const line = fx.logs.find((entry) => /web tab:/.test(entry.message));
+  assert.ok(line, 'a web-tab line was logged at startup');
+  assert.match(line.message, /web tab: registered/);
+  assert.ok(fx.injections.some((item) => item.deps.includes('clientModules')), 'asked for clientModules');
+});
+
+test('no web-tab line when the host has no client registry at all', async (t) => {
+  const { fx } = await bootstrap(t);
+  assert.equal(fx.logs.some((entry) => /web tab:/.test(entry.message)), false);
+});
+
 

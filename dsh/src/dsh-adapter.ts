@@ -288,6 +288,12 @@ export interface DshContext {
    * settings tab can be diagnosed from `/immune` instead of guessed at.
    */
   get?(name: string): unknown;
+  /**
+   * Optional dependency activation (`ctx.inject(deps, cb)`), the same shape
+   * `dsh/src/ui-route.ts` relies on. Used only to wait until `clientModules`
+   * exists before reporting the web-tab state; a host without it is fine.
+   */
+  inject?(deps: string[], callback: (ctx: unknown) => void): unknown;
 }
 
 /** Normalised tool outcome, so call sites never read raw host fields. */
