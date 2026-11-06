@@ -45,6 +45,23 @@ test('the dashboard serves a self-contained page on loopback', async (t) => {
   assert.doesNotMatch(html, /<script[^>]+src=/i);
 });
 
+test('the dashboard shows the effective distill budget and the API reports it', async (t) => {
+  const previous = process.env.IMMUNE_DISTILL_BUDGET_MS;
+  process.env.IMMUNE_DISTILL_BUDGET_MS = '12000';
+  try {
+    const { handle, html, token } = await boot(t);
+    // Rendered as a KPI on the page (12 s, not 12000 ms).
+    assert.match(html, /蒸馏预算|Distill budget/i);
+    assert.match(html, /12 s/);
+    // And exposed to the client so a session override is visible.
+    const list = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
+    assert.equal(list.budgetMs, 12000);
+  } finally {
+    if (previous === undefined) delete process.env.IMMUNE_DISTILL_BUDGET_MS;
+    else process.env.IMMUNE_DISTILL_BUDGET_MS = previous;
+  }
+});
+
 test('the API refuses requests without the per-run token', async (t) => {
   const { handle, token } = await boot(t);
 

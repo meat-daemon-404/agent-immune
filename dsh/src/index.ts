@@ -259,7 +259,7 @@ function startPlugin(ctx: DshContext): void {
   // Native web UI: the settings tab in the DSH web app talks to this route.
   // Optional on purpose — CLI and desktop profiles expose no `webServer`, and
   // requiring one would stop the plugin activating there at all.
-  registerImmuneUiRoute(ctx, store);
+  registerImmuneUiRoute(ctx, store, () => drainBudgetMs());
 
   // Remember every human prompt as it lands, so a resumed session can still be
   // matched even when its first pre-step batch carries no human message.

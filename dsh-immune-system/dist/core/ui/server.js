@@ -18,7 +18,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { ImmuneStore } from '../store/index.js';
 import { renderPage } from './page.js';
 import { resolveLocale } from '../i18n.js';
-import { applyAction, dashboardStats, readState } from './query.js';
+import { applyAction, dashboardStats, readState, resolveBudgetMs } from './query.js';
 export async function startUiServer(options = {}) {
     const store = new ImmuneStore(options.dbPath ? { dbPath: options.dbPath } : {});
     const token = randomBytes(24).toString('hex');
@@ -52,7 +52,7 @@ export async function startUiServer(options = {}) {
                 'x-content-type-options': 'nosniff',
                 'referrer-policy': 'no-referrer',
             });
-            res.end(renderPage({ token, locale, dbPath: store.dbPath }));
+            res.end(renderPage({ token, locale, dbPath: store.dbPath, budgetMs: resolveBudgetMs() }));
             return;
         }
         if (!path.startsWith('/api/')) {

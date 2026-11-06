@@ -115,8 +115,9 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 `/dsh-immune-system:immune-ui`（或 `cli.js ui`）会起一个本地页面：
 
 - 搜索触发词/症状/处方，实时过滤；**浏览不计入命中数**，所以晋升和淘汰的统计不会被点鼠标污染
-- 每条可**退役 / 恢复 / 删除**，分「项目库」「共享库」两个页签
-- 顶部显示生效数、退役数、累计注入、共享库条数
+- 每条可**退役 / 恢复 / 删除**，分「项目库」「共享库」两个页签，可按「最近更新 / 命中最多 / 失效最多」排序
+- 顶部 5 张 KPI：生效数、退役数、累计注入、共享库条数，外加**当前蒸馏预算**
+- 跟随系统深浅色、窄屏自动把表格降级成卡片、骨架屏与空态都是有设计的那种
 
 安全边界是刻意收窄的：只绑 `127.0.0.1`、每次启动生成随机 token 且所有 `/api` 都要带它
 （跨站简单 POST 不需要预检，只靠 Origin 判断不够）、严格 CSP、页面不加载任何外部资源。
@@ -127,10 +128,13 @@ UI 是自建的而非宿主插件 UI——ZCode 插件没有 UI 插槽（只有 
 #### the agent harness 原生 UI（设置页里的 tab）
 
 the agent harness 有 web GUI 和客户端插槽，所以那边**不用另开页面**：
-`设置 → 插件` 里会出现一个「免疫 / Immune」tab。
+`设置 → 插件` 里会出现一个「免疫 / Immune」tab。它与独立仪表盘共用同一套设计：
+KPI（含预算）、搜索与清除、页签计数、排序、状态圆点、窄屏卡片、骨架屏与空态。
 
 - 客户端是 `dsh-immune-system/client/client.js`，按模块装载器契约手写
   （`window.__ModuleLoader__.load({ id, factory })`），**不需要打包器、不写 JSX**
+- 样式是注入一段静态 `<style>`（选择器全部 scope 在 `.imm` 下），所以 hover、媒体查询、
+  跟随宿主的 `--dsh-*` 深浅色变量都能用，而不是几十个 inline style
 - 数据走宿主路由 `/plugins/dsh-immune-system/api`，用
   `ctx.inject(['webServer'], …)` 注册——这是可选依赖，CLI/桌面 profile 没有 web 服务时
   插件照常工作，只是没有这个 tab
@@ -138,9 +142,10 @@ the agent harness 有 web GUI 和客户端插槽，所以那边**不用另开页
   跨站页面过不去
 
 > 诚实说明：客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、
-> 跨源拒绝、无 web 服务时不注册），但**没有在真实 web 应用里端到端跑通**——
-> 本机 web profile 装了十几个第三方插件和 MCP 服务，启动日志淹没在它们的输出里，
-> 我没能把启动稳定下来。tab 是否如期出现，需要你重启 DSH 后看一眼。
+> 跨源拒绝、无 web 服务时不注册、预算透传），布局则用真实 React 18 做过静态渲染自检
+> （含深色模式、空态、窄屏）。但**仍未在真实 web 应用里端到端跑通**——本机 web profile
+> 装了十几个第三方插件和 MCP 服务，启动日志淹没在它们的输出里。tab 是否如期出现，
+> 需要你重启 DSH 后看一眼。
 
 ### 同步与体检
 
@@ -323,7 +328,7 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 | 检查 | 结果 |
 | --- | --- |
 | `npm run build` | exit 0 |
-| `npm test` | **83 条全绿**（34 条 core、7 条 ZCode hook、26 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
+| `npm test` | **85 条全绿**（34 条 core、7 条 ZCode hook、27 条 DSH 单元、3 条原生 UI、3 条 MCP、3 条 LLM、4 条 UI 查询层、3 条 manifest 一致性） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
 | `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |

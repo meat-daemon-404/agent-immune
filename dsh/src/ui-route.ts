@@ -11,7 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ImmuneStore } from '../../core/store/index.js';
-import { applyAction, readState } from '../../core/ui/query.js';
+import { applyAction, readState, resolveBudgetMs } from '../../core/ui/query.js';
 
 /** The slice of the host's `webServer` service this needs. */
 interface WebServerLike {
@@ -69,7 +69,15 @@ function readBody(req: IncomingMessage): Promise<string> {
   });
 }
 
-export function registerImmuneUiRoute(ctx: unknown, store: ImmuneStore): void {
+/**
+ * `getBudgetMs` lets the host half report the *session's* effective budget
+ * (which `/immune --budget` can override) instead of just the env default.
+ */
+export function registerImmuneUiRoute(
+  ctx: unknown,
+  store: ImmuneStore,
+  getBudgetMs?: () => number,
+): void {
   const injectable = ctx as Partial<ContextWithInject>;
   // A host without cordis-style optional injection (or a minimal test harness)
   // simply gets no web route; the plugin's core behaviour is unaffected.
@@ -88,7 +96,7 @@ export function registerImmuneUiRoute(ctx: unknown, store: ImmuneStore): void {
           if (req.method === 'GET') {
             const view = url.searchParams.get('view') === 'shared' ? 'shared' : 'project';
             const query = url.searchParams.get('q') ?? '';
-            sendJson(res, 200, readState(store, view, query));
+            sendJson(res, 200, readState(store, view, query, getBudgetMs?.() ?? resolveBudgetMs()));
             return;
           }
 

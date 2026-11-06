@@ -9,6 +9,11 @@
  * Written without JSX for the same reason — `React.createElement` is enough for
  * one tab, and it keeps "build" out of the client entirely.
  *
+ * Styling: one injected <style> block (scoped under `.imm`) instead of dozens of
+ * inline style objects, so hover states, the responsive card layout and the
+ * light/dark tokens are expressible at all. The block is static text this file
+ * owns, so there is no interpolation and nothing external.
+ *
  * Data comes from the host half's route (`/plugins/dsh-immune-system/api`),
  * registered through `ctx.inject(['webServer'], …)`. Nothing here talks to
  * SQLite directly; the browser never sees a database path or a file handle.
@@ -22,6 +27,88 @@ window.__ModuleLoader__.load({
     var h = React.createElement;
 
     var API = '/plugins/dsh-immune-system/api';
+    var STYLE_ID = 'dsh-immune-system-style';
+
+    var CSS = [
+      '.imm{--i-line:var(--dsh-border,#2c3240);--i-line-soft:var(--dsh-border-subtle,#242a36);',
+      '--i-panel:var(--dsh-bg-secondary,#141821);--i-panel2:var(--dsh-bg-tertiary,#1b2231);',
+      '--i-text:var(--dsh-text-primary,inherit);--i-muted:var(--dsh-text-secondary,#8b94a3);',
+      '--i-faint:var(--dsh-text-tertiary,#6b7789);--i-accent:var(--dsh-accent,#4f9cf9);',
+      '--i-ok:#37c98a;--i-warn:#e3a53f;--i-bad:#e56565;',
+      'display:flex;flex-direction:column;gap:12px;padding:2px;font-size:13px;color:var(--i-text)}',
+      '.imm .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}',
+      '.imm .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px}',
+      '.imm .kpi{position:relative;background:var(--i-panel);border:1px solid var(--i-line);',
+      'border-radius:11px;padding:10px 13px;overflow:hidden}',
+      '.imm .kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--i-line)}',
+      '.imm .kpi.ok::after{background:var(--i-ok)}.imm .kpi.warn::after{background:var(--i-warn)}',
+      '.imm .kpi.accent::after{background:var(--i-accent)}',
+      '.imm .kpi .v{font-size:20px;font-weight:650;letter-spacing:-.2px;font-variant-numeric:tabular-nums}',
+      '.imm .kpi .k{color:var(--i-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-top:1px}',
+      '.imm .search{position:relative;flex:1 1 260px;min-width:180px;display:flex;align-items:center}',
+      '.imm .search input{width:100%;padding:8px 32px 8px 30px;font-size:13px;color:inherit;',
+      'background:var(--i-panel);border:1px solid var(--i-line);border-radius:8px;transition:border-color .15s,box-shadow .15s}',
+      '.imm .search input:focus{outline:none;border-color:var(--i-accent);box-shadow:0 0 0 3px rgba(79,156,249,.15)}',
+      '.imm .search .glass{position:absolute;left:10px;width:12px;height:12px;border:2px solid var(--i-faint);border-radius:50%;pointer-events:none}',
+      '.imm .search .glass::after{content:"";position:absolute;right:-4px;bottom:-3px;width:6px;height:2px;background:var(--i-faint);transform:rotate(45deg);border-radius:2px}',
+      '.imm .search .x{position:absolute;right:5px;width:22px;height:22px;border:0;border-radius:6px;background:transparent;',
+      'color:var(--i-faint);cursor:pointer;font-size:15px;line-height:1;display:none}',
+      '.imm .search .x.on{display:block}.imm .search .x:hover{background:var(--i-panel2);color:var(--i-text)}',
+      '.imm .seg{display:inline-flex;background:var(--i-panel);border:1px solid var(--i-line);border-radius:999px;padding:2px}',
+      '.imm .seg button{border:0;background:transparent;color:var(--i-muted);cursor:pointer;padding:6px 12px;',
+      'border-radius:999px;font-size:12.5px;font-variant-numeric:tabular-nums;transition:background .15s,color .15s}',
+      '.imm .seg button.on{background:var(--i-panel2);color:var(--i-text);box-shadow:inset 0 0 0 1px var(--i-line)}',
+      '.imm .seg button b{font-weight:600;margin-left:5px;color:var(--i-faint)}.imm .seg button.on b{color:var(--i-accent)}',
+      '.imm select{appearance:none;padding:7px 26px 7px 10px;border-radius:8px;border:1px solid var(--i-line);',
+      'background:var(--i-panel);color:inherit;font-size:12.5px;cursor:pointer}',
+      '.imm .panel{background:var(--i-panel);border:1px solid var(--i-line);border-radius:11px;overflow:hidden}',
+      '.imm .meta-row{display:flex;justify-content:space-between;gap:10px;padding:8px 13px;border-bottom:1px solid var(--i-line-soft);',
+      'color:var(--i-faint);font-size:11.5px}',
+      '.imm table{width:100%;border-collapse:collapse}',
+      '.imm thead th{position:sticky;top:0;z-index:1;text-align:left;padding:8px 13px;background:var(--i-panel2);',
+      'color:var(--i-muted);font-weight:550;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;',
+      'border-bottom:1px solid var(--i-line);white-space:nowrap}',
+      '.imm tbody td{padding:10px 13px;border-bottom:1px solid var(--i-line-soft);vertical-align:top}',
+      '.imm tbody tr:last-child td{border-bottom:0}.imm tbody tr{transition:background .12s}',
+      '.imm tbody tr:hover{background:var(--i-panel2)}.imm tr.retired td{opacity:.62}',
+      '.imm td.id{color:var(--i-faint);width:44px;font-variant-numeric:tabular-nums}',
+      '.imm td.trigger{font-family:ui-monospace,Consolas,monospace;font-size:12px;max-width:280px;word-break:break-word}',
+      '.imm td.txt{max-width:270px;word-break:break-word;color:var(--i-muted)}',
+      '.imm td.txt.do{color:var(--i-text)}',
+      '.imm .counts{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--i-faint)}',
+      '.imm .counts b{color:var(--i-ok);font-weight:600}.imm .counts .f{color:var(--i-bad);font-weight:600}',
+      '.imm .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:11.5px;white-space:nowrap}',
+      '.imm .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}',
+      '.imm .pill.active{color:var(--i-ok);background:rgba(55,201,138,.13)}',
+      '.imm .pill.retired{color:var(--i-muted);background:rgba(139,148,163,.13)}',
+      '.imm .acts{display:flex;gap:6px;flex-wrap:nowrap}',
+      '.imm td.ops{white-space:nowrap}',
+      '.imm button.act{border:1px solid var(--i-line);background:transparent;color:var(--i-muted);border-radius:7px;',
+      'padding:4px 9px;cursor:pointer;font-size:12px;transition:all .12s}',
+      '.imm button.act:hover{color:var(--i-text);border-color:var(--i-muted);background:var(--i-panel2)}',
+      '.imm button.act.danger:hover{color:var(--i-bad);border-color:var(--i-bad);background:rgba(229,101,101,.1)}',
+      '.imm button.act:disabled{opacity:.45;cursor:progress}',
+      '.imm .empty{padding:38px 18px 42px;text-align:center}',
+      '.imm .empty .glyph{width:42px;height:42px;margin:0 auto 10px;border-radius:11px;border:1.5px dashed var(--i-line);position:relative}',
+      '.imm .empty .glyph::before{content:"";position:absolute;left:12px;right:12px;top:19px;height:2px;background:var(--i-line);border-radius:2px}',
+      '.imm .empty .glyph::after{content:"";position:absolute;top:12px;bottom:12px;left:19px;width:2px;background:var(--i-line);border-radius:2px}',
+      '.imm .empty .t{font-weight:600}.imm .empty .hd{color:var(--i-muted);margin-top:4px;font-size:12px}',
+      '.imm .skel .r{height:36px;border-bottom:1px solid var(--i-line-soft);display:flex;align-items:center;gap:12px;padding:0 13px}',
+      '.imm .skel .b{height:9px;border-radius:5px;background:linear-gradient(90deg,var(--i-line-soft),var(--i-line),var(--i-line-soft));',
+      'background-size:200% 100%;animation:imm-shimmer 1.2s linear infinite}',
+      '.imm .skel .b:nth-child(1){width:30px}.imm .skel .b:nth-child(2){width:26%}',
+      '.imm .skel .b:nth-child(3){width:22%}.imm .skel .b:nth-child(4){width:16%}',
+      '@keyframes imm-shimmer{from{background-position:200% 0}to{background-position:-200% 0}}',
+      '@media (prefers-reduced-motion:reduce){.imm .skel .b{animation:none}}',
+      '.imm .note{font-size:11.5px;color:var(--i-faint)}',
+      '.imm .err{color:var(--i-bad)}',
+      '@media (max-width:720px){.imm thead{display:none}.imm table,.imm tbody,.imm tr,.imm td{display:block;width:100%}',
+      '.imm tbody tr{border-bottom:1px solid var(--i-line);padding:8px 2px}',
+      '.imm tbody td{border:0;padding:3px 11px;display:flex;gap:10px}',
+      '.imm tbody td::before{content:attr(data-label);flex:0 0 76px;color:var(--i-faint);font-size:10.5px;',
+      'text-transform:uppercase;letter-spacing:.05em;padding-top:2px}',
+      '.imm td.id{width:auto}.imm td.trigger,.imm td.txt{max-width:none}}',
+    ].join('');
 
     function request(path, init) {
       return fetch(API + path, Object.assign({ credentials: 'same-origin' }, init)).then(
@@ -34,76 +121,25 @@ window.__ModuleLoader__.load({
       );
     }
 
-    function formatTime(ms) {
-      try {
-        return new Date(ms).toLocaleString();
-      } catch (e) {
-        return '';
-      }
+    function formatBudget(ms) {
+      if (typeof ms !== 'number' || !isFinite(ms)) return '—';
+      return ms >= 1000 ? (ms / 1000) + ' s' : Math.round(ms) + ' ms';
     }
 
-    var S = {
-      root: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '4px 2px', fontSize: '13px' },
-      row: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-      stats: { display: 'flex', gap: '14px', flexWrap: 'wrap', color: 'var(--dsh-text-secondary, #8b94a3)' },
-      statB: { color: 'var(--dsh-text-primary, inherit)', marginRight: '4px' },
-      input: {
-        flex: '1 1 220px',
-        minWidth: '160px',
-        padding: '7px 10px',
-        borderRadius: '8px',
-        border: '1px solid var(--dsh-border, #2c3240)',
-        background: 'var(--dsh-bg-secondary, #141821)',
-        color: 'inherit',
-        fontSize: '13px',
-      },
-      tab: {
-        padding: '5px 12px',
-        borderRadius: '999px',
-        border: '1px solid var(--dsh-border, #2c3240)',
-        background: 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        fontSize: '12px',
-      },
-      tabOn: {
-        borderColor: 'var(--dsh-accent, #4f9cf9)',
-        color: 'var(--dsh-accent, #4f9cf9)',
-      },
-      table: { width: '100%', borderCollapse: 'collapse' },
-      th: {
-        textAlign: 'left',
-        padding: '6px 8px',
-        fontSize: '11px',
-        textTransform: 'uppercase',
-        letterSpacing: '.04em',
-        color: 'var(--dsh-text-secondary, #8b94a3)',
-        borderBottom: '1px solid var(--dsh-border, #2c3240)',
-      },
-      td: {
-        padding: '8px',
-        borderBottom: '1px solid var(--dsh-border, #242a36)',
-        verticalAlign: 'top',
-      },
-      mono: { fontFamily: 'ui-monospace, Consolas, monospace', fontSize: '12px' },
-      btn: {
-        padding: '3px 8px',
-        marginRight: '6px',
-        borderRadius: '6px',
-        border: '1px solid var(--dsh-border, #2c3240)',
-        background: 'transparent',
-        color: 'inherit',
-        cursor: 'pointer',
-        fontSize: '12px',
-      },
-      muted: { color: 'var(--dsh-text-secondary, #8b94a3)' },
-      note: { fontSize: '12px', color: 'var(--dsh-text-secondary, #8b94a3)' },
-    };
+    function kpi(value, label, tone) {
+      return h(
+        'div',
+        { key: label, className: 'kpi' + (tone ? ' ' + tone : '') },
+        h('div', { className: 'v' }, String(value)),
+        h('div', { className: 'k' }, label),
+      );
+    }
 
     function ImmuneTab() {
-      var state = React.useState({ loading: true, error: '', stats: null, rows: [] });
+      var state = React.useState({ loading: true, error: '', stats: null, rows: [], budgetMs: null });
       var view = React.useState('project');
       var query = React.useState('');
+      var order = React.useState('recent');
 
       var data = state[0];
       var setData = state[1];
@@ -111,6 +147,8 @@ window.__ModuleLoader__.load({
       var setTab = view[1];
       var q = query[0];
       var setQ = query[1];
+      var sort = order[0];
+      var setSort = order[1];
 
       var load = React.useCallback(
         function (nextTab, nextQuery) {
@@ -123,10 +161,22 @@ window.__ModuleLoader__.load({
           });
           request(path)
             .then(function (body) {
-              setData({ loading: false, error: '', stats: body.stats, rows: body.antibodies });
+              setData({
+                loading: false,
+                error: '',
+                stats: body.stats,
+                rows: body.antibodies,
+                budgetMs: body.budgetMs,
+              });
             })
             .catch(function (error) {
-              setData({ loading: false, error: String(error.message || error), stats: null, rows: [] });
+              setData({
+                loading: false,
+                error: String(error.message || error),
+                stats: null,
+                rows: [],
+                budgetMs: null,
+              });
             });
         },
         [setData],
@@ -166,120 +216,225 @@ window.__ModuleLoader__.load({
       }
 
       var stats = data.stats;
-      var header = h(
+
+      var kpis = h(
         'div',
-        { style: S.stats },
+        { className: 'kpis' },
         stats
           ? [
-              h('span', { key: 'a' }, h('b', { style: S.statB }, String(stats.active)), '生效 / active'),
-              h('span', { key: 'r' }, h('b', { style: S.statB }, String(stats.retired)), '已退役 / retired'),
-              h('span', { key: 'h' }, h('b', { style: S.statB }, String(stats.hits)), '注入 / injections'),
-              h('span', { key: 's' }, h('b', { style: S.statB }, String(stats.shared)), '共享 / shared'),
+              kpi(stats.active, '生效 / active', 'ok'),
+              kpi(stats.retired, '已退役 / retired', 'warn'),
+              kpi(stats.hits, '注入 / injections', 'accent'),
+              kpi(stats.shared, '共享 / shared', ''),
+              kpi(formatBudget(data.budgetMs), '蒸馏预算 / budget', ''),
             ]
-          : [h('span', { key: 'l' }, data.loading ? '加载中… / loading…' : '')],
+          : [h('div', { key: 'l', className: 'note' }, data.loading ? '加载中… / loading…' : '')],
       );
 
-      var rows = data.rows.map(function (a) {
-        return h(
-          'tr',
-          { key: a.id },
-          h('td', { style: S.td }, String(a.id)),
-          h('td', { style: Object.assign({}, S.td, S.mono) }, a.trigger_pattern),
-          h('td', { style: S.td }, a.symptom),
-          h('td', { style: S.td }, a.prescription),
-          h('td', { style: Object.assign({}, S.td, S.muted) }, a.hit_count + ' / ' + a.fail_count),
-          h('td', { style: Object.assign({}, S.td, S.muted) }, a.status),
+      var sorted = data.rows.slice().sort(function (a, b) {
+        if (sort === 'hits') return b.hit_count - a.hit_count || a.id - b.id;
+        if (sort === 'fails') return b.fail_count - a.fail_count || a.id - b.id;
+        return String(b.updated_at).localeCompare(String(a.updated_at)) || b.id - a.id;
+      });
+
+      var body;
+      if (data.error) {
+        body = h(
+          'div',
+          { className: 'empty' },
+          h('div', { className: 'glyph' }),
+          h('div', { className: 't' }, '加载失败 / load failed'),
+          h('div', { className: 'hd err' }, data.error),
+        );
+      } else if (data.loading && data.rows.length === 0) {
+        body = h(
+          'div',
+          { className: 'skel' },
+          [0, 1, 2, 3].map(function (n) {
+            return h(
+              'div',
+              { className: 'r', key: n },
+              h('div', { className: 'b' }),
+              h('div', { className: 'b' }),
+              h('div', { className: 'b' }),
+              h('div', { className: 'b' }),
+            );
+          }),
+        );
+      } else if (sorted.length === 0) {
+        body = h(
+          'div',
+          { className: 'empty' },
+          h('div', { className: 'glyph' }),
           h(
-            'td',
-            { style: S.td },
-            tab === 'project'
-              ? [
-                  h(
-                    'button',
-                    {
-                      key: 't',
-                      style: S.btn,
-                      onClick: function () {
-                        act(a.status === 'active' ? 'retire' : 'restore', a.id);
-                      },
-                    },
-                    a.status === 'active' ? '退役 / retire' : '恢复 / restore',
-                  ),
-                  h(
-                    'button',
-                    { key: 'd', style: S.btn, onClick: function () { act('delete', a.id); } },
-                    '删除 / delete',
-                  ),
-                ]
-              : null,
+            'div',
+            { className: 't' },
+            tab === 'shared' ? '共享库为空 / shared library is empty' : '还没有抗体 / no antibodies yet',
+          ),
+          h(
+            'div',
+            { className: 'hd' },
+            tab === 'shared'
+              ? '泛型坑在多个项目反复命中后才会晋升到这里。'
+              : '工具先失败、随后用另一种方式成功之后才会产生。',
           ),
         );
-      });
+      } else {
+        body = h(
+          'table',
+          null,
+          h(
+            'thead',
+            null,
+            h(
+              'tr',
+              null,
+              ['#', '触发 / trigger', '忌 / avoid', '宜 / do', 'hits / fails', '状态 / status', ''].map(function (label) {
+                return h('th', { key: label }, label);
+              }),
+            ),
+          ),
+          h(
+            'tbody',
+            null,
+            sorted.map(function (a) {
+              return h(
+                'tr',
+                { key: a.id, className: a.status === 'retired' ? 'retired' : '' },
+                h('td', { className: 'id', 'data-label': '#' }, String(a.id)),
+                h('td', { className: 'trigger', 'data-label': '触发' }, a.trigger_pattern),
+                h('td', { className: 'txt', 'data-label': '忌' }, a.symptom),
+                h('td', { className: 'txt do', 'data-label': '宜' }, a.prescription),
+                h(
+                  'td',
+                  { className: 'counts', 'data-label': 'hits/fails' },
+                  h('b', null, String(a.hit_count)),
+                  ' / ',
+                  h('span', { className: 'f' }, String(a.fail_count)),
+                ),
+                h(
+                  'td',
+                  { 'data-label': '状态' },
+                  h('span', { className: 'pill ' + a.status }, a.status === 'active' ? '生效 / active' : '已退役 / retired'),
+                ),
+                h(
+                  'td',
+                  { className: 'ops', 'data-label': '' },
+                  tab === 'project'
+                    ? h(
+                        'div',
+                        { className: 'acts' },
+                        h(
+                          'button',
+                          {
+                            className: 'act',
+                            type: 'button',
+                            onClick: function () {
+                              act(a.status === 'active' ? 'retire' : 'restore', a.id);
+                            },
+                          },
+                          a.status === 'active' ? '退役 / retire' : '恢复 / restore',
+                        ),
+                        h(
+                          'button',
+                          { className: 'act danger', type: 'button', onClick: function () { act('delete', a.id); } },
+                          '删除 / delete',
+                        ),
+                      )
+                    : null,
+                ),
+              );
+            }),
+          ),
+        );
+      }
 
       return h(
         'div',
-        { style: S.root },
-        header,
+        { className: 'imm' },
+        h('style', { id: STYLE_ID }, CSS),
+        kpis,
         h(
           'div',
-          { style: S.row },
-          h('input', {
-            style: S.input,
-            type: 'search',
-            placeholder: '搜索触发词、症状或处方… / search…',
-            value: q,
-            onChange: function (e) {
-              onQuery(e.target.value);
-            },
-          }),
+          { className: 'row' },
           h(
-            'button',
-            {
-              style: Object.assign({}, S.tab, tab === 'project' ? S.tabOn : null),
-              onClick: function () {
-                setTab('project');
+            'div',
+            { className: 'search' },
+            h('span', { className: 'glass', 'aria-hidden': 'true' }),
+            h('input', {
+              type: 'search',
+              placeholder: '搜索触发词、症状或处方… / search…',
+              value: q,
+              'aria-label': 'search antibodies',
+              onChange: function (e) {
+                onQuery(e.target.value);
               },
-            },
-            '项目 / project',
+            }),
+            h(
+              'button',
+              {
+                className: q ? 'x on' : 'x',
+                type: 'button',
+                title: '清除 / clear',
+                onClick: function () {
+                  onQuery('');
+                },
+              },
+              '×',
+            ),
           ),
           h(
-            'button',
-            {
-              style: Object.assign({}, S.tab, tab === 'shared' ? S.tabOn : null),
-              onClick: function () {
-                setTab('shared');
+            'div',
+            { className: 'seg', role: 'tablist' },
+            h(
+              'button',
+              {
+                className: tab === 'project' ? 'on' : '',
+                type: 'button',
+                role: 'tab',
+                'aria-selected': tab === 'project' ? 'true' : 'false',
+                onClick: function () { setTab('project'); },
               },
+              '项目 / project',
+              h('b', null, stats ? String(stats.active + stats.retired) : ''),
+            ),
+            h(
+              'button',
+              {
+                className: tab === 'shared' ? 'on' : '',
+                type: 'button',
+                role: 'tab',
+                'aria-selected': tab === 'shared' ? 'true' : 'false',
+                onClick: function () { setTab('shared'); },
+              },
+              '共享 / shared',
+              h('b', null, stats ? String(stats.shared) : ''),
+            ),
+          ),
+          h(
+            'select',
+            {
+              value: sort,
+              'aria-label': 'sort antibodies',
+              onChange: function (e) { setSort(e.target.value); },
             },
-            '共享 / shared',
+            h('option', { value: 'recent' }, '最近更新 / recent'),
+            h('option', { value: 'hits' }, '命中最多 / most hits'),
+            h('option', { value: 'fails' }, '失效最多 / most fails'),
           ),
         ),
-        data.error
-          ? h('div', { style: S.note }, '加载失败 / load failed: ' + data.error)
-          : data.rows.length === 0
-            ? h(
-                'div',
-                { style: S.note },
-                tab === 'shared'
-                  ? '共享库为空。泛型坑在多次命中后才会晋升。/ Shared library is empty.'
-                  : '还没有抗体。工具先失败、随后成功之后才会产生。/ No antibodies yet.',
-              )
-            : h(
-                'table',
-                { style: S.table },
-                h(
-                  'thead',
-                  null,
-                  h(
-                    'tr',
-                    null,
-                    ['#', '触发 / trigger', '忌 / avoid', '宜 / do', 'hits/fails', 'status', ''].map(function (label) {
-                      return h('th', { key: label, style: S.th }, label);
-                    }),
-                  ),
-                ),
-                h('tbody', null, rows),
-              ),
-        h('div', { style: S.note }, '浏览不计入命中数 / browsing does not count as injection.'),
+        h(
+          'div',
+          { className: 'panel' },
+          h(
+            'div',
+            { className: 'meta-row' },
+            h('span', null, sorted.length + ' 条结果 / results'),
+            h('span', null, stats ? '蒸馏预算 / budget ' + formatBudget(data.budgetMs) : ''),
+          ),
+          body,
+        ),
+        h('div', { className: 'note' }, '浏览不计入命中数——只有真正注入给模型才算一次命中。 / browsing is not injection.'),
       );
     }
 

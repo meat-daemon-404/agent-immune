@@ -113,7 +113,7 @@ async function callRoute(route, { method, url, headers = {}, body }) {
   return { status: res.statusCode, body: JSON.parse(res.payload || '{}') };
 }
 
-function bootRoute(t) {
+function bootRoute(t, getBudgetMs) {
   const dir = mkdtempSync(join(tmpdir(), 'immune-route-'));
   const store = new ImmuneStore({ dbPath: join(dir, 'immune.sqlite') });
   store.insert({ trigger_pattern: 'vite.config.ts loadEnv', symptom: '读不到变量', prescription: '用 loadEnv' });
@@ -125,7 +125,7 @@ function bootRoute(t) {
       callback({ webServer: { register: (r) => ((route = r), () => {}) } });
     },
   };
-  registerImmuneUiRoute(ctx, store);
+  registerImmuneUiRoute(ctx, store, getBudgetMs);
   assert.ok(route, 'a route must be registered when webServer exists');
 
   t.after(() => {
@@ -137,7 +137,6 @@ function bootRoute(t) {
 
 test('the host route serves JSON and refuses cross-origin mutations', async (t) => {
   const { route } = bootRoute(t);
-
   assert.equal(route.kind, 'prefix');
   assert.equal(route.path, '/plugins/dsh-immune-system/api');
 
@@ -209,4 +208,15 @@ test('the route is simply not registered when the profile has no web server', (t
   };
   assert.doesNotThrow(() => registerImmuneUiRoute(ctx, store));
   assert.equal(called, true);
+});
+
+test('the route reports the session budget when a getter is supplied', async (t) => {
+  const { route } = bootRoute(t, () => 5000);
+  const list = await callRoute(route, {
+    method: 'GET',
+    url: '/plugins/dsh-immune-system/api?view=project',
+    headers: { host: '127.0.0.1:7788' },
+  });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.budgetMs, 5000, 'the tab must show the session override, not the env default');
 });

@@ -20,6 +20,19 @@ export interface DashboardStats {
 export interface DashboardState {
   stats: DashboardStats;
   antibodies: Antibody[];
+  /** Effective turn-end distillation budget, so the UI can show it. */
+  budgetMs: number;
+}
+
+/**
+ * The same variable and clamp the adapters use (zcode/src/drain.ts,
+ * dsh/src/index.ts). Read here only to display it; the drain itself owns the
+ * real value.
+ */
+export function resolveBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = Number(env.IMMUNE_DISTILL_BUDGET_MS ?? '');
+  const budget = Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+  return Math.min(60_000, Math.max(1_000, Math.trunc(budget)));
 }
 
 export function dashboardStats(store: ImmuneStore): DashboardStats {
@@ -37,10 +50,11 @@ export function readState(
   store: ImmuneStore,
   view: 'project' | 'shared',
   query = '',
+  budgetMs = resolveBudgetMs(),
 ): DashboardState {
   const antibodies =
     view === 'shared' ? store.sharedAntibodies(MAX_QUERY) : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
-  return { stats: dashboardStats(store), antibodies };
+  return { stats: dashboardStats(store), antibodies, budgetMs };
 }
 
 export interface ActionResult {

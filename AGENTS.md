@@ -119,6 +119,18 @@ identical-retry note).
     contains `Error:` would be recorded as a failure and distilled into a bogus
     antibody.
 
+14. **Both UIs are one design, and the budget is read through a getter.** The
+    standalone dashboard (`core/ui/page.ts`) and the native web tab
+    (`dsh-immune-system/client/client.js`) share the same KPI row (including the
+    effective distill budget), tabs with counts, sort, status pills, skeleton and
+    empty states. The tab injects ONE static `<style>` scoped under `.imm`
+    (so hover/media-query/`--dsh-*` theme tokens work — do not regress to inline
+    style objects), and the budget comes from a `getBudgetMs` getter passed into
+    `registerImmuneUiRoute`, not from the env default, so a `/immune --budget`
+    override is visible in the UI. The dashboard page must stay offline: no
+    `http(s)://` anywhere (that is why the brand glyph and empty-state art are
+    pure CSS, not inline SVG with `xmlns`).
+
 ## Verification
 
 ```bash

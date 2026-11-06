@@ -1,4 +1,4 @@
-import { applyAction, readState } from '../../core/ui/query.js';
+import { applyAction, readState, resolveBudgetMs } from '../../core/ui/query.js';
 export const UI_ROUTE_PREFIX = '/plugins/dsh-immune-system/api';
 /**
  * Same-origin check for mutations.
@@ -40,7 +40,11 @@ function readBody(req) {
         req.on('error', reject);
     });
 }
-export function registerImmuneUiRoute(ctx, store) {
+/**
+ * `getBudgetMs` lets the host half report the *session's* effective budget
+ * (which `/immune --budget` can override) instead of just the env default.
+ */
+export function registerImmuneUiRoute(ctx, store, getBudgetMs) {
     const injectable = ctx;
     // A host without cordis-style optional injection (or a minimal test harness)
     // simply gets no web route; the plugin's core behaviour is unaffected.
@@ -59,7 +63,7 @@ export function registerImmuneUiRoute(ctx, store) {
                     if (req.method === 'GET') {
                         const view = url.searchParams.get('view') === 'shared' ? 'shared' : 'project';
                         const query = url.searchParams.get('q') ?? '';
-                        sendJson(res, 200, readState(store, view, query));
+                        sendJson(res, 200, readState(store, view, query, getBudgetMs?.() ?? resolveBudgetMs()));
                         return;
                     }
                     if (req.method === 'POST') {
