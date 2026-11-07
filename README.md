@@ -45,7 +45,9 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
 
 检索层不是「宣称可用」，而是被闸门约束：固定中英场景矩阵（8 条改述正例、6 条
 gram 干净负例）当前 **R@1 100% / R@3 100% / FP 0%**，闸门（R@3 ≥ 7/8、FP ≤ 1/6）
-在 CI 每次 push 自动执行。`scripts/bench-tool-latency.mjs` 钉住回合末蒸馏的
+在 CI 每次 push 自动执行。规模实测（`scripts/bench-scale.mjs`）：**300 条规则
+41 ms 入库（0.14 ms/条），67 次 match p50 0.37 ms / p95 0.66 ms**——检索在数百
+条规则的库里仍是亚毫秒级。`scripts/bench-tool-latency.mjs` 钉住回合末蒸馏的
 成本曲线（工具路径始终不碰模型），`scripts/verify-llm.mjs` 在配置了 LLM 端点时
 一条命令真机验证外部蒸馏。
 
@@ -390,7 +392,10 @@ against the real host contract) and **ZCode** (verified against its hooks).
 The retrieval layer is gated, not claimed: a fixed zh/en scenario matrix
 (8 paraphrase positives, 6 gram-clean negatives) currently scores
 **R@1 100% / R@3 100% / FP 0%**, and the gate (R@3 ≥ 7/8, FP ≤ 1/6) runs in CI
-on every push. `scripts/bench-tool-latency.mjs` pins the drain cost curve (the
+on every push. Measured at scale (`scripts/bench-scale.mjs`): **300 rules
+index in 41 ms (0.14 ms/rule), 67 matches at p50 0.37 ms / p95 0.66 ms** —
+retrieval stays sub-millisecond with hundreds of rules.
+`scripts/bench-tool-latency.mjs` pins the drain cost curve (the
 tool path never touches the model), and `scripts/verify-llm.mjs` live-verifies
 external distillation in one command when an LLM endpoint is configured.
 
