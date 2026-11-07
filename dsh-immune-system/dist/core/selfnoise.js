@@ -16,7 +16,7 @@
  *    identifies another clone of the plugin wherever it sits on disk.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 /** Package names that mean "this is the immune system itself". */
 const SELF_PACKAGE_NAMES = new Set(['dsh-immune-system', 'dsh-plugin-immune']);
@@ -43,14 +43,37 @@ function safeRealpath(path) {
 function normalizePath(value) {
     return value.replace(/\\\\/g, '\\').replace(/\\/g, '/').toLowerCase();
 }
+/**
+ * Parent directory that treats BOTH separators as separators, on every platform.
+ *
+ * `path.dirname` uses the platform separator: on Linux a Windows path like
+ * `D:\work\app\src\main.ts` has no `/`, so dirname returns '.' and an upward
+ * walk would scan the current workspace instead of the named path — that exact
+ * false positive failed CI (the workspace root has a package.json whose name is
+ * this plugin's).
+ *
+ * A drive root (`D:`, `D:/`) has no parent and returns null: resolving against
+ * it would use the process's drive-relative cwd, which is how the CI false
+ * positive happened.
+ */
+function parentDir(path) {
+    const normalised = path.replace(/\\/g, '/');
+    const cut = normalised.lastIndexOf('/');
+    if (cut <= 0)
+        return null;
+    const parent = normalised.slice(0, cut);
+    if (/^[A-Za-z]:$/.test(parent))
+        return null; // drive root
+    return parent.length >= 2 ? parent : null;
+}
 /** Nearest directory at or above `start` that holds a package.json. */
 function findPackageRoot(start) {
     let dir = start;
     for (let i = 0; i < MAX_UPWARD; i += 1) {
         if (existsSync(resolve(dir, 'package.json')))
             return dir;
-        const parent = dirname(dir);
-        if (parent === dir)
+        const parent = parentDir(dir);
+        if (parent === null || parent === dir)
             return null;
         dir = parent;
     }
@@ -77,7 +100,7 @@ export function moduleRoot() {
     try {
         const here = fileURLToPath(import.meta.url);
         const real = safeRealpath(here) ?? here;
-        const root = findPackageRoot(dirname(real));
+        const root = findPackageRoot(parentDir(real) ?? real);
         cachedModuleRoot = root ? normalizePath(root) : null;
     }
     catch {
@@ -124,7 +147,9 @@ export function isSelfEpisode(trace, markers = []) {
     // Fingerprint: another clone of the plugin, wherever it lives.
     for (const candidate of collectPaths(trace)) {
         const real = safeRealpath(candidate) ?? candidate;
-        const pkgRoot = findPackageRoot(dirname(real)) ?? findPackageRoot(real);
+        // Starting from the file path itself (not its dir) is deliberate: on POSIX
+        // a Windows-style path has no dirname, so parentDir would lose the walk.
+        const pkgRoot = findPackageRoot(real);
         if (!pkgRoot)
             continue;
         const name = packageNameAt(pkgRoot);

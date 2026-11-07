@@ -13,7 +13,6 @@
  *  - paths are normalised to a project-relative form so a failure in
  *    `./src/a.ts` and a success in `<cwd>/src/a.ts` still match.
  */
-import { basename, isAbsolute, relative, sep } from 'node:path';
 
 export interface TargetSignature {
   /** Stable identity used for compatibility checks. */
@@ -70,20 +69,31 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string | null
 /**
  * Normalise a path to a project-relative, forward-slash form.
  *
- * Absolute paths outside the project are collapsed to their basename so two
- * checkouts of the same file still match.
+ * Works on both platforms: drive-letter paths are absolute everywhere (the
+ * check is explicit, because POSIX `isAbsolute` does not recognise `C:/…`), and
+ * a path inside `cwd` is made relative to it so the same file matches across
+ * machines and checkouts.
  */
 export function normaliseTargetPath(rawPath: string, cwd?: string): string {
-  const normalised = rawPath.replace(/\\/g, '/').trim();
-  if (!normalised) return '';
+  const p = rawPath.replace(/\\/g, '/').trim();
+  if (!p) return '';
 
-  if (cwd && isAbsolute(normalised)) {
-    const rel = relative(cwd, normalised).replace(/\\/g, '/');
-    if (rel && !rel.startsWith('..')) return rel;
-    return basename(normalised);
+  if (cwd) {
+    const base = cwd.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    if (base) {
+      const lower = p.toLowerCase();
+      if (lower === base) return '';
+      if (lower.startsWith(`${base}/`)) return p.slice(base.length + 1);
+    }
   }
-  if (isAbsolute(normalised) || /^[A-Za-z]:\//.test(normalised)) return basename(normalised);
-  return normalised.replace(/^\.\//, '');
+
+  if (/^[A-Za-z]:[\/]/.test(p) || p.startsWith('/')) {
+    // Outside the project: collapse to the basename (matches the original
+    // Windows behaviour and keeps signatures comparable across checkouts).
+    const parts = p.split('/').filter(Boolean);
+    return parts[parts.length - 1] ?? p;
+  }
+  return p.replace(/^\.\//, '');
 }
 
 /** Split a shell command into `program` and its first non-flag subcommand. */
@@ -94,10 +104,12 @@ export function parseCommand(command: string): { program: string; sub: string } 
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  // Skip leading env assignments (FOO=bar cmd).
+  // Skip leading env assignments (FOO=bar cmd), then strip a leading path from
+  // the program token ("C:\tools\npm.cmd test" -> "npm.cmd") on any platform.
   let index = 0;
   while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index] ?? '')) index += 1;
-  const program = basename((tokens[index] ?? '').replace(/^["']|["']$/g, ''));
+  const programToken = (tokens[index] ?? '').replace(/^["']|["']$/g, '');
+  const program = (programToken.split(/[\\/]/).pop() ?? programToken).toLowerCase();
   let sub = '';
   for (let i = index + 1; i < tokens.length; i += 1) {
     const token = tokens[i] ?? '';
@@ -194,5 +206,3 @@ export function canCloseEpisode(failedSignature: string, incoming: TargetSignatu
 
   return !failedTarget || failedTarget === '?' || !incomingTarget || incomingTarget === '?';
 }
-
-export { sep as pathSeparator };
