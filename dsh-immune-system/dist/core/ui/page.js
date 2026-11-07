@@ -43,6 +43,8 @@ const LABELS = {
         sharedCount: '共享库',
         budget: '蒸馏预算',
         budgetHint: '回合末可用的时间预算（IMMUNE_DISTILL_BUDGET_MS）',
+        intercepted: '拦截',
+        storage: '库大小',
         localOnly: '仅本机可访问',
         confirmRemove: '删除后不可恢复，确定？',
         loading: '加载中…',
@@ -85,6 +87,8 @@ const LABELS = {
         sharedCount: 'shared',
         budget: 'distill budget',
         budgetHint: 'Time budget available at turn end (IMMUNE_DISTILL_BUDGET_MS)',
+        intercepted: 'intercepted',
+        storage: 'storage',
         localOnly: 'local only',
         confirmRemove: 'Deletion is permanent. Continue?',
         loading: 'Loading…',
@@ -453,6 +457,27 @@ export function renderPage(options) {
     kpisEl.appendChild(budgetCard);
     budgetEl.textContent = T.budget + ' ' + BUDGET;
     budgetEl.setAttribute('title', BUDGET_HINT);
+
+    // Value counter + storage footprint: the same facts the DSH tab's footer
+    // shows, so the two UIs stay one design (AGENTS.md #14).
+    var interceptedCard = el('div', 'kpi');
+    interceptedCard.setAttribute('data-tone', 'plain');
+    interceptedCard.appendChild(el('div', 'v', String(s.suppressedRepeats || 0)));
+    interceptedCard.appendChild(el('div', 'k', T.intercepted));
+    kpisEl.appendChild(interceptedCard);
+
+    var storageCard = el('div', 'kpi');
+    storageCard.setAttribute('data-tone', 'plain');
+    storageCard.appendChild(
+      el('div', 'v', s.dbBytes != null ? Math.max(1, Math.round(s.dbBytes / 1024)) + ' KiB' : '—'),
+    );
+    storageCard.appendChild(el('div', 'k', T.storage));
+    storageCard.setAttribute(
+      'title',
+      s.sessions + ' sessions · ' + s.jobsTotal + ' jobs (' + s.jobsPending + ' queued)',
+    );
+    kpisEl.appendChild(storageCard);
+
     nProject.textContent = String(s.active + s.retired);
     nShared.textContent = String(s.shared);
   }
