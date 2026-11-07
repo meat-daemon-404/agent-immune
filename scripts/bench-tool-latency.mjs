@@ -182,7 +182,10 @@ async function runScenario(label, episodes, budgetMs) {
   const turnMs = Number(process.hrtime.bigint() - turnStarted) / 1e6;
 
   const db = new DatabaseSync(dbPath);
-  const rows = db.prepare('SELECT id FROM antibodies').all().length;
+  // The metric is "every queued episode was processed", not "one rule row per
+  // episode": the mock endpoint returns the same antibody for every episode,
+  // so rule-level dedup collapses them into one row by design (v1.0.0).
+  const rows = db.prepare("SELECT id FROM distill_jobs WHERE status = 'done'").all().length;
   db.close();
 
   return { episodes, postMedian: median(postToolSamples), postWorst: Math.max(...postToolSamples), turnMs, rows };

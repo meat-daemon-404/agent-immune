@@ -214,8 +214,10 @@ silently broke the canonical episode shape.
 
 1. `npm run build && npm test`
 2. All three acceptance scripts green
-3. Bump the four manifests (same version everywhere)
-4. Commit (message file + `git commit -F`), push
-5. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
+3. `node scripts/bench-tool-latency.mjs` PASS (adds ~40 s; proves the drain
+   budget curve and that the tool path stays free of the model)
+4. Bump the four manifests (same version everywhere)
+5. Commit (message file + `git commit -F`), push
+6. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
    Release, update the installed copy:
    `node "D:/zcode/resources/glm/zcode.cjs" plugins marketplace update dev-dsh-plugin-immune && … plugins update dsh-immune-system@dev-dsh-plugin-immune`
