@@ -98,6 +98,13 @@ export class GlobalStore {
 export function isPromotable(antibody, generic) {
     if (generic)
         return true;
+    // An echo-grade prescription ("<Tool>: <the invocation that worked>") is the
+    // deterministic distiller's project-context reminder. It teaches another
+    // project nothing: never promote it to the shared library. (Dogfood finding:
+    // the production library's top rule is exactly this shape.)
+    const firstToken = antibody.trigger_pattern.split(/\s+/)[0] ?? '';
+    if (firstToken && antibody.prescription.startsWith(`${firstToken}: `))
+        return false;
     const text = `${antibody.trigger_pattern} ${antibody.prescription}`;
     const mentionsPath = /[\\/]|\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|py|go|rs|java|yml|yaml)\b/i.test(text);
     if (mentionsPath)

@@ -421,6 +421,13 @@ test('a generic lesson reaches a brand-new project through the shared library', 
   );
   assert.equal(isPromotable({ trigger_pattern: 'Edit quoting', prescription: 'quote the path', hit_count: 5 }, false), true);
   assert.equal(isPromotable({ trigger_pattern: 'Edit quoting', prescription: 'quote the path', hit_count: 2 }, false), false);
+  // An echo-grade prescription ("<Tool>: <the invocation that worked>") is a
+  // project-context reminder, not a portable lesson: never share it.
+  assert.equal(
+    isPromotable({ trigger_pattern: 'Bash powershell probe', prescription: 'Bash: powershell -NoProfile -Command "Get-Vo"', hit_count: 99 }, false),
+    false,
+    'echo-grade prescriptions are not portable lessons',
+  );
 
   const dir = mkdtempSync(join(tmpdir(), 'immune-global-'));
   try {
