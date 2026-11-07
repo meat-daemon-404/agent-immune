@@ -6,7 +6,7 @@
 [![ci](https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg)](https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![node](https://img.shields.io/badge/node-%E2%89%A522.5-blue)
-[![DSH plugin](https://img.shields.io/badge/DSH-plugin%20hub-4f9cf9)](https://dsh-plugin.org/plugins)
+[![Listed on DSH Plugin Hub](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune)
 
 **English** | [简体中文](README.zh-CN.md)
 

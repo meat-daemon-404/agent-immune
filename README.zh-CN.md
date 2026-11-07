@@ -2,7 +2,9 @@
 
 <p align="center"><b>自进化避坑免疫系统 — 让 Agent 踩一次坑，就自己长记性。</b></p>
 
-同款徽章与横幅见英文版 · [English](README.md) · **简体中文**
+[![Listed on DSH Plugin Hub](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune)
+
+[English](README.md) · **简体中文**
 
 Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，下次在同一个坑面前，相关抗体先一步进入它的上下文。
 
