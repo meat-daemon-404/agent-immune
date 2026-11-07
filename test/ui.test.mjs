@@ -25,7 +25,7 @@ async function boot(t) {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  return { handle, html, token };
+  return { handle, html, token, dbPath };
 }
 
 const post = (url, body) =>
@@ -109,4 +109,42 @@ test('mutations validate input and stay within three operations', async (t) => {
   assert.equal(deleted.ok, true);
   const afterDelete = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
   assert.equal(afterDelete.antibodies.length, 1);
+});
+
+test('the dashboard exports and imports library snapshots behind the token', async (t) => {
+  const { handle, token, dbPath } = await boot(t);
+  // The markdown export lists proven rules only; prove one through the DB.
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.prepare('UPDATE antibodies SET hit_count = 5 WHERE trigger_pattern = ?').run(
+    'vite.config.ts loadEnv',
+  );
+  db.close();
+
+  const noToken = await fetch(`${handle.url}api/export`);
+  assert.equal(noToken.status, 403, 'export is token-gated like every /api path');
+
+  const md = await fetch(`${handle.url}api/export?format=md&t=${token}`);
+  assert.equal(md.status, 200);
+  assert.match(md.headers.get('content-disposition') ?? '', /immune-library\.md/);
+  const mdBody = await md.text();
+  assert.match(mdBody, /loadEnv/, 'proven rules appear in the markdown export');
+
+  const json = await fetch(`${handle.url}api/export?format=json&t=${token}`);
+  const snapshot = await json.json();
+  assert.equal(snapshot.format, 'dsh-immune-library');
+  assert.equal(snapshot.count, 2);
+
+  // Round-trip: importing your own snapshot merges without duplicates.
+  const again = await (
+    await fetch(`${handle.url}api/import?t=${token}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(snapshot),
+    })
+  ).json();
+  assert.equal(again.ok, true);
+  assert.equal(again.added, 0, 'self-import merges');
+  const list = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
+  assert.equal(list.antibodies.length, 2, 'no duplicates after the round-trip');
 });

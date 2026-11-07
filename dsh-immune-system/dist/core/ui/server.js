@@ -19,6 +19,8 @@ import { ImmuneStore } from '../store/index.js';
 import { renderPage } from './page.js';
 import { resolveLocale } from '../i18n.js';
 import { applyAction, dashboardStats, readState, resolveBudgetMs } from './query.js';
+import { exportLibrary, importLibrary } from '../sync.js';
+import { renderSkillMarkdown } from '../export.js';
 export async function startUiServer(options = {}) {
     const store = new ImmuneStore(options.dbPath ? { dbPath: options.dbPath } : {});
     const token = randomBytes(24).toString('hex');
@@ -67,6 +69,35 @@ export async function startUiServer(options = {}) {
         if (path === '/api/list' && req.method === 'GET') {
             const query = url.searchParams.get('q') ?? '';
             sendJson(res, 200, readState(store, 'project', query));
+            return;
+        }
+        if (path === '/api/export' && req.method === 'GET') {
+            // Token-gated like every /api path: the download link carries it.
+            const format = url.searchParams.get('format') === 'json' ? 'json' : 'md';
+            res.writeHead(200, {
+                'content-type': format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8',
+                'content-disposition': `attachment; filename="immune-library.${format}"`,
+                'cache-control': 'no-store',
+                'x-content-type-options': 'nosniff',
+            });
+            res.end(format === 'json'
+                ? JSON.stringify(exportLibrary(store), null, 2)
+                : renderSkillMarkdown(store.exportable(3)));
+            return;
+        }
+        if (path === '/api/import' && req.method === 'POST') {
+            readBody(req, (body) => {
+                let parsed;
+                try {
+                    parsed = JSON.parse(body);
+                }
+                catch {
+                    sendJson(res, 400, { error: 'invalid json' });
+                    return;
+                }
+                const report = importLibrary(store, parsed);
+                sendJson(res, 200, { ok: true, added: report.added, merged: report.merged, invalid: report.invalid });
+            }, 262144);
             return;
         }
         if (path === '/api/shared' && req.method === 'GET') {
@@ -140,12 +171,12 @@ function sendJson(res, status, payload) {
     });
     res.end(body);
 }
-function readBody(req, done) {
+function readBody(req, done, max = 4096) {
     let body = '';
     req.on('data', (chunk) => {
         body += chunk.toString('utf8');
-        // The only accepted body is a tiny action object.
-        if (body.length > 4096) {
+        // Small action objects by default; import raises the cap for snapshots.
+        if (body.length > max) {
             req.destroy();
         }
     });

@@ -45,6 +45,9 @@ const LABELS = {
         budgetHint: '回合末可用的时间预算（IMMUNE_DISTILL_BUDGET_MS）',
         intercepted: '拦截',
         storage: '库大小',
+        exportLabel: '导出',
+        importLabel: '导入',
+        toastImported: '已导入',
         localOnly: '仅本机可访问',
         confirmRemove: '删除后不可恢复，确定？',
         loading: '加载中…',
@@ -89,6 +92,9 @@ const LABELS = {
         budgetHint: 'Time budget available at turn end (IMMUNE_DISTILL_BUDGET_MS)',
         intercepted: 'intercepted',
         storage: 'storage',
+        exportLabel: 'export',
+        importLabel: 'import',
+        toastImported: 'imported',
         localOnly: 'local only',
         confirmRemove: 'Deletion is permanent. Continue?',
         loading: 'Loading…',
@@ -292,11 +298,12 @@ export function renderPage(options) {
   .pill.retired { color: var(--muted); background: rgba(148,161,181,.12); }
 
   .acts { display: flex; gap: 6px; flex-wrap: wrap; }
-  button.act {
+  button.act, a.act, label.act {
     border: 1px solid var(--line); background: transparent; color: var(--muted);
     border-radius: 7px; padding: 4px 10px; cursor: pointer; font-size: 12px; transition: all .12s;
+    text-decoration: none; display: inline-flex; align-items: center; user-select: none;
   }
-  button.act:hover { color: var(--text); border-color: var(--muted); background: var(--panel-2); }
+  button.act:hover, a.act:hover, label.act:hover { color: var(--text); border-color: var(--muted); background: var(--panel-2); }
   button.act.danger:hover { color: var(--bad); border-color: var(--bad); background: var(--bad-soft); }
   button.act:disabled { opacity: .45; cursor: progress; }
 
@@ -386,6 +393,8 @@ export function renderPage(options) {
         <option value="fails">${esc(t.sortFails)}</option>
       </select>
     </label>
+    <a class="act" id="exportMd" href="/api/export?format=md&t=${esc(options.token)}" download="immune-library.md">${esc(t.exportLabel)}</a>
+    <label class="act" id="importWrap">${esc(t.importLabel)}<input id="importFile" type="file" accept=".json,application/json" style="display:none"></label>
   </div>
 
   <div class="panel">
@@ -639,6 +648,38 @@ export function renderPage(options) {
     qEl.focus();
   });
   sortEl.addEventListener('change', load);
+
+  // Import: read the snapshot file, POST it, report the merge outcome.
+  var importFile = document.getElementById('importFile');
+  var importWrap = document.getElementById('importWrap');
+  if (importFile && importWrap) {
+    importFile.addEventListener('change', function () {
+      var file = importFile.files && importFile.files[0];
+      importFile.value = '';
+      if (!file) return;
+      importWrap.setAttribute('data-busy', '1');
+      var reader = new FileReader();
+      reader.onload = function () {
+        fetch(api('/api/import'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: String(reader.result || ''),
+        })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            importWrap.removeAttribute('data-busy');
+            if (data.error) { toast(data.error, true); return; }
+            toast(T.toastImported + ' +' + data.added + ' / ~' + data.merged);
+            load();
+          })
+          .catch(function (err) {
+            importWrap.removeAttribute('data-busy');
+            toast(String((err && err.message) || err), true);
+          });
+      };
+      reader.readAsText(file);
+    });
+  }
 
   document.addEventListener('keydown', function (e) {
     if (e.key === '/' && document.activeElement !== qEl) { e.preventDefault(); qEl.focus(); }
