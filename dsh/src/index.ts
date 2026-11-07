@@ -27,6 +27,7 @@ import { targetSignature } from '../../core/pairing.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
 import { redact } from '../../core/redact.js';
 import { registerImmuneUiRoute } from './ui-route.js';
+import { maybeSyncDocAfterDrain } from '../../core/sync-doc.js';
 import {
   DSH_EVENTS,
   PLUGIN_NAME,
@@ -528,6 +529,8 @@ function startPlugin(ctx: DshContext): void {
   // and awaited before the boundary commits — the right place for turn-end work.
   ctx.on(DSH_EVENTS.turnStopping, async () => {
     if (store.pendingJobCount() > 0) await drain(store);
+    // Opt-in (IMMUNE_SYNC_DOC): the same boundary keeps the agent docs fresh.
+    maybeSyncDocAfterDrain(store);
   });
 
   ctx.effect(

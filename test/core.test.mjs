@@ -1158,8 +1158,49 @@ test('sync-doc writes a managed, idempotent, sanitized section', async () => {
     writeFileSync(file, 'human intro\n\n' + text, 'utf8');
     syncDoc(s, { file, minHits: 3 });
     text = readFileSync(file, 'utf8');
-    assert.ok(text.startsWith('human intro'), 'human text outside the section survives');
-    assert.equal(text.split(SECTION_START).length - 1, 1);
+  assert.ok(text.startsWith('human intro'), 'human text outside the section survives');
+  assert.equal(text.split(SECTION_START).length - 1, 1);
+  s.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('turn-end auto sync is opt-in, resolves the path, and never throws', async () => {
+  const { maybeSyncDocAfterDrain } = await import(
+    '../dsh-immune-system/dist/core/sync-doc.js'
+  );
+  const { writeFileSync, rmSync, readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'immune-autosync-'));
+  try {
+    const file = join(dir, 'AGENTS.md');
+    const s = store();
+    const id = s.insert({
+      trigger_pattern: 'auto sync probe',
+      symptom: 's',
+      prescription: 'p',
+      tool_name: 'Bash',
+    });
+    s['db'].prepare('UPDATE antibodies SET hit_count = 9 WHERE id = ?').run(id);
+
+    // Off by default: no env, no write.
+    assert.equal(maybeSyncDocAfterDrain(s, {}), null, 'off unless IMMUNE_SYNC_DOC is set');
+    assert.equal(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: '' }), null);
+
+    // "1" resolves to AGENTS.md; a real path is used verbatim.
+    assert.equal(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: '1' })?.rules, 1);
+    assert.ok(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: file }), 'explicit path syncs');
+    const text = readFileSync(file, 'utf8');
+    assert.match(text, /auto sync probe/);
+
+    // A read-only target must not throw.
+    const ro = join(dir, 'ro.md');
+    writeFileSync(ro, 'x', 'utf8');
+    const broken = { file: join(dir, 'no-such-dir', 'out.md'), minHits: 3 };
+    assert.doesNotThrow(() =>
+      maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: broken.file }),
+    );
+    void ro;
     s.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

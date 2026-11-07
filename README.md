@@ -92,6 +92,12 @@ around it, never inside it. Field text is angle-bracket-stripped before
 writing, human text outside the section is preserved, and re-running replaces
 instead of duplicating.
 
+**Automatic mode** — set `IMMUNE_SYNC_DOC=AGENTS.md` (or `=1` for the default)
+and the turn-end drain re-syncs the section after distilling, so freshly
+learned rules reach the docs the same turn. `IMMUNE_SYNC_DOC_MIN_HITS`
+overrides the threshold (default 3). Opt-in: writing your docs without being
+asked would be hostile.
+
 ### Install
 
 **Try it first** — the 30-second quickstart, no install, in-memory only:

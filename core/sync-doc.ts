@@ -86,3 +86,28 @@ export function syncDoc(store: ImmuneStore, opts: SyncDocOptions): SyncDocReport
   const rules = (store.exportable(minHits) ?? []).length;
   return { file, rules, created: !existed, replaced };
 }
+
+/**
+ * Opt-in turn-end auto sync: when `IMMUNE_SYNC_DOC` names a file (or is a
+ * truthy non-path like "1", meaning AGENTS.md next to the project root), the
+ * drain calls this after distilling, so freshly learned rules reach the docs
+ * the same turn. Never throws — a read-only project or a bad path must not
+ * cost the user their turn.
+ */
+export function maybeSyncDocAfterDrain(
+  store: ImmuneStore,
+  env: NodeJS.ProcessEnv = process.env,
+): SyncDocReport | null {
+  const raw = env.IMMUNE_SYNC_DOC?.trim();
+  if (!raw) return null;
+  const file = raw === '1' || raw.toLowerCase() === 'true' ? 'AGENTS.md' : raw;
+  const minHitsRaw = Number(env.IMMUNE_SYNC_DOC_MIN_HITS ?? '');
+  try {
+    return syncDoc(store, {
+      file,
+      minHits: Number.isFinite(minHitsRaw) && minHitsRaw >= 0 ? minHitsRaw : 3,
+    });
+  } catch {
+    return null;
+  }
+}
