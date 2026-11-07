@@ -213,9 +213,17 @@ export class ImmuneStore {
       bumpHits(this.db, rankedOwn.map((r) => r.id));
 
       // Promote on the turn a rule crosses five successful injections: that is
-      // the proof-of-generality the promotion rule asks for, and checking the
-      // pre-bump count keeps it off the hot path on every other call.
-      const crossed = rankedOwn.filter((r) => r.hit_count === 4 && isPromotable(r, false));
+      // the proof-of-generality the promotion rule asks for. isPromotable
+      // judges the POST-bump count (>= 5), so pass hit_count + 1: the original
+      // code fed the pre-bump count into that predicate, which made the whole
+      // crossing check dead — nothing could ever promote at match time. The
+      // >= form also lets pre-existing rules (hit counts already past the
+      // threshold when promotion shipped) promote on their next injection;
+      // GlobalStore.insert deduplicates by prescription, so repeated crossings
+      // just count the shared copy's hits.
+      const crossed = rankedOwn.filter(
+        (r) => r.hit_count + 1 >= 5 && isPromotable({ ...r, hit_count: r.hit_count + 1 }, false),
+      );
       if (crossed.length > 0) {
         const global = this.global();
         for (const row of crossed) {

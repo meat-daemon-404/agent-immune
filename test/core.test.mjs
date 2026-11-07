@@ -456,6 +456,43 @@ test('a generic lesson reaches a brand-new project through the shared library', 
   }
 });
 
+test('a rule crossing five injections is promoted at match time', async () => {
+  const { GlobalStore, globalDbPathFor } = await import(
+    '../dsh-immune-system/dist/core/store/global.js'
+  );
+  const { rmSync } = await import('node:fs');
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-promote-'));
+  try {
+    const dbPath = join(dir, 'immune.sqlite');
+    const s = new ImmuneStore({ dbPath });
+    const id = s.insert({
+      trigger_pattern: 'use pnpm not npm',
+      symptom: 'npm 装依赖冲突',
+      prescription: '用 pnpm 装依赖',
+    });
+    assert.ok(id);
+
+    // Four hits so far: the next injection crosses five and must promote.
+    // (Regression: isPromotable judges the post-bump count, but the crossing
+    // check fed it the pre-bump count — match-time promotion was dead code.)
+    s['db'].prepare('UPDATE antibodies SET hit_count = 4 WHERE id = ?').run(id);
+    s.match('用 pnpm 装依赖', { limit: 3 });
+    const g = new GlobalStore(globalDbPathFor(dbPath));
+    assert.equal(g.listAll(true).length, 1, 'crossing five injections promotes');
+
+    // A long-proven rule (already past the threshold when promotion shipped)
+    // promotes on its next injection, and repeated crossings do not duplicate.
+    s['db'].prepare('UPDATE antibodies SET hit_count = 99 WHERE id = ?').run(id);
+    s.match('用 pnpm 装依赖', { limit: 3 });
+    assert.equal(g.listAll(true).length, 1, 're-crossing deduplicates in the shared library');
+    g.close();
+    s.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('shared rules count their own hits and respect per-session dedup', async () => {
   const { GlobalStore } = await import('../dsh-immune-system/dist/core/store/global.js');
   const { rmSync } = await import('node:fs');
