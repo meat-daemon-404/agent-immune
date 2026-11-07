@@ -1,10 +1,26 @@
 # dsh-plugin-immune
 
-<p align="center"><b>自进化避坑免疫系统 — 让 Agent 踩一次坑，就自己长记性。</b></p>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" alt="dsh-immune — 自进化避坑免疫系统" width="360">
+  </picture>
 
-[![Listed on DSH Plugin Hub](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune)
+  <p><b>让 coding agent 不再重复调试自己已经修好的问题。</b></p>
 
-[English](README.md) · **简体中文**
+  <p>
+    <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm"></a>
+    <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+    <img src="https://img.shields.io/badge/coverage-82.6%25-4c9f4c" alt="coverage 82.6%">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
+    <img src="https://img.shields.io/badge/node-%E2%89%A522.5-blue" alt="node">
+    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
+  </p>
+
+  <p><a href="README.md">English</a> | <b>简体中文</b></p>
+</div>
+
+Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，下次在同一个坑面前，相关抗体先一步进入它的上下文。
 
 Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，下次在同一个坑面前，相关抗体先一步进入它的上下文。
 
