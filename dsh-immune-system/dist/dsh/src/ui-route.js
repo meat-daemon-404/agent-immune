@@ -1,4 +1,6 @@
 import { applyAction, readState, resolveBudgetMs } from '../../core/ui/query.js';
+import { exportLibrary, importLibrary } from '../../core/sync.js';
+import { renderSkillMarkdown } from '../../core/export.js';
 export const UI_ROUTE_PREFIX = '/plugins/dsh-immune-system/api';
 /**
  * Same-origin check for mutations.
@@ -26,12 +28,12 @@ function sendJson(res, status, payload) {
     });
     res.end(JSON.stringify(payload));
 }
-function readBody(req) {
+function readBody(req, max = 4096) {
     return new Promise((resolve, reject) => {
         let body = '';
         req.on('data', (chunk) => {
             body += chunk.toString('utf8');
-            if (body.length > 4096) {
+            if (body.length > max) {
                 reject(new Error('body too large'));
                 req.destroy();
             }
@@ -59,11 +61,53 @@ export function registerImmuneUiRoute(ctx, store, getBudgetMs) {
             path: UI_ROUTE_PREFIX,
             handler: async (req, res) => {
                 const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+                const path = url.pathname.replace(/\/+$/, '');
                 try {
+                    if (req.method === 'GET' && path.endsWith('/export')) {
+                        const format = url.searchParams.get('format') === 'json' ? 'json' : 'md';
+                        res.writeHead(200, {
+                            'content-type': format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8',
+                            'content-disposition': `attachment; filename="immune-library.${format}"`,
+                            'cache-control': 'no-store',
+                            'x-content-type-options': 'nosniff',
+                        });
+                        res.end(format === 'json'
+                            ? JSON.stringify(exportLibrary(store), null, 2)
+                            : renderSkillMarkdown(store.exportable(3)));
+                        return;
+                    }
                     if (req.method === 'GET') {
                         const view = url.searchParams.get('view') === 'shared' ? 'shared' : 'project';
                         const query = url.searchParams.get('q') ?? '';
                         sendJson(res, 200, readState(store, view, query, getBudgetMs?.() ?? resolveBudgetMs()));
+                        return;
+                    }
+                    if (req.method === 'POST' && path.endsWith('/import')) {
+                        if (!isSameOrigin(req)) {
+                            sendJson(res, 403, { error: 'cross-origin mutation refused' });
+                            return;
+                        }
+                        const type = String(req.headers['content-type'] ?? '');
+                        if (!type.includes('application/json')) {
+                            sendJson(res, 415, { error: 'content-type must be application/json' });
+                            return;
+                        }
+                        const body = await readBody(req, 262144);
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(body);
+                        }
+                        catch {
+                            sendJson(res, 400, { error: 'invalid json' });
+                            return;
+                        }
+                        const report = importLibrary(store, parsed);
+                        sendJson(res, 200, {
+                            ok: true,
+                            added: report.added,
+                            merged: report.merged,
+                            invalid: report.invalid,
+                        });
                         return;
                     }
                     if (req.method === 'POST') {

@@ -84,7 +84,7 @@ test('the client bundle registers a settings tab through ctx.slots', async (t) =
 });
 
 /** Minimal request/response pair for the host route. */
-async function callRoute(route, { method, url, headers = {}, body }) {
+async function callRoute(route, { method, url, headers = {}, body }, raw = false) {
   const req = new EventEmitter();
   req.method = method;
   req.url = url;
@@ -110,7 +110,11 @@ async function callRoute(route, { method, url, headers = {}, body }) {
   req.emit('end');
   await Promise.all([handled, finished]);
 
-  return { status: res.statusCode, body: JSON.parse(res.payload || '{}') };
+  return {
+    status: res.statusCode,
+    headers: res.headers,
+    body: raw ? res.payload : JSON.parse(res.payload || '{}'),
+  };
 }
 
 function bootRoute(t, getBudgetMs) {
@@ -219,4 +223,66 @@ test('the route reports the session budget when a getter is supplied', async (t)
   });
   assert.equal(list.status, 200);
   assert.equal(list.body.budgetMs, 5000, 'the tab must show the session override, not the env default');
+});
+
+test('the host route exports and imports library snapshots', async (t) => {
+  const { route, store } = bootRoute(t);
+  const api = '/plugins/dsh-immune-system/api';
+  // The markdown export only lists proven rules (hits >= 3); prove the seed.
+  const seededId = store.listAll()[0].id;
+  store['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id = ?').run(seededId);
+
+  const md = await callRoute(route, {
+    method: 'GET',
+    url: `${api}/export`,
+    headers: { host: '127.0.0.1:7788' },
+  }, true);
+  assert.equal(md.status, 200);
+  assert.match(String(md.headers['content-disposition']), /immune-library\.md/);
+  assert.match(md.body, /loadEnv/, 'the markdown export names the seeded rule');
+
+  const json = await callRoute(route, {
+    method: 'GET',
+    url: `${api}/export?format=json`,
+    headers: { host: '127.0.0.1:7788' },
+  }, true);
+  assert.equal(json.status, 200);
+  const snapshot = JSON.parse(json.body);
+  assert.equal(snapshot.format, 'dsh-immune-library');
+  assert.equal(snapshot.count, 1);
+
+  const crossOrigin = await callRoute(route, {
+    method: 'POST',
+    url: `${api}/import`,
+    headers: {
+      host: '127.0.0.1:7788',
+      origin: 'https://evil.example',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(snapshot),
+  });
+  assert.equal(crossOrigin.status, 403, 'a foreign origin must not import');
+
+  const again = await callRoute(route, {
+    method: 'POST',
+    url: `${api}/import`,
+    headers: {
+      host: '127.0.0.1:7788',
+      origin: 'http://127.0.0.1:7788',
+      'content-type': 'application/json',
+    },
+    body: json.body,
+  });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.ok, true);
+  assert.equal(again.body.added, 0, 're-importing your own snapshot merges');
+  assert.equal(store.listAll().length, 1, 'no duplicate rows after a round-trip');
+
+  const bad = await callRoute(route, {
+    method: 'POST',
+    url: `${api}/import`,
+    headers: { host: '127.0.0.1:7788', 'content-type': 'application/json' },
+    body: JSON.stringify({ format: 'nope', antibodies: [] }),
+  });
+  assert.equal(bad.status, 200, 'unknown format reports through the merge report, not a crash');
 });

@@ -82,6 +82,8 @@ window.__ModuleLoader__.load({
       '.imm td.txt{max-width:270px;word-break:break-word;color:var(--i-muted)}',
       '.imm td.txt.do{color:var(--i-text)}',
       '.imm .counts{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--i-faint)}',
+      '.imm .meta-row a,.imm .imm-import{color:var(--i-accent,#4cc2ff);cursor:pointer;text-decoration:none}',
+      '.imm .imm-import:hover,.imm .meta-row a:hover{text-decoration:underline}',
       '.imm .counts b{color:var(--i-ok);font-weight:600}.imm .counts .f{color:var(--i-bad);font-weight:600}',
       '.imm .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:11.5px;white-space:nowrap}',
       '.imm .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}',
@@ -229,6 +231,33 @@ window.__ModuleLoader__.load({
           .catch(function (error) {
             window.alert(String(error.message || error));
           });
+      }
+
+      var sync = React.useState('');
+      var syncMsg = sync[0];
+      var setSyncMsg = sync[1];
+
+      function doImport(event) {
+        var file = event.target.files && event.target.files[0];
+        event.target.value = '';
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function () {
+          setSyncMsg('导入中 / importing…');
+          request('/import', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: String(reader.result || ''),
+          })
+            .then(function (body) {
+              setSyncMsg('新增 / added ' + body.added + ' · 合并 / merged ' + body.merged + (body.invalid ? ' · 无效 / invalid ' + body.invalid : ''));
+              load(tab, q);
+            })
+            .catch(function (error) {
+              setSyncMsg('导入失败 / import failed: ' + String(error.message || error));
+            });
+        };
+        reader.readAsText(file);
       }
 
       var stats = data.stats;
@@ -461,6 +490,19 @@ window.__ModuleLoader__.load({
                     ' 拦截 / intercepted'
                 : '',
             ),
+            h('a', { href: API + '/export?format=md', download: 'immune-library.md' }, '导出 / export'),
+            h(
+              'label',
+              { className: 'imm-import' },
+              '导入 / import',
+              h('input', {
+                type: 'file',
+                accept: '.json,application/json',
+                style: { display: 'none' },
+                onChange: doImport,
+              }),
+            ),
+            syncMsg ? h('span', null, syncMsg) : null,
           ),
           body,
         ),
