@@ -37,7 +37,10 @@ export const GUARD_RULES: readonly GuardRule[] = [
   {
     id: 'force-push-main',
     what: 'force-push 到 main/master 会覆盖他人提交',
-    pattern: /\bgit\s+push\b[^\n]*\s(?:--force|-f)\b[^\n]*\b(?:main|master)\b/i,
+    // --force(?!-) so the safe variant --force-with-lease is NOT flagged: the
+    // advice below recommends exactly that, and the old pattern (bare \b after
+    // --force) denied it — the guard would block its own recommended fix.
+    pattern: /\bgit\s+push\b[^\n]*(?:\s--force(?!-)|\s-f\b)[^\n]*\b(?:main|master)\b/i,
     instead: '改用特性分支，或先 git fetch 后 rebase；确需强推用 --force-with-lease',
   },
   {

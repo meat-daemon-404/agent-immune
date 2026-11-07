@@ -883,3 +883,22 @@ test('pipes destructive SQL through bound parameters only', () => {
   assert.equal(s.listAll().length, 1, 'injected SQL must stay data');
   s.close();
 });
+
+test('guard patterns never block their own advice', async () => {
+  const { findGuardHit } = await import('../dsh-immune-system/dist/core/guards.js');
+
+  // --force-with-lease is the recommended safe variant: it must pass.
+  assert.equal(findGuardHit('git push --force-with-lease origin main'), null);
+  assert.equal(findGuardHit('git push --force origin main')?.rule.id, 'force-push-main');
+  assert.equal(findGuardHit('git push -f main')?.rule.id, 'force-push-main');
+  assert.equal(findGuardHit('git push origin main'), null, 'no force, no hit');
+  assert.equal(findGuardHit('git push -f origin feature-x'), null, 'a feature branch is not main');
+
+  // rm: only root/home, never narrowed targets.
+  assert.equal(findGuardHit('rm -rf /')?.rule.id, 'rm-rf-root');
+  assert.equal(findGuardHit('rm -fr /')?.rule.id, 'rm-rf-root', 'flag order does not matter');
+  assert.equal(findGuardHit('rm -rf ./build'), null);
+
+  assert.equal(findGuardHit('git reset --hard HEAD~1')?.rule.id, 'git-reset-hard');
+  assert.equal(findGuardHit('git reset --harder x'), null, 'a longer flag is not --hard');
+});
