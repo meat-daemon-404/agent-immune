@@ -15,6 +15,12 @@ export interface DashboardStats {
   retired: number;
   hits: number;
   shared: number;
+  /** Live episode/session tables and the on-disk footprint (null = :memory:). */
+  pendingFailures: number;
+  sessions: number;
+  jobsPending: number;
+  jobsTotal: number;
+  dbBytes: number | null;
 }
 
 export interface DashboardState {
@@ -37,11 +43,17 @@ export function resolveBudgetMs(env: NodeJS.ProcessEnv = process.env): number {
 
 export function dashboardStats(store: ImmuneStore): DashboardStats {
   const all = store.listAll(true);
+  const s = store.stats();
   return {
     active: all.filter((a) => a.status === 'active').length,
     retired: all.filter((a) => a.status === 'retired').length,
     hits: all.reduce((sum, a) => sum + a.hit_count, 0),
     shared: store.sharedAntibodies(1000).length,
+    pendingFailures: s.pendingFailures,
+    sessions: s.sessions,
+    jobsPending: s.jobsPending,
+    jobsTotal: s.jobsTotal,
+    dbBytes: s.dbBytes,
   };
 }
 

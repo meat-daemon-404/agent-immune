@@ -447,6 +447,18 @@ window.__ModuleLoader__.load({
             { className: 'meta-row' },
             h('span', null, sorted.length + ' 条结果 / results'),
             h('span', null, stats ? '蒸馏预算 / budget ' + formatBudget(data.budgetMs) : ''),
+            h(
+              'span',
+              null,
+              stats && stats.dbBytes != null
+                ? Math.max(1, Math.round(stats.dbBytes / 1024)) +
+                    ' KiB · ' +
+                    stats.sessions +
+                    ' 会话 / sessions · ' +
+                    stats.jobsTotal +
+                    ' 任务 / jobs'
+                : '',
+            ),
           ),
           body,
         ),

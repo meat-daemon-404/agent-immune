@@ -287,6 +287,13 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
   —— **按项目隔离**，不同工作区互不串味，也不往项目目录里丢文件。
 - ZCode 默认：插件数据目录（`ZCODE_PLUGIN_DATA`），无则 `<项目>/.dsh/immune.sqlite`。
 
+**不会无限膨胀**：`pruneStale` 在每次配对时顺带回收——pending 状态按 30 分钟 TTL，
+已终态（done/failed/skipped）的蒸馏任务和一周没有动静的会话行按 7 天保留窗删除
+（pending/running 的任务不动），`immune doctor` 的 storage 行可以看见各表行数与库文件大小。
+落盘前统一过脱敏：Authorization/Bearer、`KEY=`/`SECRET=`/`TOKEN=`/`PASSWORD=` 赋值、
+`sk-`、`ghp_`、`AKIA`、npm granular、GitHub fine-grained PAT、GitLab PAT、Google `AIza`、
+Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后再进库。
+
 **冷启动**：`agent/pre-step` 在 `resume`/`clear`/`compact` 时拿到的是「seed 之后新增」的批次，
 不含人类提问。DSH 版订阅 `session/event` 的 `user/message` 记住每个会话最近的提问，
 作为匹配依据的兜底，所以冷启动后的第一句也能召回。
@@ -526,6 +533,28 @@ and compiling it into a regex that can block tool calls would hand an
 unreviewed string the power to stop work, plus ReDoS risk. `deny` is never the
 default. `warn` is ZCode-only because DSH's `PreToolDecision` carries no
 context channel.
+
+### Storage & retention
+
+The library is a single SQLite file (FTS5 trigram index; Chinese matches via
+3-character windows).
+
+- `IMMUNE_DB_PATH` wins when set; pointing both editions at the same file
+  shares the library.
+- DSH default: `<DSH_HOME>/storages/dsh-immune-system/<sha1(cwd)[0..16]>.sqlite`
+  — per-project isolation, nothing written into the project itself.
+- ZCode default: the plugin data dir (`ZCODE_PLUGIN_DATA`), else
+  `<project>/.dsh/immune.sqlite`.
+
+**It cannot grow without bound**: on every episode pairing, `pruneStale`
+reclaims pending state after 30 minutes, terminal distill jobs
+(done/failed/skipped) and dead session rows after a 7-day window
+(pending/running work untouched). `immune doctor`'s storage row shows the row
+counts and the file size. Everything is redacted before it reaches disk:
+Authorization/Bearer headers, `KEY=`/`SECRET=`/`TOKEN=`/`PASSWORD=` assignments,
+`sk-`, `ghp_`, `AKIA`, npm granular tokens, GitHub fine-grained PATs, GitLab
+PATs, Google `AIza` keys, Slack tokens, Stripe live keys, inline URL
+credentials and JWTs — placeholders in, database out.
 
 ### Layout
 

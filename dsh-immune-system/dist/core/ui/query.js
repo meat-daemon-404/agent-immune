@@ -12,11 +12,17 @@ export function resolveBudgetMs(env = process.env) {
 }
 export function dashboardStats(store) {
     const all = store.listAll(true);
+    const s = store.stats();
     return {
         active: all.filter((a) => a.status === 'active').length,
         retired: all.filter((a) => a.status === 'retired').length,
         hits: all.reduce((sum, a) => sum + a.hit_count, 0),
         shared: store.sharedAntibodies(1000).length,
+        pendingFailures: s.pendingFailures,
+        sessions: s.sessions,
+        jobsPending: s.jobsPending,
+        jobsTotal: s.jobsTotal,
+        dbBytes: s.dbBytes,
     };
 }
 /** Read state for one view. Never bumps hit counts: browsing is not delivery. */
