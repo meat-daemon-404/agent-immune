@@ -185,6 +185,7 @@ node scripts/verify-steps23.mjs   # 22  — loop end-to-end (fake Cordis host)
 node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
+node scripts/verify-llm.mjs          # env-gated, SKIPs without LLM env; one command to live-verify external distillation
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
 ```
 
@@ -215,8 +216,13 @@ silently broke the canonical episode shape.
 - `UserPromptSubmit`/`Stop` matchers are inert in the current ZCode build (no
   match value is passed); never rely on one.
 - SessionStart sources `clear`/`compact` are documented but not dispatched.
-- External-LLM distillation is mock-tested only; no live endpoint call has been
-  made (quota 402 during development).
+- External-LLM distillation: the parsing/fallback logic is mock-tested, and the
+  live legs verified in isolation (URL validation accepts public endpoints,
+  `chat()` surfaces upstream errors cleanly, `distillEpisode` degrades to the
+  rule path in ~1 s when the endpoint is down). Only the "real model returns
+  good JSON and we parse it" leg is still unverified live — every free channel
+  was down when tried; `node scripts/verify-llm.mjs` with LLM env vars closes
+  it in one command when a channel is available.
 - `IMMUNE_GUARD=warn` is ZCode-only: DSH's `PreToolDecision` has no context
   channel.
 - GitHub push protection scans test fixtures too: a redaction-fixture token
