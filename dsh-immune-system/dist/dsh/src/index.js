@@ -353,10 +353,22 @@ function startPlugin(ctx) {
             suppressRepeats: true,
         });
         const block = renderMemory(hits, t.promptPreamble, 1400);
-        if (!block)
+        // Probe-thrash advisory (turn-start delivery: PreToolDecision has no
+        // context channel). The streak survives from last turn when the turn ended
+        // on probes; any non-probe call has reset it.
+        const streak = store.topProbeStreak(agent.id, 3);
+        const thrash = streak
+            ? `探针提示 / probe note: 上一回合对 ${streak.signature} 连续探测了 ${streak.count} 次 — 一条精确命令（grep -n 关键词、单次 Read）通常一步到位。`
+            : null;
+        const withThrash = thrash && block
+            ? `${block}\n${thrash}`
+            : thrash
+                ? `<immune_memory>\n${thrash}\n</immune_memory>`
+                : block;
+        if (!withThrash)
             return decision;
         lastInjectedTurn.set(agent.id, turn);
-        const desired = createPluginMessage(block);
+        const desired = createPluginMessage(withThrash);
         return { kind: 'enter', messages: decision.messages.toSpliced(insertAt(decision.messages, messages), 0, desired) };
     });
     // Guards run before dispatch and can refuse the call outright. Only the

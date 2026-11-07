@@ -54,6 +54,10 @@ await runHook('PostToolUse', (event) => {
       store.recordRepairAction(sessionId, `${toolName} ${base}`);
     }
 
+    // Probe-thrash bookkeeping: a completed probe extends its streak, any
+    // other call resets all streaks for the session.
+    store.recordProbeOutcome(sessionId, target.probeOnly ? target.signature : null);
+
     if (outcome.failed) {
       const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
       const retired = store.penalize(snapshot.injected_ids, {

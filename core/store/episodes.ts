@@ -26,6 +26,7 @@ export interface PruneCounts {
   jobs: number;
   sessions: number;
   repairs: number;
+  probes: number;
 }
 
 function parseIds(raw: string): number[] {
@@ -154,6 +155,57 @@ export function hasPendingFailure(db: DatabaseSync, sessionId: string, toolName?
   return row !== undefined;
 }
 
+/** How many consecutive same-target probes this session has made so far. */
+export function probeStreakCount(db: DatabaseSync, sessionId: string, signature: string): number {
+  const row = db
+    .prepare('SELECT count FROM probe_streaks WHERE session_id = ? AND signature = ?')
+    .get(sessionId, signature) as { count: number | bigint } | undefined;
+  return row ? Number(row.count) : 0;
+}
+
+/**
+ * Record a completed call's probe outcome. A probe increments its own streak
+ * and zeroes every other streak for the session (consecutive semantics); a
+ * non-probe (null) resets all of them.
+ */
+export function recordProbeOutcome(
+  db: DatabaseSync,
+  sessionId: string,
+  signature: string | null,
+): void {
+  const now = Date.now();
+  if (signature === null) {
+    db.prepare('DELETE FROM probe_streaks WHERE session_id = ?').run(sessionId);
+    return;
+  }
+  db.prepare('DELETE FROM probe_streaks WHERE session_id = ? AND signature != ?').run(
+    sessionId,
+    signature,
+  );
+  db.prepare(
+    `INSERT INTO probe_streaks (session_id, signature, count, updated_at) VALUES (?, ?, 1, ?)
+     ON CONFLICT(session_id, signature) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`,
+  ).run(sessionId, signature, now);
+}
+
+/**
+ * The strongest still-standing probe streak for a session, or null. The DSH
+ * pre-step uses it at turn start: its PreToolDecision has no context channel,
+ * so "you probed this target N times last turn" is the only delivery point.
+ */
+export function topProbeStreak(
+  db: DatabaseSync,
+  sessionId: string,
+  min = 3,
+): { signature: string; count: number } | null {
+  const row = db
+    .prepare(
+      'SELECT signature, count FROM probe_streaks WHERE session_id = ? AND count >= ? ORDER BY count DESC LIMIT 1',
+    )
+    .get(sessionId, min) as { signature: string; count: number | bigint } | undefined;
+  return row ? { signature: row.signature, count: Number(row.count) } : null;
+}
+
 /**
  * Record one repair action for the session's open episodes (the action-diff
  * between the failure and the closing success). One row per session, newest
@@ -278,11 +330,15 @@ export function pruneStale(db: DatabaseSync, now = Date.now()): PruneCounts {
   const repairs = db
     .prepare('DELETE FROM repair_actions WHERE created_at < ?')
     .run(now - PENDING_TTL_MS);
+  const probes = db
+    .prepare('DELETE FROM probe_streaks WHERE updated_at < ?')
+    .run(now - PENDING_TTL_MS);
   return {
     pendingFailures: Number(pendingFailures.changes),
     sessionInjections: Number(sessionInjections.changes),
     jobs: Number(jobs.changes),
     sessions: Number(sessions.changes),
     repairs: Number(repairs.changes),
+    probes: Number(probes.changes),
   };
 }

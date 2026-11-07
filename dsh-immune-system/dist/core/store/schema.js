@@ -97,4 +97,14 @@ export const SCHEMA_STATEMENTS = [
     actions    TEXT    NOT NULL DEFAULT '[]',
     created_at INTEGER NOT NULL
   )`,
+    // Probe-thrash streaks: consecutive same-target read-only probes. The
+    // PreToolUse hook warns once when the count reaches two (the incoming call
+    // is the third), and any non-probe call resets the streak for the session.
+    `CREATE TABLE IF NOT EXISTS probe_streaks (
+    session_id TEXT    NOT NULL,
+    signature  TEXT    NOT NULL,
+    count      INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, signature)
+  )`,
 ];

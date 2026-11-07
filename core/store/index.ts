@@ -43,10 +43,13 @@ import {
   hasPendingFailure,
   injectedIds,
   injectedPrescriptions,
+  probeStreakCount,
   pruneStale,
   recordFailure,
   recordInjection,
+  recordProbeOutcome,
   recordRepairAction,
+  topProbeStreak,
   attachHumanHint,
 } from './episodes.js';
 import {
@@ -273,6 +276,21 @@ export class ImmuneStore {
   /** Record one repair action for the session's open episodes (action diff). */
   recordRepairAction(sessionId: string, entry: string): void {
     recordRepairAction(this.db, sessionId, entry);
+  }
+
+  /** Consecutive same-target probe count for this session. */
+  probeStreakCount(sessionId: string, signature: string): number {
+    return probeStreakCount(this.db, sessionId, signature);
+  }
+
+  /** Strongest still-standing probe streak (DSH turn-start advisory). */
+  topProbeStreak(sessionId: string, min = 3): { signature: string; count: number } | null {
+    return topProbeStreak(this.db, sessionId, min);
+  }
+
+  /** Record a completed call as a probe (+1) or a streak reset (null). */
+  recordProbeOutcome(sessionId: string, signature: string | null): void {
+    recordProbeOutcome(this.db, sessionId, signature);
   }
 
   recordInjection(sessionId: string, ids: number[], prescriptions: string[] = []): void {

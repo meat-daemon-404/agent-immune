@@ -975,3 +975,29 @@ test('injected fields cannot close the immune_memory wrapper', async () => {
   assert.equal(closes, 1, 'only the intended wrapper close survives');
   assert.match(block, /x y z/, 'angle brackets are stripped from fields');
 });
+
+test('probe streaks count consecutively and reset on any other call', () => {
+  const s = store();
+  s.recordProbeOutcome('sess-pt', 'Bash:cat:-');
+  s.recordProbeOutcome('sess-pt', 'Bash:cat:-');
+  assert.equal(s.probeStreakCount('sess-pt', 'Bash:cat:-'), 2);
+  assert.equal(s.topProbeStreak('sess-pt', 3), null, 'two probes is not yet thrash');
+
+  s.recordProbeOutcome('sess-pt', 'Bash:cat:-');
+  assert.deepEqual(
+    s.topProbeStreak('sess-pt', 3),
+    { signature: 'Bash:cat:-', count: 3 },
+    'three consecutive same-target probes is thrash',
+  );
+
+  // A different probe opens its own streak and zeroes the old one.
+  s.recordProbeOutcome('sess-pt', 'Bash:ls:-');
+  assert.equal(s.probeStreakCount('sess-pt', 'Bash:cat:-'), 0);
+  assert.equal(s.probeStreakCount('sess-pt', 'Bash:ls:-'), 1);
+
+  // Any non-probe call resets everything.
+  s.recordProbeOutcome('sess-pt', 'Bash:ls:-');
+  s.recordProbeOutcome('sess-pt', null);
+  assert.equal(s.probeStreakCount('sess-pt', 'Bash:ls:-'), 0);
+  s.close();
+});

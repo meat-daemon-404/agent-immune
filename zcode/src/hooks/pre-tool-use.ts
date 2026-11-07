@@ -17,7 +17,8 @@
 import { ImmuneStore } from '../../../core/store/index.js';
 import { findGuardHit, guardMode } from '../../../core/guards.js';
 import { redact } from '../../../core/redact.js';
-import { emitDeny, runHook, sessionIdOf } from '../hook-io.js';
+import { targetSignature } from '../../../core/pairing.js';
+import { emitDeny, runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { formatToolWarning } from '../format.js';
 
 await runHook('PreToolUse', (event) => {
@@ -28,6 +29,26 @@ await runHook('PreToolUse', (event) => {
     input = '';
   }
   if (input.length < 3) return null;
+  const sessionId = sessionIdOf(event);
+
+  // ------------------------------------------------- probe-thrash advisory
+  // The third consecutive same-target read-only probe gets one nudge: a
+  // precise command beats a fourth broad cat. Fires exactly once per streak
+  // (count === 2 before this call), resets on any non-probe call.
+  const signature = targetSignature(toolNameOf(event), event.tool_input);
+  let thrash: string | null = null;
+  if (signature.probeOnly) {
+    const probeStore = new ImmuneStore();
+    try {
+      if (probeStore.probeStreakCount(sessionId, signature.signature) === 2) {
+        thrash =
+          '同一目标已连续探测两次，这是第 3 次：换一条精确命令（grep -n 关键词、单次 Read）通常一步到位。' +
+          ' / Third consecutive probe of the same target — one precise command usually lands it.';
+      }
+    } finally {
+      probeStore.close();
+    }
+  }
 
   // ---------------------------------------------------------------- guards
   const mode = guardMode();
@@ -43,13 +64,14 @@ await runHook('PreToolUse', (event) => {
         return null;
       }
       // warn: still advisory, but placed ahead of the usual recall block.
-      const recall = formatToolWarning(recallFor(input, sessionIdOf(event)));
-      return [banner, recall].filter(Boolean).join('\n\n');
+      const recall = formatToolWarning(recallFor(input, sessionId));
+      return [thrash, banner, recall].filter(Boolean).join('\n\n');
     }
   }
 
   // ------------------------------------------------------------- antibodies
-  return formatToolWarning(recallFor(input, sessionIdOf(event)));
+  const recall = formatToolWarning(recallFor(input, sessionId));
+  return [thrash, recall].filter(Boolean).join('\n\n');
 });
 
 /**
