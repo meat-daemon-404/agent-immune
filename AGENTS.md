@@ -205,6 +205,23 @@ identical-retry note).
     signatures keep matching their producers. The acceptance pin caught this
     on its first run — which is what the pins are for.
 
+21. **Fabricated tool output is an adversarial class, and the shape of the
+    deterministic path is the defense.** Tools like trustmebro demonstrate
+    confusing agents with shimmed/fabricated results. The immune system's
+    exposure is bounded three ways: a structured exit code outranks any body
+    text (#13), the renderer owns the injection delimiter (#18), and the
+    deterministic distiller can only produce echo-grade prescriptions from
+    what actually ran — a poisoned result cannot author an arbitrary lesson
+    (the promotion guards keep such rules local; the LLM path trusts its
+    configured endpoint). Do not add a text-only state transition.
+
+22. **Every guard pattern ships with its false-positive matrix.** `git clean`
+    taught it twice in one week: the first regex missed `-fd` because it
+    required the flag to END in f, and the real risk is deleting files the
+    user forgot were untracked. Patterns are tested against flag permutations
+    (`-fd`, `-xdf`, `--force`), the advice's own suggested commands, and the
+    nearest legitimate lookalikes.
+
 ## Verification
 
 ```bash
