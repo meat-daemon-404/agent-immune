@@ -191,7 +191,19 @@ identical-retry note).
     zombie aging) and deferred: it duplicates anti-rot's job with a third
     tunable whose failure mode — silently parking a good rule — is worse than
     an occasional weak injection. Revisit only if the value counter shows
-    suppression outliving rule quality.
+    suppression outliving rule quality. Edit-before-read detection is
+    deferred too: the host enforces Read-before-Edit deterministically
+    (distilled as a normal episode), and Write-overwrite would need a
+    per-session read set for one narrow case.
+
+20. **Host tool-name casing is not a contract.** The DSH harness emits
+    `bash`; ZCode emits `Bash`. `targetSignature` compared with `=== 'Bash'`,
+    so on lowercase hosts every Bash call silently fell to the unknown-tool
+    branch — probe detection never fired and pairing only worked by the
+    accident of two consistent wrong signatures. Branch checks are
+    case-insensitive now; the SIGNATURE casing stays verbatim so stored
+    signatures keep matching their producers. The acceptance pin caught this
+    on its first run — which is what the pins are for.
 
 ## Verification
 

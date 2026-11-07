@@ -466,6 +466,14 @@ function startPlugin(ctx: DshContext): void {
         store.recordRepairAction(event.sessionId, `${event.toolName} ${base}`);
       }
 
+      // Probe-thrash bookkeeping: a completed probe extends its streak, any
+      // other call resets all streaks for the session.
+      const probeSignature = targetSignature(event.toolName, event.toolInput);
+      store.recordProbeOutcome(
+        event.sessionId,
+        probeSignature.probeOnly ? probeSignature.signature : null,
+      );
+
       if (!event.ok) {
         // A sandbox file-access denial is a permission negotiation, not a
         // project pitfall: the host already hands the model an escalation hint,

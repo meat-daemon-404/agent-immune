@@ -51,7 +51,7 @@ const GIT_PROBE_SUBCOMMANDS = new Set([
   'blame',
 ]);
 
-const FILE_TOOLS = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'ApplyPatch', 'NotebookEdit']);
+const FILE_TOOLS = new Set(['read', 'edit', 'write', 'multiedit', 'applypatch', 'notebookedit']);
 
 function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
@@ -128,14 +128,18 @@ export function targetSignature(
   cwd?: string,
 ): TargetSignature {
   const obj = asRecord(input);
+  // Hosts differ in tool-name casing (the DSH harness emits "bash", ZCode
+  // emits "Bash"): the branch checks are case-insensitive, the SIGNATURE
+  // casing stays verbatim so stored signatures keep matching their producers.
+  const tool = toolName.trim().toLowerCase();
 
-  if (FILE_TOOLS.has(toolName)) {
+  if (FILE_TOOLS.has(tool)) {
     const raw = pickString(obj, ['file_path', 'path', 'notebook_path']);
     const target = raw ? normaliseTargetPath(raw, cwd) : '';
-    return { signature: `${toolName}:${target || '?'}`, probeOnly: toolName === 'Read' };
+    return { signature: `${toolName}:${target || '?'}`, probeOnly: tool === 'read' };
   }
 
-  if (toolName === 'Bash') {
+  if (tool === 'bash') {
     const command = pickString(obj, ['command', 'cmd', 'script']) ?? '';
     if (!command) return { signature: 'Bash:?', probeOnly: false };
     const { program, sub } = parseCommand(command);

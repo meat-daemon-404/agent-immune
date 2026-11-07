@@ -63,6 +63,14 @@ async function emitPostTool(a, command, text, value) {
   for (const l of listeners.get(DSH_EVENTS.postToolExecute)) await l(exec, result, next);
 }
 
+/** Emit a tool result for an arbitrary tool (the action-diff scenarios need Edit). */
+async function emitTool(a, name, args, text, value = {}) {
+  const exec = { callId: `c-${Math.random()}`, name, arguments: args, agent: a, signal: { aborted: false } };
+  const result = { isError: false, value, content: [{ type: 'text', text }] };
+  const next = async () => ({ kind: 'accept' });
+  for (const l of listeners.get(DSH_EVENTS.postToolExecute)) await l(exec, result, next);
+}
+
 // ---- step 2: fail, then succeed, same session + same tool ------------------
 console.log('\n[step 2] same session, same tool: failure -> success');
 const a1 = agent('sess-1');
@@ -121,6 +129,42 @@ check('block is wrapped in <immune_memory>', /<immune_memory>[\s\S]*<\/immune_me
 check('block carries the distilled prescription', block.includes(rows[0]?.prescription ?? '\u0000'), true);
 check('spliced message is labelled as plugin output', entered.some((m) => m.source?.kind === 'plugin'), true);
 check('human prompt still present', entered.some((m) => m.source?.kind === 'user'), true);
+
+// ---- [action diff] the repair write travels with the episode ----------------
+console.log('\n[action diff] failure -> Edit repair -> same retry');
+const a4 = agent('sess-4');
+await emitPostTool(a4, 'cargo test', 'error[E0433]: could not compile\n[exit code: 101]', { exitCode: 101 });
+// The repair happens under a DIFFERENT tool while the Bash episode is open.
+await emitTool(a4, 'Edit', { file_path: '/w/Cargo.toml' }, 'patched');
+await emitPostTool(a4, 'cargo test', 'test result: ok. 42 passed\n(clean exit)', { exitCode: 0 });
+await closeTurn(a4);
+const job4 = db
+  .prepare("SELECT success_trace FROM distill_jobs WHERE tool_name = 'bash' ORDER BY id DESC LIMIT 1")
+  .get();
+check(
+  'the repair action reached the distilled job',
+  (job4?.success_trace ?? '').includes('repair actions: Edit Cargo.toml'),
+  true,
+);
+
+// ---- [probe thrash] three same-target probes earn one nudge -----------------
+console.log('\n[probe thrash] the nudge arrives at the next turn start');
+const a5 = agent('sess-5');
+for (let i = 0; i < 3; i += 1) await emitPostTool(a5, 'cat package.json', '{"name": "x"}');
+const claimed5 = [
+  { id: 'u5', role: 'user', content: [{ type: 'text', text: '继续' }], source: { kind: 'user' } },
+];
+let d5;
+for (const l of listeners.get(DSH_EVENTS.preStep)) {
+  d5 = await l(
+    { agent: a5, messages: claimed5, turn: 2, step: 1, signal: { aborted: false } },
+    async () => ({ kind: 'enter', messages: claimed5 }),
+  );
+}
+const block5 = (d5?.messages ?? [])
+  .map((m) => (m.content ?? []).map((b) => b.text ?? '').join(''))
+  .join('\n');
+check('probe-thrash note delivered at turn start', block5.includes('probe note'), true);
 
 // ---- extra: injected memory is a well-formed plugin message ------------------
 console.log('\n[extra] session-start priming via agent.inject()');
