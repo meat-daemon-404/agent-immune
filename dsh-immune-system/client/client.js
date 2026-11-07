@@ -84,6 +84,7 @@ window.__ModuleLoader__.load({
       '.imm .counts{font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--i-faint)}',
       '.imm .meta-row a,.imm .imm-import{color:var(--i-accent,#4cc2ff);cursor:pointer;text-decoration:none}',
       '.imm .imm-import:hover,.imm .meta-row a:hover{text-decoration:underline}',
+      '.imm td.do .repair{margin-top:3px;font-size:11px;opacity:.72}',
       '.imm .counts b{color:var(--i-ok);font-weight:600}.imm .counts .f{color:var(--i-bad);font-weight:600}',
       '.imm .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 9px;border-radius:999px;font-size:11.5px;white-space:nowrap}',
       '.imm .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}',
@@ -349,7 +350,14 @@ window.__ModuleLoader__.load({
                 h('td', { className: 'id', 'data-label': '#' }, String(a.id)),
                 h('td', { className: 'trigger', 'data-label': '触发' }, a.trigger_pattern),
                 h('td', { className: 'txt', 'data-label': '忌' }, a.symptom),
-                h('td', { className: 'txt do', 'data-label': '宜' }, a.prescription),
+                h(
+                  'td',
+                  { className: 'txt do', 'data-label': '宜' },
+                  a.prescription,
+                  Array.isArray(a.repair_path) && a.repair_path.length > 0
+                    ? h('div', { className: 'repair' }, '修复动作 / repaired by: ' + a.repair_path.join(' · '))
+                    : null,
+                ),
                 h(
                   'td',
                   { className: 'counts', 'data-label': 'hits/fails' },

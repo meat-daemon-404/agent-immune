@@ -34,6 +34,7 @@ interface Labels {
   exportLabel: string;
   importLabel: string;
   toastImported: string;
+  repairedBy: string;
   sort: string;
   sortRecent: string;
   sortHits: string;
@@ -108,6 +109,7 @@ const LABELS: Record<'zh-CN' | 'en', Labels> = {
     exportLabel: '导出',
     importLabel: '导入',
     toastImported: '已导入',
+    repairedBy: '修复动作: ',
     localOnly: '仅本机可访问',
     confirmRemove: '删除后不可恢复，确定？',
     loading: '加载中…',
@@ -155,6 +157,7 @@ const LABELS: Record<'zh-CN' | 'en', Labels> = {
     exportLabel: 'export',
     importLabel: 'import',
     toastImported: 'imported',
+    repairedBy: 'repaired by: ',
     localOnly: 'local only',
     confirmRemove: 'Deletion is permanent. Continue?',
     loading: 'Loading…',
@@ -361,6 +364,7 @@ export function renderPage(options: PageOptions): string {
   .pill.active { color: var(--ok); background: var(--ok-soft); }
   .pill.retired { color: var(--muted); background: rgba(148,161,181,.12); }
 
+  .repair { margin-top: 3px; font-size: 11px; color: var(--faint); }
   .acts { display: flex; gap: 6px; flex-wrap: wrap; }
   button.act, a.act, label.act {
     border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -617,7 +621,14 @@ export function renderPage(options: PageOptions): string {
       tr.appendChild(cell('#', 'id', function (td) { td.textContent = String(a.id); }));
       tr.appendChild(cell(T.colTrigger, 'trigger', function (td) { td.textContent = a.trigger_pattern; }));
       tr.appendChild(cell(T.colAvoid, 'text', function (td) { td.textContent = a.symptom; }));
-      tr.appendChild(cell(T.colDo, 'text', function (td) { td.textContent = a.prescription; }));
+      tr.appendChild(cell(T.colDo, 'text', function (td) {
+        td.textContent = a.prescription;
+        // Provenance: how the rule was learned (empty for seeded/old rules).
+        var rp = Array.isArray(a.repair_path) ? a.repair_path : [];
+        if (rp.length > 0) {
+          td.appendChild(el('div', 'repair', T.repairedBy + rp.join(' · ')));
+        }
+      }));
 
       tr.appendChild(cell(T.colStats, 'counts', function (td) {
         var good = el('b', '', String(a.hit_count));

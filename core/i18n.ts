@@ -21,6 +21,8 @@ export interface Strings {
   trigger: string;
   avoid: string;
   do: string;
+  /** Provenance line: the actions that repaired the problem. */
+  repairedBy: string;
   /** CLI output. */
   noAntibodies: string;
   noExport: string;
@@ -46,6 +48,7 @@ const BOTH: Strings = {
   trigger: '触发/trigger',
   avoid: '忌/avoid',
   do: '宜/do',
+  repairedBy: '修复动作/repaired by',
   noAntibodies: '还没有抗体。工具先失败、随后成功之后才会产生。\nNo antibodies yet; they appear after a tool fails and then succeeds.',
   noExport: '没有抗体达到导出阈值，暂时不值得分享。\nNo antibody reached the export threshold; nothing worth sharing yet.',
   exported: '已导出 / Exported',
@@ -63,6 +66,7 @@ const ZH: Strings = {
   trigger: '触发',
   avoid: '忌',
   do: '宜',
+  repairedBy: '修复动作',
   noAntibodies: '还没有抗体。工具先失败、随后成功之后才会产生。',
   noExport: '没有抗体达到导出阈值，暂时不值得分享。',
   exported: '已导出',
@@ -80,6 +84,7 @@ const EN: Strings = {
   trigger: 'trigger',
   avoid: 'avoid',
   do: 'do',
+  repairedBy: 'repaired by',
   noAntibodies: 'No antibodies yet. They appear after a tool fails and then succeeds.',
   noExport: 'No antibody reached the export threshold; nothing worth sharing yet.',
   exported: 'Exported',

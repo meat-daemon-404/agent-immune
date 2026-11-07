@@ -573,10 +573,13 @@ function startPlugin(ctx: DshContext): void {
       const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · blocked ${s.suppressedRepeats} · ${size} · web tab ${describeWebTab(ctx)} · db ${store.dbPath}`;
       if (rows.length === 0) return { kind: 'success', text: t.noAntibodies + footer };
       const text = rows
-        .map(
-          (a) =>
-            `#${a.id} [hits ${a.hit_count}/fails ${a.fail_count}] ${a.status}\n  ${t.trigger}: ${a.trigger_pattern}\n  ${t.avoid}: ${a.symptom}\n  ${t.do}: ${a.prescription}`,
-        )
+        .map((a) => {
+          const repair =
+            Array.isArray(a.repair_path) && a.repair_path.length > 0
+              ? `\n  ${t.repairedBy}${a.repair_path.join(' | ')}`
+              : '';
+          return `#${a.id} [hits ${a.hit_count}/fails ${a.fail_count}] ${a.status}\n  ${t.trigger}: ${a.trigger_pattern}\n  ${t.avoid}: ${a.symptom}\n  ${t.do}: ${a.prescription}${repair}`;
+        })
         .join('\n\n');
       return { kind: 'success', text: text + footer };
     },
