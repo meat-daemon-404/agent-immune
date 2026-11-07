@@ -216,8 +216,11 @@ silently broke the canonical episode shape.
 2. All three acceptance scripts green
 3. `node scripts/bench-tool-latency.mjs` PASS (adds ~40 s; proves the drain
    budget curve and that the tool path stays free of the model)
-4. Bump the four manifests (same version everywhere)
-5. Commit (message file + `git commit -F`), push
-6. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
+4. `node scripts/bench-recall.mjs` PASS (fast; the retrieval gate — R@3 and
+   the false-positive rate over a fixed zh/en scenario matrix, borrowed from
+   deja-vu's habit of publishing recall numbers)
+5. Bump the four manifests (same version everywhere)
+6. Commit (message file + `git commit -F`), push
+7. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
    Release, update the installed copy:
    `node "D:/zcode/resources/glm/zcode.cjs" plugins marketplace update dev-dsh-plugin-immune && … plugins update dsh-immune-system@dev-dsh-plugin-immune`

@@ -82,4 +82,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at    INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_jobs_status ON distill_jobs(status, created_at)`,
+  // Generic key-value store for cross-process counters and bookkeeping (the
+  // value metric lives here). One table, parameterized accessors only.
+  `CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
 ];

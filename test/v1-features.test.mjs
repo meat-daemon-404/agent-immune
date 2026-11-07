@@ -42,6 +42,21 @@ test('an identical candidate set is suppressed without counting a hit', () => {
   s.close();
 });
 
+test('suppressed repeats accumulate in the value counter', () => {
+  const s = store();
+  s.insert({ trigger_pattern: 'vite.config.ts 构建', symptom: 's', prescription: 'pv' });
+  const opts = { limit: 3, sessionId: 'sess-val', suppressRepeats: true };
+  assert.equal(s.match('vite.config.ts 构建', opts).length, 1, 'first turn injects');
+  const before = s.stats().suppressedRepeats;
+  assert.equal(s.match('vite.config.ts 构建', opts).length, 0, 'identical second turn is silent');
+  assert.equal(
+    s.stats().suppressedRepeats,
+    before + 1,
+    'each prevented repeat is counted once',
+  );
+  s.close();
+});
+
 test('a changed candidate set resets suppression', () => {
   const s = store();
   const a = s.insert({ trigger_pattern: 'alpha.ts 构建', symptom: 's', prescription: 'pa' });

@@ -22,6 +22,7 @@ export function dashboardStats(store) {
         sessions: s.sessions,
         jobsPending: s.jobsPending,
         jobsTotal: s.jobsTotal,
+        suppressedRepeats: s.suppressedRepeats,
         dbBytes: s.dbBytes,
     };
 }

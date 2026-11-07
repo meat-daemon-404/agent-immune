@@ -456,7 +456,9 @@ window.__ModuleLoader__.load({
                     stats.sessions +
                     ' 会话 / sessions · ' +
                     stats.jobsTotal +
-                    ' 任务 / jobs'
+                    ' 任务 / jobs · ' +
+                    (stats.suppressedRepeats || 0) +
+                    ' 拦截 / intercepted'
                 : '',
             ),
           ),

@@ -171,7 +171,7 @@ export function runDoctor(store, options = {}) {
     results.push({
         name: 'counts',
         ok: true,
-        detail: `${store.listAll(false).length} active / ${store.listAll(true).length - store.listAll(false).length} retired / ${store.pendingJobCount()} queued jobs`,
+        detail: `${store.listAll(false).length} active / ${store.listAll(true).length - store.listAll(false).length} retired / ${store.pendingJobCount()} queued jobs / ${store.stats().suppressedRepeats} repeats suppressed`,
     });
     results.push(storageRow(store));
     return results;

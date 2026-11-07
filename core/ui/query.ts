@@ -20,6 +20,8 @@ export interface DashboardStats {
   sessions: number;
   jobsPending: number;
   jobsTotal: number;
+  /** Value metric: repeats the suppression window measurably prevented. */
+  suppressedRepeats: number;
   dbBytes: number | null;
 }
 
@@ -53,6 +55,7 @@ export function dashboardStats(store: ImmuneStore): DashboardStats {
     sessions: s.sessions,
     jobsPending: s.jobsPending,
     jobsTotal: s.jobsTotal,
+    suppressedRepeats: s.suppressedRepeats,
     dbBytes: s.dbBytes,
   };
 }

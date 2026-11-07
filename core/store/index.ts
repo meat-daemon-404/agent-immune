@@ -13,6 +13,10 @@ import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
 import { GlobalStore, globalDbPathFor, isPromotable } from './global.js';
 import { rerank } from './rerank.js';
+import { bumpMeta, readMeta } from './meta.js';
+
+/** meta-table key for the value metric: repeats the plugin measurably prevented. */
+export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
 import {
   bumpTurn,
   clearTurnState,
@@ -198,6 +202,7 @@ export class ImmuneStore {
       const state = readTurnState(this.db, opts.sessionId);
       if (shouldSuppress(state, rankedOwn.map((r) => r.id))) {
         bumpTurn(this.db, opts.sessionId);
+        bumpMeta(this.db, SUPPRESSED_REPEATS_KEY);
         return [];
       }
     }
@@ -374,6 +379,7 @@ export class ImmuneStore {
     sessions: number;
     jobsPending: number;
     jobsTotal: number;
+    suppressedRepeats: number;
     dbBytes: number | null;
   } {
     const count = (sql: string, ...params: (string | number)[]): number => {
@@ -393,6 +399,7 @@ export class ImmuneStore {
       sessions: count('SELECT COUNT(*) AS n FROM session_turns'),
       jobsPending: count("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'pending'"),
       jobsTotal: count('SELECT COUNT(*) AS n FROM distill_jobs'),
+      suppressedRepeats: readMeta(this.db, SUPPRESSED_REPEATS_KEY),
       dbBytes,
     };
   }
