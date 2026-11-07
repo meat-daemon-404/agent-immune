@@ -75,6 +75,7 @@ export function recordFailure(db, sessionId, toolName, trace, targetSignature = 
         trace: redactAndClamp(trace),
         injected_ids: injected,
         human_hint: '',
+        repair_path: [],
         created_at: now,
     };
     // A repeat failure keeps any hint already attached: the human explanation for
@@ -109,6 +110,49 @@ export function attachHumanHint(db, sessionId, hint) {
         .run(text, sessionId);
     return Number(info.changes);
 }
+/** Whether any tool has an unclosed failure for this session. */
+export function hasPendingFailure(db, sessionId, toolName) {
+    const row = toolName
+        ? db
+            .prepare('SELECT 1 FROM pending_failures WHERE session_id = ? AND tool_name = ? LIMIT 1')
+            .get(sessionId, toolName)
+        : db.prepare('SELECT 1 FROM pending_failures WHERE session_id = ? LIMIT 1').get(sessionId);
+    return row !== undefined;
+}
+/**
+ * Record one repair action for the session's open episodes (the action-diff
+ * between the failure and the closing success). One row per session, newest
+ * last, capped at three — the distiller needs the shape of the fix, not a log.
+ */
+export function recordRepairAction(db, sessionId, entry) {
+    const clean = entry.trim().slice(0, 120);
+    if (!clean)
+        return;
+    let actions = [];
+    try {
+        const parsed = JSON.parse(db.prepare('SELECT actions FROM repair_actions WHERE session_id = ?').get(sessionId)?.actions ?? '[]');
+        if (Array.isArray(parsed)) {
+            actions = parsed.filter((v) => typeof v === 'string');
+        }
+    }
+    catch {
+        actions = [];
+    }
+    actions.push(clean);
+    if (actions.length > 3)
+        actions = actions.slice(-3);
+    db.prepare(`INSERT INTO repair_actions (session_id, actions, created_at) VALUES (?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET actions = excluded.actions, created_at = excluded.created_at`).run(sessionId, JSON.stringify(actions), Date.now());
+}
+function readRepairActions(db, sessionId) {
+    try {
+        const parsed = JSON.parse(db.prepare('SELECT actions FROM repair_actions WHERE session_id = ?').get(sessionId)?.actions ?? '[]');
+        return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    }
+    catch {
+        return [];
+    }
+}
 /**
  * Claim a pending failure for `toolName`, deleting it so one failure is only
  * ever paired once. Returns null when there is nothing to pair.
@@ -133,12 +177,17 @@ export function claimFailure(db, sessionId, toolName, incoming) {
     if (incoming && !canCloseEpisode(failedSignature, incoming))
         return null;
     db.prepare('DELETE FROM pending_failures WHERE session_id = ? AND tool_name = ?').run(sessionId, toolName);
+    // The action-diff belongs to this episode wherever it closes: read and clear
+    // the buffer even when the closing tool differs from the failing one.
+    const repairPath = readRepairActions(db, sessionId);
+    db.prepare('DELETE FROM repair_actions WHERE session_id = ?').run(sessionId);
     return {
         session_id: row.session_id,
         tool_name: row.tool_name,
         trace: row.trace,
         injected_ids: parseIds(row.injected_ids),
         human_hint: typeof row.human_hint === 'string' ? row.human_hint : '',
+        repair_path: repairPath,
         created_at: row.created_at,
     };
 }
@@ -161,10 +210,14 @@ export function pruneStale(db, now = Date.now()) {
     const sessions = db
         .prepare('DELETE FROM session_turns WHERE updated_at < ?')
         .run(now - SESSION_RETENTION_MS);
+    const repairs = db
+        .prepare('DELETE FROM repair_actions WHERE created_at < ?')
+        .run(now - PENDING_TTL_MS);
     return {
         pendingFailures: Number(pendingFailures.changes),
         sessionInjections: Number(sessionInjections.changes),
         jobs: Number(jobs.changes),
         sessions: Number(sessions.changes),
+        repairs: Number(repairs.changes),
     };
 }

@@ -88,4 +88,13 @@ export const SCHEMA_STATEMENTS = [
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   )`,
+    // Action-diff buffer (borrowed from the EMG idea): non-probe write actions
+    // recorded between a failure and the retry that closes it, so the distiller
+    // sees WHAT repaired the problem, not just that the retry succeeded. One row
+    // per session, JSON array, pruned with the pending failure.
+    `CREATE TABLE IF NOT EXISTS repair_actions (
+    session_id TEXT PRIMARY KEY,
+    actions    TEXT    NOT NULL DEFAULT '[]',
+    created_at INTEGER NOT NULL
+  )`,
 ];

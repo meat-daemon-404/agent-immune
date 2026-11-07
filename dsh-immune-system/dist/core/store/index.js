@@ -9,7 +9,7 @@ import { bumpMeta, readMeta } from './meta.js';
 export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
 import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
-import { claimFailure, injectedIds, injectedPrescriptions, pruneStale, recordFailure, recordInjection, attachHumanHint, } from './episodes.js';
+import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, pruneStale, recordFailure, recordInjection, recordRepairAction, attachHumanHint, } from './episodes.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
 export { RETIRE_AFTER_FAILURES } from './antibodies.js';
 export { resolveDbPath } from './path.js';
@@ -174,6 +174,14 @@ export class ImmuneStore {
         return ranked;
     }
     /** Record an injection that did not come through match() (session-start priming). */
+    /** Whether an episode is open for this session (optionally: for this tool). */
+    hasPendingFailure(sessionId, toolName) {
+        return hasPendingFailure(this.db, sessionId, toolName);
+    }
+    /** Record one repair action for the session's open episodes (action diff). */
+    recordRepairAction(sessionId, entry) {
+        recordRepairAction(this.db, sessionId, entry);
+    }
     recordInjection(sessionId, ids, prescriptions = []) {
         if (ids.length > 0)
             recordInjection(this.db, sessionId, ids, prescriptions);

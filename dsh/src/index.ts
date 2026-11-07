@@ -159,6 +159,9 @@ function sanitize(value: string): string {
   return value.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+/** File-writing tools: their invocations between a failure and a retry are the repair path. */
+const REPAIR_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
 /**
  * Build the episode trace in the format `core/` distils from.
  *
@@ -432,6 +435,23 @@ function startPlugin(ctx: DshContext): void {
       const event = normaliseToolEvent(exec, result);
       if (!event) return downstream;
 
+      // Action diff (EMG-style): when OTHER tools have open episodes, a write
+      // to a file is very often the actual repair. A tool with its own open
+      // episode does not record itself as its own repair.
+      if (
+        REPAIR_TOOLS.has(event.toolName) &&
+        store.hasPendingFailure(event.sessionId) &&
+        !store.hasPendingFailure(event.sessionId, event.toolName)
+      ) {
+        const raw = (event.toolInput ?? {}) as Record<string, unknown>;
+        const filePath = raw.file_path ?? raw.path ?? '';
+        const base =
+          typeof filePath === 'string' && filePath.length > 0
+            ? filePath.split(/[\\/]/).pop() ?? filePath
+            : event.toolName;
+        store.recordRepairAction(event.sessionId, `${event.toolName} ${base}`);
+      }
+
       if (!event.ok) {
         // A sandbox file-access denial is a permission negotiation, not a
         // project pitfall: the host already hands the model an escalation hint,
@@ -467,10 +487,18 @@ function startPlugin(ctx: DshContext): void {
       const successTarget = targetSignature(event.toolName, event.toolInput);
       const failure = store.claimFailure(event.sessionId, event.toolName, successTarget);
       if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
+        // The action diff travels with the success trace: keyword extraction
+        // picks the repaired files out of it, and the LLM prompt gets the
+        // repair shape as context.
+        const baseTrace = traceFor(event, `result=${event.resultText}`);
+        const successTrace =
+          failure.repair_path.length > 0
+            ? `${baseTrace}\nrepair actions: ${failure.repair_path.join(' | ')}`
+            : baseTrace;
         store.enqueueJob(
           event.toolName,
           failure.trace,
-          traceFor(event, `result=${event.resultText}`),
+          successTrace,
           failure.injected_ids,
           failure.human_hint,
         );

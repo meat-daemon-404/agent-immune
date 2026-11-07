@@ -53,6 +53,13 @@ export interface FailureSnapshot {
    * prescription better than the model's own guess at a retry.
    */
   human_hint: string;
+  /**
+   * Non-probe write actions recorded between the failure and the closing
+   * success (the EMG action-diff): what actually repaired the problem, e.g.
+   * ["Edit tsconfig.json", "Write vite.config.ts"]. Empty when the fix was a
+   * plain retry.
+   */
+  repair_path: string[];
   created_at: number;
 }
 

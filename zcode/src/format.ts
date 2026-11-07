@@ -19,6 +19,17 @@ function clampField(value: string, max: number): string {
 }
 
 /**
+ * Strip tag characters so injected text cannot close or open the wrapper.
+ * Distilled fields come from raw error traces and model output; a trace line
+ * containing `</immune_memory>` (or prompt-injection markup) must not escape
+ * the block. Same contract as the DSH side's sanitize(): the database keeps
+ * the faithful text, the renderer guarantees the delimiter.
+ */
+function sanitizeField(value: string): string {
+  return value.replace(/[<>]/g, ' ');
+}
+
+/**
  * Render at most a handful of antibodies as an `<immune_memory>` block.
  *
  * Each field is clamped individually AND the whole block is clamped: per-field
@@ -30,9 +41,9 @@ export function formatImmuneContext(antibodies: Antibody[], maxChars = 1200): st
   const t = strings();
   const lines = antibodies.map(
     (ab, i) =>
-      `${i + 1}. [${t.trigger}: ${clampField(ab.trigger_pattern, 80)}] ` +
-      `${t.avoid}: ${clampField(ab.symptom, 80)} -> ` +
-      `${t.do}: ${clampField(ab.prescription, 100)}`,
+      `${i + 1}. [${t.trigger}: ${clampField(sanitizeField(ab.trigger_pattern), 80)}] ` +
+      `${t.avoid}: ${clampField(sanitizeField(ab.symptom), 80)} -> ` +
+      `${t.do}: ${clampField(sanitizeField(ab.prescription), 100)}`,
   );
   const body = lines.join('\n');
   const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;
@@ -51,7 +62,7 @@ export function formatToolWarning(antibodies: Antibody[], maxChars = 700): strin
   const t = strings();
   const lines = antibodies.map(
     (ab, i) =>
-      `${i + 1}. ${clampField(ab.symptom, 70)} -> ${clampField(ab.prescription, 90)}`,
+      `${i + 1}. ${clampField(sanitizeField(ab.symptom), 70)} -> ${clampField(sanitizeField(ab.prescription), 90)}`,
   );
   const body = lines.join('\n');
   const clipped = body.length > maxChars ? `${body.slice(0, maxChars)}…` : body;

@@ -9,6 +9,17 @@ const TRANSIENT = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|socket hang up
 const FILE_RE = /[\w@./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|py|go|rs|java|kt|yml|yaml|toml|css|scss|html|vue|svelte)\b/g;
 const ENV_RE = /\b[A-Z][A-Z0-9_]{2,}\b/g;
 const ARG_RE = /"(?:command|file_path|path|pattern|query|url|script)"\s*:\s*"((?:[^"\\]|\\.){2,200})"/g;
+/** POSIX-style errno and package-manager codes worth matching exactly. */
+const ERRNOS = new Set([
+    'EACCES', 'EPERM', 'EEXIST', 'ENOENT', 'ENOSPC', 'ENOTDIR', 'EISDIR',
+    'EMFILE', 'ENFILE', 'EBUSY', 'EINVAL', 'EXDEV', 'ECONNREFUSED',
+    'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENOTEMPTY', 'ELOOP', 'EAGAIN',
+    'ESRCH', 'ENOTFOUND', 'ERESOLVE',
+]);
+/** Error codes are the most discriminating trigger tokens a trace carries. */
+const ERROR_CODE_RE = /\b(ERR_[A-Z0-9_]{3,})\b/g;
+const ERRNO_RE = /\b(E[A-Z]{4,})\b/g;
+const HTTP_CODE_RE = /\b(?:HTTP|status)\s*(?:code)?\s*[:=]?\s*(\d{3})\b/gi;
 /** Pull up to `max` distinct, useful trigger keywords out of the two traces. */
 export function extractKeywords(text, max = 8) {
     const found = [];
@@ -20,6 +31,18 @@ export function extractKeywords(text, max = 8) {
             return;
         found.push(token);
     };
+    // Error codes first: they outrank every other token for recall precision.
+    // Curated errnos (so EMAIL can never match), the unambiguous ERR_ prefix,
+    // and HTTP/status codes only with their context word (a bare 404 is a count).
+    for (const m of text.matchAll(ERROR_CODE_RE))
+        if (m[1])
+            push(m[1]);
+    for (const m of text.matchAll(ERRNO_RE))
+        if (m[1] && ERRNOS.has(m[1]))
+            push(m[1]);
+    for (const m of text.matchAll(HTTP_CODE_RE))
+        if (m[1])
+            push(`HTTP${m[1]}`);
     // Commands contribute their meaningful words, not their first word (`cd`,
     // `sudo`), and not their flags.
     for (const m of text.matchAll(ARG_RE)) {

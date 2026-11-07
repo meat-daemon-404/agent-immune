@@ -176,6 +176,23 @@ identical-retry note).
     pattern's false-positive matrix now includes exactly the commands its own
     `instead` line suggests (`--force(?!-)` is the fix shape).
 
+18. **The injection delimiter is renderer-guaranteed on BOTH adapters.** Fields
+    distilled from raw error traces may contain `</immune_memory>` or
+    prompt-injection markup. The DSH side stripped `<>` from the start; the
+    ZCode side did not until the framing-isolation audit caught it. Any new
+    injection surface (a third adapter, a new block) must sanitize at render
+    time — the database deliberately keeps the faithful text.
+
+19. **Embeddings stay out; the fitness/dormant lifecycle stays deferred.** A
+    local ONNX embedding reranker breaks the zero-dependency contract for a
+    retrieval layer whose measured gap is small (recall bench at R@3 100%).
+    An EMA-fitness + dormant state was prototyped on paper against the
+    existing controls (relevance-base rerank, anti-rot retire at 3 fails,
+    zombie aging) and deferred: it duplicates anti-rot's job with a third
+    tunable whose failure mode — silently parking a good rule — is worse than
+    an occasional weak injection. Revisit only if the value counter shows
+    suppression outliving rule quality.
+
 ## Verification
 
 ```bash

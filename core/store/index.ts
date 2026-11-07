@@ -40,11 +40,13 @@ import {
 } from './antibodies.js';
 import {
   claimFailure,
+  hasPendingFailure,
   injectedIds,
   injectedPrescriptions,
   pruneStale,
   recordFailure,
   recordInjection,
+  recordRepairAction,
   attachHumanHint,
 } from './episodes.js';
 import {
@@ -263,6 +265,16 @@ export class ImmuneStore {
   }
 
   /** Record an injection that did not come through match() (session-start priming). */
+  /** Whether an episode is open for this session (optionally: for this tool). */
+  hasPendingFailure(sessionId: string, toolName?: string): boolean {
+    return hasPendingFailure(this.db, sessionId, toolName);
+  }
+
+  /** Record one repair action for the session's open episodes (action diff). */
+  recordRepairAction(sessionId: string, entry: string): void {
+    recordRepairAction(this.db, sessionId, entry);
+  }
+
   recordInjection(sessionId: string, ids: number[], prescriptions: string[] = []): void {
     if (ids.length > 0) recordInjection(this.db, sessionId, ids, prescriptions);
   }

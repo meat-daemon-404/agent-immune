@@ -20,6 +20,8 @@ import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
 import { selfMarkers } from '../root-marker.js';
+/** File-writing tools: their invocations between a failure and a retry are the repair path. */
+const REPAIR_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 await runHook('PostToolUse', (event) => {
     const record = event;
     const sessionId = sessionIdOf(event);
@@ -29,6 +31,21 @@ await runHook('PostToolUse', (event) => {
     const target = targetSignature(toolName, event.tool_input);
     const store = new ImmuneStore();
     try {
+        // Action diff (EMG-style): when OTHER tools have open episodes, a write to
+        // a file is very often the actual repair. Record it so the distiller sees
+        // what fixed the problem, not just that the retry succeeded. A tool with
+        // its own open episode does not record itself as its own repair.
+        if (REPAIR_TOOLS.has(toolName) &&
+            store.hasPendingFailure(sessionId) &&
+            !store.hasPendingFailure(sessionId, toolName)) {
+            const filePath = event.tool_input?.file_path ??
+                event.tool_input?.path ??
+                '';
+            const base = typeof filePath === 'string' && filePath.length > 0
+                ? filePath.split(/[\\/]/).pop() ?? filePath
+                : toolName;
+            store.recordRepairAction(sessionId, `${toolName} ${base}`);
+        }
         if (outcome.failed) {
             const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
             const retired = store.penalize(snapshot.injected_ids, {
@@ -47,7 +64,13 @@ await runHook('PostToolUse', (event) => {
         }
         const failure = store.claimFailure(sessionId, toolName, target);
         if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
-            store.enqueueJob(toolName, failure.trace, trace, failure.injected_ids, failure.human_hint);
+            // Hand the distiller the action diff with the success trace: keyword
+            // extraction picks the repaired files out of it, and the LLM prompt gets
+            // the repair shape as context.
+            const successTrace = failure.repair_path.length > 0
+                ? `${trace}\nrepair actions: ${failure.repair_path.join(' | ')}`
+                : trace;
+            store.enqueueJob(toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint);
         }
     }
     finally {
