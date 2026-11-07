@@ -356,7 +356,7 @@ Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后
 | `npm run build` | exit 0 |
 | `npm test` | **90 条全绿**（34 条 core、7 条 ZCode hook、29 条 DSH 单元、4 条原生 UI（tab 契约）、3 条 MCP、3 条 LLM、5 条 UI 查询层、5 条 manifest 一致性（含 `dsh.client` 浏览器半契约与 shadow root 隔离）） |
 | `scripts/verify-step1.mjs` | 15 断言（真实载荷判失败，含 bash 非零退出） |
-| `scripts/verify-steps23.mjs` | 22 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`） |
+| `scripts/verify-steps23.mjs` | 24 断言（失败→成功在回合结束时产出抗体；新会话注入 `<immune_memory>`；修复动作随任务入队；探针空转提示在回合开头送达） |
 | `scripts/verify-live-host.mjs` | 20 断言（**真 Cordis 宿主**：真事件总线 + 真 SQLite + 跨会话注入 + 冷启动注入） |
 | `scripts/verify-installed.mjs` | desktop / web 各 22 断言（bundles 登记、裸包名解析、patch 形状，以及浏览器半的 `dsh.client` 声明 + `exports["./client"]` + 装载器注册面） |
 | `scripts/bench-tool-latency.mjs` | PASS，19 断言（慢速 mock 模型 1500 ms/次：`tools/post-execute` 中位 ~1 ms；`agent/turn-stopping` 按队列线性 1.5/3.0/4.6/7.5 s（1/2/3/5 条）；3000 ms 预算下 6 条只蒸馏 2 条、其余顺延） |

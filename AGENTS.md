@@ -210,7 +210,7 @@ identical-retry note).
 ```bash
 npm test          # node:test; counts grow as coverage does — green is the bar
 node scripts/verify-step1.mjs     # 15  — outcome classification
-node scripts/verify-steps23.mjs   # 22  — loop end-to-end (fake Cordis host)
+node scripts/verify-steps23.mjs   # 24  — loop end-to-end (fake Cordis host)
 node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
