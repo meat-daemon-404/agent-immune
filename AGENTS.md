@@ -222,6 +222,14 @@ identical-retry note).
     (`-fd`, `-xdf`, `--force`), the advice's own suggested commands, and the
     nearest legitimate lookalikes.
 
+23. **The displayed budget and the executing budget are one clamp.** The DSH
+    side clamped `IMMUNE_DISTILL_BUDGET_MS` to 1-60 s; the ZCode side read it
+    raw, so an env typo (say `999999`) would hold the Stop hook — the user's
+    turn — for up to 16 minutes while the UI cheerfully reported the clamped
+    value. `resolveBudgetMs`'s docstring claimed the adapters matched; they
+    did not. When display and execution share a value, they share the clamp,
+    and a test pins the clamp on the executing side.
+
 ## Verification
 
 ```bash

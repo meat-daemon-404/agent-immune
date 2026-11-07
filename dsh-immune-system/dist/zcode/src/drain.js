@@ -5,10 +5,15 @@ import { isSelfEpisode } from '../../core/selfnoise.js';
 import { selfMarkers } from './root-marker.js';
 /** Episodes per model request when batching. */
 export const DRAIN_BATCH_SIZE = 4;
-/** Default wall-clock budget for one drain, in milliseconds. */
+/**
+ * Default wall-clock budget for one drain, in milliseconds. Clamped to the
+ * same 1-60 s window the UI displays (resolveBudgetMs): an unclamped env typo
+ * would otherwise hold the Stop hook — and the user's turn — for minutes.
+ */
 export function drainBudgetMs(env = process.env) {
     const raw = Number(env.IMMUNE_DISTILL_BUDGET_MS ?? '');
-    return Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+    const budget = Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+    return Math.min(60_000, Math.max(1_000, Math.trunc(budget)));
 }
 /** Drop jobs whose traces are the plugin operating on itself. */
 function takeUsable(store, jobs) {

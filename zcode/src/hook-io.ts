@@ -90,7 +90,8 @@ export function emitDeny(eventName: string, reason: string): void {
   );
 }
 
-export async function readEvent(): Promise<HookEvent> {  const chunks: Buffer[] = [];
+export async function readEvent(): Promise<HookEvent> {
+  const chunks: Buffer[] = [];
   for await (const chunk of process.stdin) {
     chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
   }

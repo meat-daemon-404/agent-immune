@@ -1042,3 +1042,14 @@ test('probe streaks count consecutively and reset on any other call', () => {
   assert.equal(s.probeStreakCount('sess-pt', 'Bash:ls:-'), 0);
   s.close();
 });
+
+test('the ZCode drain budget is clamped like the displayed one', async () => {
+  const { drainBudgetMs } = await import('../dsh-immune-system/dist/zcode/src/drain.js');
+  assert.equal(
+    drainBudgetMs({ IMMUNE_DISTILL_BUDGET_MS: '999999' }),
+    60_000,
+    'an env typo cannot hold the Stop hook for minutes',
+  );
+  assert.equal(drainBudgetMs({ IMMUNE_DISTILL_BUDGET_MS: '0' }), 12_000, 'non-positive falls back');
+  assert.equal(drainBudgetMs({ IMMUNE_DISTILL_BUDGET_MS: '5000' }), 5_000, 'sane values pass');
+});
