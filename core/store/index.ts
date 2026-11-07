@@ -6,6 +6,7 @@
  * (rules) and `episodes.ts` (failure/success pairing).
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Antibody, AntibodyStatus, FailureSnapshot, NewAntibody } from '../types.js';
 import { resolveDbPath } from './path.js';
@@ -360,6 +361,40 @@ export class ImmuneStore {
 
   exportable(minHits = 3): Antibody[] {
     return exportableAntibodies(this.db, minHits);
+  }
+
+  /**
+   * Row counts by table plus the on-disk size of the database file. Feeds
+   * `immune doctor` and the UI; lets retention be observed, not assumed.
+   */
+  stats(): {
+    active: number;
+    retired: number;
+    pendingFailures: number;
+    sessions: number;
+    jobsPending: number;
+    jobsTotal: number;
+    dbBytes: number | null;
+  } {
+    const count = (sql: string, ...params: (string | number)[]): number => {
+      const row = this.db.prepare(sql).get(...params) as { n: number | bigint };
+      return Number(row.n);
+    };
+    let dbBytes: number | null = null;
+    try {
+      dbBytes = statSync(this.dbPath).size;
+    } catch {
+      // :memory: or not yet created — size stays null.
+    }
+    return {
+      active: count("SELECT COUNT(*) AS n FROM antibodies WHERE status = 'active'"),
+      retired: count("SELECT COUNT(*) AS n FROM antibodies WHERE status != 'active'"),
+      pendingFailures: count('SELECT COUNT(*) AS n FROM pending_failures'),
+      sessions: count('SELECT COUNT(*) AS n FROM session_turns'),
+      jobsPending: count("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'pending'"),
+      jobsTotal: count('SELECT COUNT(*) AS n FROM distill_jobs'),
+      dbBytes,
+    };
   }
 
   enqueueJob(

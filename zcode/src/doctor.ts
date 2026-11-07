@@ -172,7 +172,17 @@ function nativeUiCheck(): CheckResult {
   }
 }
 
-/** Run every check. `store` is the caller's live store (its DB is probed). */
+/** One row of storage-footprint telemetry: file size plus live row counts. */
+function storageRow(store: ImmuneStore): CheckResult {
+  const s = store.stats();
+  const kb = s.dbBytes === null ? 'n/a' : `${Math.max(1, Math.round(s.dbBytes / 1024))} KiB`;
+  return {
+    name: 'storage',
+    ok: true,
+    detail: `${kb} db · ${s.pendingFailures} pending · ${s.sessions} sessions · ${s.jobsTotal} jobs (${s.jobsPending} queued)`,
+  };
+}
+
 export function runDoctor(store: ImmuneStore, options: DoctorOptions = {}): CheckResult[] {
   const results: CheckResult[] = [nodeVersionOk(), ftsProbe()];
   results.push(...databaseChecks(store));
@@ -183,6 +193,7 @@ export function runDoctor(store: ImmuneStore, options: DoctorOptions = {}): Chec
     ok: true,
     detail: `${store.listAll(false).length} active / ${store.listAll(true).length - store.listAll(false).length} retired / ${store.pendingJobCount()} queued jobs`,
   });
+  results.push(storageRow(store));
   return results;
 }
 

@@ -745,6 +745,36 @@ test('pruneStale reclaims terminal distill jobs and dead session-turn rows', () 
   s.close();
 });
 
+test('stats() reports row counts and the on-disk size', () => {
+  const s = store();
+  s.insert({
+    trigger_pattern: 'stats probe',
+    symptom: 'stats row probe',
+    prescription: 'stats fix probe',
+  });
+  const s2 = s.stats();
+  assert.equal(s2.active, 1);
+  assert.equal(s2.jobsTotal, 0);
+  assert.equal(s2.dbBytes, null, 'in-memory db has no file size');
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-stats-'));
+  const onDisk = new ImmuneStore({ dbPath: join(dir, 'disk.sqlite') });
+  onDisk.insert({
+    trigger_pattern: 'stats disk probe',
+    symptom: 'stats disk row',
+    prescription: 'stats disk fix',
+  });
+  const disk = onDisk.stats();
+  assert.equal(disk.active, 1);
+  assert.equal(
+    typeof disk.dbBytes === 'number' && disk.dbBytes > 0,
+    true,
+    'db file size is measured on disk',
+  );
+  onDisk.close();
+  s.close();
+});
+
 test('pipes destructive SQL through bound parameters only', () => {
   const s = store();
   const id = s.insert({

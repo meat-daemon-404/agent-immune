@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
@@ -255,6 +256,32 @@ export class ImmuneStore {
     }
     exportable(minHits = 3) {
         return exportableAntibodies(this.db, minHits);
+    }
+    /**
+     * Row counts by table plus the on-disk size of the database file. Feeds
+     * `immune doctor` and the UI; lets retention be observed, not assumed.
+     */
+    stats() {
+        const count = (sql, ...params) => {
+            const row = this.db.prepare(sql).get(...params);
+            return Number(row.n);
+        };
+        let dbBytes = null;
+        try {
+            dbBytes = statSync(this.dbPath).size;
+        }
+        catch {
+            // :memory: or not yet created — size stays null.
+        }
+        return {
+            active: count("SELECT COUNT(*) AS n FROM antibodies WHERE status = 'active'"),
+            retired: count("SELECT COUNT(*) AS n FROM antibodies WHERE status != 'active'"),
+            pendingFailures: count('SELECT COUNT(*) AS n FROM pending_failures'),
+            sessions: count('SELECT COUNT(*) AS n FROM session_turns'),
+            jobsPending: count("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'pending'"),
+            jobsTotal: count('SELECT COUNT(*) AS n FROM distill_jobs'),
+            dbBytes,
+        };
     }
     enqueueJob(tool, failure, success, injected, humanHint = '') {
         return enqueueJob(this.db, tool, failure, success, injected, humanHint);
