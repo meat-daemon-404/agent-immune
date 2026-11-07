@@ -347,6 +347,7 @@ Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后
 | `IMMUNE_ALLOW_PRIVATE_ENDPOINT` | 设为 `1` 才允许环回/私有端点。**默认拒绝**，防 SSRF |
 | `IMMUNE_GLOBAL_LIBRARY` | 设为 `0` 关闭全局共享库。默认开启 |
 | `IMMUNE_GUARD` | `off`（默认）/ `warn` / `deny` —— 高危错招事前检查，见下 |
+| `IMMUNE_SYNC_DOC` | 设为 `AGENTS.md`（或 `=1` 走默认）则在回合末把成熟规则自动同步进该文档；配合 `IMMUNE_SYNC_DOC_MIN_HITS`（默认 3） |
 | `IMMUNE_DEBUG_LOG` | 指定文件则记录执行细节，用于排障 |
 
 ### 什么时候值得开 LLM 蒸馏（成本 / 收益）
