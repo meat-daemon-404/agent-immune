@@ -69,10 +69,19 @@ const PARAPHRASES = [
   ['crlf', '换行符 改动 整个文件'],
   ['npm-peer', '装依赖 冲突 装不上'],
   ['win-path', '命令里 转义 丢字符'],
+  ['docker-perm', '容器里写文件报 permission denied'],
+  ['npm-peer', 'npm install 报 ERESOLVE 冲突'],
 ];
 
 /** Unrelated prompts, gram-clean against every seed rule. */
-const NEGATIVES = ['帮我写一首诗', '把配置改一下', '看看现状', '你好', 'k8s 调度'];
+const NEGATIVES = [
+  '帮我写一首诗',
+  '把配置改一下',
+  '看看现状',
+  '你好',
+  'k8s 调度',
+  '帮我看看这个报错',
+];
 
 function seed(store) {
   const ids = {};
@@ -135,7 +144,7 @@ for (const fp of result.fps) console.log('  fp:   ' + fp);
 
 // Gates sit one miss below current behavior: they fail on any NEW regression,
 // not on the two known weak spots (short CJK paraphrases, 2-char LIKE window).
-const GATE_R3 = 5;
+const GATE_R3 = 7;
 const GATE_FP = 1;
 const ok = result.hit3 >= GATE_R3 && result.fp <= GATE_FP;
 console.log(
