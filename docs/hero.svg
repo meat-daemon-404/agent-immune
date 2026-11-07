@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="330" viewBox="0 0 880 330" font-family="Consolas,Menlo,monospace">
+  <rect width="880" height="330" rx="12" fill="#0d1016"/>
+  <rect x="1" y="1" width="878" height="328" rx="11" fill="none" stroke="#242e3d"/>
+  <rect x="0" y="0" width="880" height="34" rx="12" fill="#161c27"/>
+  <circle cx="20" cy="17" r="6" fill="#e56565"/>
+  <circle cx="40" cy="17" r="6" fill="#e3a53f"/>
+  <circle x="60" cy="17" r="6" fill="#37c98a"/>
+  <circle cx="60" cy="17" r="6" fill="#37c98a"/>
+  <text x="440" y="22" text-anchor="middle" fill="#6c7a8e" font-size="12">immune demo — the real pipeline, in-memory</text>
+
+  <text x="20" y="62" fill="#37c98a" font-size="12.5">$ npm install</text>
+  <text x="20" y="82" fill="#e56565" font-size="12.5">npm ERR! ERESOLVE Unable to resolve dependency tree: peer react@19 found react-dom@18</text>
+  <text x="20" y="102" fill="#e56565" font-size="12.5">[exit code: 1]</text>
+
+  <text x="20" y="132" fill="#e8edf5" font-size="12.5">[2] the retry succeeds — turn end distils the episode through the REAL pipeline</text>
+  <text x="20" y="152" fill="#94a1b5" font-size="12.5">learned antibody #3:</text>
+  <text x="20" y="170" fill="#94a1b5" font-size="12.5">  trigger: <tspan fill="#4f9cf9">Bash ERESOLVE npm install ERR</tspan></text>
+  <text x="20" y="188" fill="#94a1b5" font-size="12.5">  do:      <tspan fill="#37c98a">Bash: npm install --legacy-peer-deps</tspan></text>
+
+  <text x="20" y="218" fill="#e8edf5" font-size="12.5">[3] a NEW session hits the same wall with different words — recall + injection</text>
+  <rect x="18" y="230" width="844" height="62" rx="6" fill="#121722" stroke="#242e3d"/>
+  <text x="28" y="248" fill="#6c7a8e" font-size="12">&lt;immune_memory&gt;</text>
+  <text x="28" y="264" fill="#e3a53f" font-size="12">1. [trigger: Bash ERESOLVE npm install ERR] avoid: npm ERR! ERESOLVE ... -&gt; do: npm install --legacy-peer-deps</text>
+  <text x="28" y="280" fill="#6c7a8e" font-size="12">&lt;/immune_memory&gt;</text>
+
+  <text x="20" y="314" fill="#37c98a" font-size="12.5">$ immune demo</text>
+  <text x="130" y="314" fill="#6c7a8e" font-size="12">— 30-second quickstart: real distill, real recall, in-memory only</text>
+</svg>

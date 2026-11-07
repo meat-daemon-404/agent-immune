@@ -5,20 +5,31 @@
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![node](https://img.shields.io/badge/node-%E2%89%A522.5-blue)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin%20hub-4f9cf9)](https://dsh-plugin.org/plugins)
+[![star-history](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.star-history.com%2Fapi%2Fgithub%2Frepos%2Fmeat-daemon-404%2Fdsh-plugin-immune&query=%24.stars&label=stars)](https://star-history.com/#meat-daemon-404/dsh-plugin-immune)
 
-**自进化避坑免疫系统** — 让 Agent 踩一次坑，就自己长记性。
+**Self-evolving pitfall immunity** — your agent steps on a rake once and never again.
+[中文](#中文) · [English](#english)
 
-Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**。
+![demo](docs/hero.svg)
+
+Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，
 下次在同一个坑面前，相关抗体先一步进入它的上下文。
+Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
+no docs required; next session the relevant antibodies are injected before the
+mistake can repeat.
 
-> Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
-> no docs required. Next session the relevant antibodies are injected before the
-> mistake can repeat.
+**Try it in 30 seconds — no install, no host, nothing persisted:**
+
+```bash
+npx dsh-immune-system@latest demo
+```
+
+> The command runs the real pipeline (distill a fresh failure→success episode,
+> recall it from a paraphrase, render the exact `<immune_memory>` block the
+> hooks inject) against an in-memory store.
 
 支持两个宿主：**DSH**（DeepSeek Harness，已按真实宿主契约实测）与 **ZCode**（按实测 hook 契约）。
 两者共用同一份 `core/`，npm 包同名发布，一次踩坑、处处免疫。
-
-[中文](#中文) · [English](#english)
 
 ---
 
@@ -387,6 +398,20 @@ scene itself into a rule.
 Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
 against the real host contract) and **ZCode** (verified against its hooks).
 
+### How it compares
+
+|  | dsh-plugin-immune | [deja-vu](https://github.com/vshulcz/deja-vu) | [mem0](https://github.com/mem0ai/mem0) | [claude-memory-compiler](https://github.com/nicobailon/claude-memory-compiler) |
+| --- | --- | --- | --- | --- |
+| What it keeps | failure→success episodes, distilled into actionable rules | full session transcripts, indexed for search | conversation facts | compiled skill files |
+| Delivery | **injected before the repeat** via host hooks | on-demand search (MCP/TUI) | SDK/app-level recall | skill file the model must read |
+| Dependencies | zero (node:sqlite FTS5) | one Go binary | Python + store | node |
+| Hosts | DSH + ZCode hooks (npm install) | Claude Code, Codex, Cursor, 36+ | any via SDK | Claude Code |
+| Quality gate | recall + scale benches in CI | published benchmarks | — | — |
+
+Honest positioning: deja-vu indexes *everything you did* and searches it;
+this plugin keeps only the lessons and *injects* them. Complementary, not
+competing.
+
 ### Quality, measured
 
 The retrieval layer is gated, not claimed: a fixed zh/en scenario matrix
@@ -400,6 +425,12 @@ tool path never touches the model), and `scripts/verify-llm.mjs` live-verifies
 external distillation in one command when an LLM endpoint is configured.
 
 ### Install
+
+**Try it first** — the 30-second quickstart, no install, in-memory only:
+
+```bash
+npx dsh-immune-system@latest demo
+```
 
 **npm** — published as [`dsh-immune-system`](https://www.npmjs.com/package/dsh-immune-system),
 prebuilt, no toolchain needed:

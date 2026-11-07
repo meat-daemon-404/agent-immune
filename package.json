@@ -16,6 +16,9 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "main": "dsh-immune-system/dist/dsh/src/index.js",
+  "bin": {
+    "dsh-immune-system": "dsh-immune-system/dist/zcode/src/cli.js"
+  },
   "exports": {
     ".": "./dsh-immune-system/dist/dsh/src/index.js",
     "./client": "./dsh-immune-system/client/client.js",

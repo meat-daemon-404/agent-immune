@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * Command-line surface for the immune database.
  *
@@ -98,6 +99,23 @@ function cmdExport(store: ImmuneStore, args: string[]): void {
 
 function main(argv: string[]): number {
   const [command = 'list', ...args] = argv;
+
+  // `demo` needs no user database and runs the REAL pipeline (distill, recall,
+  // render) on an in-memory store, so the quickstart cannot pollute anything.
+  // main() is synchronous, so the async demo pins the process with a timer
+  // until its promise settles — otherwise node exits before step [2].
+  if (command === 'demo') {
+    const keepAlive = setInterval(() => {}, 60_000);
+    runDemo()
+      .catch((error: unknown) => {
+        process.stderr.write(
+          `demo failed: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        process.exitCode = 1;
+      })
+      .finally(() => clearInterval(keepAlive));
+    return 0;
+  }
 
   // `ui` owns its own store (it lives for the whole server lifetime), so it is
   // handled before the short-lived store below is opened.
@@ -297,3 +315,60 @@ function main(argv: string[]): number {
 }
 
 process.exitCode = main(process.argv.slice(2));
+
+/**
+ * The 30-second quickstart: run the REAL pipeline (distill a fresh failure ->
+ * success episode, recall it from a paraphrase prompt, render the exact block
+ * the hooks inject) against an in-memory store. Nothing canned, nothing
+ * persisted — the user's library is never touched.
+ */
+async function runDemo(): Promise<void> {
+  const { distillEpisode } = await import('../../core/distiller.js');
+  const { formatImmuneContext } = await import('./format.js');
+  const { targetSignature } = await import('../../core/pairing.js');
+
+  const store = new ImmuneStore({ dbPath: ':memory:' });
+  store.insert({
+    trigger_pattern: 'vite.config.ts 环境变量 loadEnv',
+    symptom: '直接用 process.env 读客户端变量得到 undefined',
+    prescription: '在 vite.config.ts 用 loadEnv(mode, process.cwd(), 前缀) 再传给 define',
+  });
+  store.insert({
+    trigger_pattern: 'EPERM 只读目录 mkdir',
+    symptom: '在只读目录创建 .dsh 或文件报 EPERM',
+    prescription: '换可写工作目录，或用 IMMUNE_DB_PATH 显式指定库路径',
+  });
+
+  console.log('\n[1] a tool call fails (this project: npm install under a peer conflict)\n');
+  console.log('  $ npm install');
+  console.log('  npm ERR! ERESOLVE Unable to resolve dependency tree: peer react@19 found react-dom@18');
+  console.log('  [exit code: 1]\n');
+
+  console.log('[2] the retry succeeds — turn end distils the episode through the REAL pipeline\n');
+  const distilled = await distillEpisode(
+    'Bash',
+    'tool=Bash input={"command":"npm install"} result=npm ERR! ERESOLVE unable to resolve dependency tree [exit code: 1]',
+    'tool=Bash input={"command":"npm install --legacy-peer-deps"} result=added 312 packages in 14s [exit code: 0]',
+  );
+  if (!distilled.ok) {
+    console.log(`  the demo episode was skipped: ${distilled.detail ?? 'unknown'}`);
+    return;
+  }
+  const id = store.insert(distilled.antibody);
+  console.log(`  learned antibody #${id}:`);
+  console.log(`    trigger: ${distilled.antibody.trigger_pattern}`);
+  console.log(`    symptom: ${distilled.antibody.symptom.slice(0, 80)}`);
+  console.log(`    do:      ${distilled.antibody.prescription.slice(0, 80)}\n`);
+
+  console.log('[3] a NEW session hits the same wall with different words — recall + injection\n');
+  const hits = store.match('npm 装依赖又冲突了，装不上怎么办', { limit: 3 });
+  const block = formatImmuneContext(hits);
+  console.log(
+    block
+      .split('\n')
+      .map((l) => `  ${l}`)
+      .join('\n'),
+  );
+
+  console.log('\n[try more] immune list · immune doctor · immune ui   (demo data was in-memory only)\n');
+}
