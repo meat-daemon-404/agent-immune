@@ -14,6 +14,7 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { strings } from '../../core/i18n.js';
 import { SNAPSHOT_FORMAT, exportLibrary, importLibrary } from '../../core/sync.js';
+import { syncDoc } from '../../core/sync-doc.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf } from './root-marker.js';
@@ -158,6 +159,28 @@ function main(argv: string[]): number {
       case 'export':
         cmdExport(store, args);
         return 0;
+      case 'sync-doc': {
+        // Write proven rules into AGENTS.md / CLAUDE.md as a managed section,
+        // so agents WITHOUT our hooks still get the lessons.
+        const outArg = args.indexOf('--out');
+        const hitsArg = args.indexOf('--min-hits');
+        const candidates = [
+          outArg >= 0 ? args[outArg + 1] ?? '' : '',
+          'AGENTS.md',
+          'CLAUDE.md',
+        ].filter((v) => v.trim().length > 0);
+        const target = resolve(candidates[0] ?? 'AGENTS.md');
+        const minHits = hitsArg >= 0 ? Number(args[hitsArg + 1] ?? '3') : 3;
+        const report = syncDoc(store, {
+          file: target,
+          minHits: Number.isFinite(minHits) && minHits >= 0 ? minHits : 3,
+        });
+        process.stdout.write(
+          `${report.file}: ${report.rules} rule(s) written (${report.created ? 'section created' : report.replaced ? 'section replaced' : 'appended'})\n` +
+            'the section is fenced by immune:generated markers and fully managed - edit outside it, never inside.\n',
+        );
+        return 0;
+      }
       case 'prune':
         store.pruneStale();
         process.stdout.write('Pruned stale pending failures and injection records.\n');

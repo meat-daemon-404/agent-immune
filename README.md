@@ -77,6 +77,21 @@ retrieval stays sub-millisecond with hundreds of rules.
 tool path never touches the model), and `scripts/verify-llm.mjs` live-verifies
 external distillation in one command when an LLM endpoint is configured.
 
+### Works without hooks too
+
+Agents that do not run our hooks still read `AGENTS.md` / `CLAUDE.md`. A
+deterministic, idempotent section sync puts the proven lessons there:
+
+```bash
+immune sync-doc                 # AGENTS.md (or CLAUDE.md if AGENTS.md is missing)
+immune sync-doc --out CLAUDE.md --min-hits 5
+```
+
+The section is fenced by `immune:generated` markers and fully managed — edit
+around it, never inside it. Field text is angle-bracket-stripped before
+writing, human text outside the section is preserved, and re-running replaces
+instead of duplicating.
+
 ### Install
 
 **Try it first** — the 30-second quickstart, no install, in-memory only:

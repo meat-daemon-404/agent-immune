@@ -1125,3 +1125,43 @@ test('the action diff persists as rule provenance through the whole path', () =>
   void id1;
   s.close();
 });
+
+test('sync-doc writes a managed, idempotent, sanitized section', async () => {
+  const { syncDoc, SECTION_START } = await import(
+    '../dsh-immune-system/dist/core/sync-doc.js'
+  );
+  const { writeFileSync, rmSync, readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'immune-syncdoc-'));
+  try {
+    const file = join(dir, 'AGENTS.md');
+    const s = store();
+    const id = s.insert({
+      trigger_pattern: 'npm ERESOLVE 冲突',
+      symptom: 'peer 冲突装不上 <injected>',
+      prescription: 'legacy-peer-deps <script>',
+      tool_name: 'Bash',
+    });
+    s['db'].prepare('UPDATE antibodies SET hit_count = 9 WHERE id = ?').run(id);
+
+    const r1 = syncDoc(s, { file, minHits: 3 });
+    assert.equal(r1.created, true);
+    let text = readFileSync(file, 'utf8');
+    assert.equal(text.split(SECTION_START).length - 1, 1, 'exactly one section');
+    assert.doesNotMatch(text, /<injected>|<script>/, 'angle brackets are stripped before writing');
+    assert.match(text, /legacy-peer-deps/, 'the proven rule is written');
+
+    const r2 = syncDoc(s, { file, minHits: 3 });
+    assert.equal(r2.replaced, true);
+    text = readFileSync(file, 'utf8');
+    assert.equal(text.split(SECTION_START).length - 1, 1, 'replacement, not duplication');
+
+    writeFileSync(file, 'human intro\n\n' + text, 'utf8');
+    syncDoc(s, { file, minHits: 3 });
+    text = readFileSync(file, 'utf8');
+    assert.ok(text.startsWith('human intro'), 'human text outside the section survives');
+    assert.equal(text.split(SECTION_START).length - 1, 1);
+    s.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

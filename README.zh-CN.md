@@ -61,6 +61,19 @@ gram 干净负例）当前 **R@1 100% / R@3 100% / FP 0%**，闸门（R@3 ≥ 7/
 成本曲线（工具路径始终不碰模型），`scripts/verify-llm.mjs` 在配置了 LLM 端点时
 一条命令真机验证外部蒸馏。
 
+### 没有 hook 也能用
+
+不跑我们 hook 的 agent 也会读 `AGENTS.md` / `CLAUDE.md`。一个确定性、幂等的
+段落同步把成熟教训写进去：
+
+```bash
+immune sync-doc                 # AGENTS.md（不存在则 CLAUDE.md）
+immune sync-doc --out CLAUDE.md --min-hits 5
+```
+
+段落由 `immune:generated` 标记围栏并完全托管——在段落**外**编辑，永远别在段落内改。
+写入前字段剥尖括号，段落外的人写内容保留，重复运行是替换不是追加。
+
 ### 安装
 
 #### DSH
