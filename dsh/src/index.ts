@@ -574,7 +574,11 @@ function startPlugin(ctx: DshContext): void {
       }
 
       const rows = store.listAll(args.includes('--all'));
-      const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · web tab ${describeWebTab(ctx)} · db ${store.dbPath}`;
+      // The third UI surface stays one design with the tab and the dashboard:
+      // the value counter and the storage footprint travel with the footer.
+      const s = store.stats();
+      const size = s.dbBytes == null ? '?' : `${Math.max(1, Math.round(s.dbBytes / 1024))} KiB`;
+      const footer = `\n\n— distill budget ${drainBudgetMs()} ms · queued ${store.pendingJobCount()} · blocked ${s.suppressedRepeats} · ${size} · web tab ${describeWebTab(ctx)} · db ${store.dbPath}`;
       if (rows.length === 0) return { kind: 'success', text: t.noAntibodies + footer };
       const text = rows
         .map(
