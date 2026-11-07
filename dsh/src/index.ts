@@ -285,7 +285,7 @@ async function drain(store: ImmuneStore, budgetMs = drainBudgetMs()): Promise<vo
         humanHint: job.human_hint ?? '',
       });
       if (result.ok) {
-        store.insertShared(result.antibody, {
+        store.insertShared({ ...result.antibody, repair_path: job.repair_path ?? [] }, {
           generic: matchGenericLesson(result.antibody.symptom) !== null,
         });
         store.finishJob(job.id, 'done');
@@ -514,6 +514,7 @@ function startPlugin(ctx: DshContext): void {
           successTrace,
           failure.injected_ids,
           failure.human_hint,
+          failure.repair_path,
         );
       }
       return downstream;

@@ -24,6 +24,12 @@ export interface Antibody {
   status: AntibodyStatus;
   /** Which tool the episode came from (e.g. Bash, Edit), for diagnostics. */
   tool_name: string | null;
+  /**
+   * The write actions that repaired the problem when this rule was learned
+   * (the action diff, newest last, capped at three). Provenance: it shows HOW
+   * the lesson was learned. Empty for seeded and older rules.
+   */
+  repair_path: string[];
   created_at: number;
   updated_at: number;
 }
@@ -34,6 +40,7 @@ export type NewAntibody = Pick<
   'trigger_pattern' | 'symptom' | 'prescription'
 > & {
   tool_name?: string | null;
+  repair_path?: string[];
 };
 
 /** One failed tool call, captured so a later success can be paired with it. */

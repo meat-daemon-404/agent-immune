@@ -62,11 +62,14 @@ function commit(
     return false;
   }
   // A generic lesson is published to the shared library so the next project
-  // starts already knowing it.
-  store.insertShared(result.antibody, {
-    generic: matchGenericLesson(result.antibody.symptom) !== null,
-    humanHint: Boolean(job.human_hint),
-  });
+  // starts already knowing it. The action diff rides along as provenance.
+  store.insertShared(
+    { ...result.antibody, repair_path: job.repair_path ?? [] },
+    {
+      generic: matchGenericLesson(result.antibody.symptom) !== null,
+      humanHint: Boolean(job.human_hint),
+    },
+  );
   store.finishJob(job.id, 'done');
   return true;
 }

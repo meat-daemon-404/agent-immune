@@ -8,6 +8,8 @@ export interface DistillJob {
   success_trace: string;
   injected_ids: string;
   human_hint?: string;
+  /** Action-diff provenance (JSON text in the DB, parsed on claim). */
+  repair_path?: string[];
   status: string;
   note: string;
   created_at: number;
@@ -21,15 +23,25 @@ export function enqueueJob(
   successTrace: string,
   injectedIds: number[],
   humanHint = '',
+  repairPath: string[] = [],
 ): number {
   const now = Date.now();
   const info = db
     .prepare(
       `INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, human_hint, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
-    .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, now, now);
+    .run(
+      toolName,
+      failureTrace,
+      successTrace,
+      JSON.stringify(injectedIds),
+      humanHint,
+      JSON.stringify(repairPath.slice(-3)),
+      now,
+      now,
+    );
   return Number(info.lastInsertRowid);
 }
 
@@ -49,8 +61,18 @@ export function claimJob(db: DatabaseSync): DistillJob | null {
         )
         RETURNING *`,
     )
-    .get(Date.now()) as DistillJob | undefined;
-  return row ?? null;
+    .get(Date.now()) as (DistillJob & { repair_path?: unknown }) | undefined;
+  if (!row) return null;
+  // The column stores JSON text; surface it as an array like the antibodies do.
+  try {
+    const parsed: unknown = JSON.parse(String(row.repair_path ?? '[]'));
+    row.repair_path = Array.isArray(parsed)
+      ? parsed.filter((v): v is string => typeof v === 'string')
+      : [];
+  } catch {
+    row.repair_path = [];
+  }
+  return row;
 }
 
 /**

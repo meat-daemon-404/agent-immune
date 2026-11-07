@@ -325,8 +325,8 @@ export class ImmuneStore {
             dbBytes,
         };
     }
-    enqueueJob(tool, failure, success, injected, humanHint = '') {
-        return enqueueJob(this.db, tool, failure, success, injected, humanHint);
+    enqueueJob(tool, failure, success, injected, humanHint = '', repairPath = []) {
+        return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath);
     }
     claimJob() {
         return claimJob(this.db);

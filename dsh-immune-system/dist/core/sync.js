@@ -29,6 +29,7 @@ export function exportLibrary(store) {
             fail_count: a.fail_count,
             status: a.status,
             tool_name: a.tool_name,
+            repair_path: a.repair_path ?? [],
             created_at: a.created_at,
         })),
     };

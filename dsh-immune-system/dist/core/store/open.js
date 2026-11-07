@@ -37,6 +37,10 @@ const COLUMNS = [
     { table: 'pending_failures', column: 'target_signature', ddl: "TEXT NOT NULL DEFAULT ''" },
     { table: 'distill_jobs', column: 'human_hint', ddl: "TEXT NOT NULL DEFAULT ''" },
     { table: 'session_injections', column: 'prescriptions', ddl: "TEXT NOT NULL DEFAULT '[]'" },
+    // Action-diff provenance (1.0.21): the write actions that repaired the
+    // problem, kept on the rule so exports and UI can show HOW it was learned.
+    { table: 'distill_jobs', column: 'repair_path', ddl: "TEXT NOT NULL DEFAULT '[]'" },
+    { table: 'antibodies', column: 'repair_path', ddl: "TEXT NOT NULL DEFAULT '[]'" },
 ];
 function migrate(db) {
     for (const { table, column, ddl } of COLUMNS) {

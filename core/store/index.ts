@@ -466,8 +466,9 @@ export class ImmuneStore {
     success: string,
     injected: number[],
     humanHint = '',
+    repairPath: string[] = [],
   ): number {
-    return enqueueJob(this.db, tool, failure, success, injected, humanHint);
+    return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath);
   }
 
   claimJob(): DistillJob | null {

@@ -70,6 +70,32 @@ export function mergeTriggers(existing, incoming) {
  * trigger's tokens are unioned into the stored trigger, so each paraphrase
  * widens the rule's recall surface instead of being thrown away.
  */
+/** Parse the stored JSON action-diff into an array; tolerate legacy rows. */
+function parseRepairPath(value) {
+    if (Array.isArray(value))
+        return value.filter((v) => typeof v === 'string');
+    if (typeof value !== 'string' || !value)
+        return [];
+    try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed.filter((v) => typeof v === 'string') : [];
+    }
+    catch {
+        return [];
+    }
+}
+function rowToAntibody(row) {
+    return { ...row, repair_path: parseRepairPath(row.repair_path) };
+}
+/** Normalise and cap an incoming action diff for storage. */
+function toRepairJson(repairPath) {
+    const actions = (repairPath ?? [])
+        .filter((v) => typeof v === 'string')
+        .map((v) => v.trim().slice(0, 120))
+        .filter(Boolean)
+        .slice(-3);
+    return JSON.stringify(actions);
+}
 export function insertAntibody(db, ab, options = {}) {
     // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
     // Without these, one bloated rule dominates every later injection.
@@ -113,9 +139,9 @@ export function insertAntibody(db, ab, options = {}) {
         }
     }
     const info = db
-        .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`)
-        .run(trigger, ab.symptom.trim(), prescription, ab.tool_name ?? null, now, now);
+        .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, repair_path, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`)
+        .run(trigger, ab.symptom.trim(), prescription, ab.tool_name ?? null, toRepairJson(ab.repair_path), now, now);
     return Number(info.lastInsertRowid);
 }
 /**
@@ -135,7 +161,7 @@ export function findMatches(db, text, limit) {
     const ftsQuery = buildFtsQuery(text);
     if (ftsQuery) {
         try {
-            const hits = db
+            const raw = db
                 .prepare(`SELECT a.* FROM antibodies a
              JOIN antibodies_fts f ON a.id = f.rowid
             WHERE antibodies_fts MATCH ?
@@ -143,6 +169,7 @@ export function findMatches(db, text, limit) {
             ORDER BY bm25(antibodies_fts)
             LIMIT ?`)
                 .all(ftsQuery, limit);
+            const hits = raw.map(rowToAntibody);
             for (const row of hits) {
                 rows.push(row);
                 seen.add(row.id);
@@ -165,12 +192,13 @@ export function findMatches(db, text, limit) {
             const needle = `%${gram}%`;
             params.push(needle, needle, needle);
         }
-        const candidates = db
+        const rawCandidates = db
             .prepare(`SELECT * FROM antibodies
           WHERE status = 'active' AND (${where})
           ORDER BY hit_count DESC, created_at DESC
           LIMIT 24`)
             .all(...params);
+        const candidates = rawCandidates.map(rowToAntibody);
         // Rank the LIKE hits by how many distinct words they contain, so an
         // antibody matching two concepts outranks one that merely shares a word.
         //
@@ -210,7 +238,7 @@ export function listAntibodies(db, includeRetired = true) {
     const sql = includeRetired
         ? 'SELECT * FROM antibodies ORDER BY status ASC, hit_count DESC, created_at DESC'
         : "SELECT * FROM antibodies WHERE status = 'active' ORDER BY hit_count DESC, created_at DESC";
-    return db.prepare(sql).all();
+    return db.prepare(sql).all().map(rowToAntibody);
 }
 export function removeAntibody(db, id) {
     const info = db.prepare('DELETE FROM antibodies WHERE id = ?').run(id);
@@ -252,11 +280,12 @@ export function penalizeAntibodies(db, ids, ctx) {
 }
 /** Antibodies worth sharing: proven by repeated successful injection. */
 export function exportableAntibodies(db, minHits) {
-    return db
+    const raw = db
         .prepare(`SELECT * FROM antibodies
         WHERE status = 'active' AND hit_count >= ?
         ORDER BY hit_count DESC, created_at DESC`)
         .all(minHits);
+    return raw.map(rowToAntibody);
 }
 /** Id of the newest still-active antibody, or null when there is none. */
 export function newestActiveId(db) {

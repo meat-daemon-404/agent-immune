@@ -1,10 +1,10 @@
-export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds, humanHint = '') {
+export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds, humanHint = '', repairPath = []) {
     const now = Date.now();
     const info = db
         .prepare(`INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, human_hint, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`)
-        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, now, now);
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, JSON.stringify(repairPath.slice(-3)), now, now);
     return Number(info.lastInsertRowid);
 }
 /**
@@ -22,7 +22,19 @@ export function claimJob(db) {
         )
         RETURNING *`)
         .get(Date.now());
-    return row ?? null;
+    if (!row)
+        return null;
+    // The column stores JSON text; surface it as an array like the antibodies do.
+    try {
+        const parsed = JSON.parse(String(row.repair_path ?? '[]'));
+        row.repair_path = Array.isArray(parsed)
+            ? parsed.filter((v) => typeof v === 'string')
+            : [];
+    }
+    catch {
+        row.repair_path = [];
+    }
+    return row;
 }
 /**
  * Claim up to `count` pending jobs atomically.

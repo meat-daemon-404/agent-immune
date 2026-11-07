@@ -87,6 +87,7 @@ await runHook('PostToolUse', (event) => {
         successTrace,
         failure.injected_ids,
         failure.human_hint,
+        failure.repair_path,
       );
     }
   } finally {

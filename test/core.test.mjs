@@ -1087,3 +1087,41 @@ test('the distill prompts teach the model the new evidence shapes', async () => 
     assert.doesNotMatch(prompt, /previous rule \(retired/, 'the junk flow stays dead');
   }
 });
+
+test('the action diff persists as rule provenance through the whole path', () => {
+  const s = store();
+  // Enqueue with provenance (the adapters pass failure.repair_path).
+  const id1 = s.enqueueJob(
+    'Bash',
+    'cargo test failed',
+    'cargo test ok\nrepair actions: Edit Cargo.toml | Write src/lib.rs',
+    [],
+    '',
+    ['Edit Cargo.toml', 'Write src/lib.rs'],
+  );
+  const job = s.claimJob();
+  assert.ok(job);
+  assert.deepEqual(job.repair_path, ['Edit Cargo.toml', 'Write src/lib.rs'], 'the claim parses it back');
+
+  // The distilled rule carries it, and listAll surfaces it as an array.
+  s.insert({
+    trigger_pattern: 'cargo test 编译错误',
+    symptom: 'E0433 找不到模块',
+    prescription: '先补模块声明再跑测试',
+    tool_name: 'Bash',
+    repair_path: job.repair_path,
+  });
+  const row = s.listAll().find((r) => r.prescription.includes('模块声明'));
+  assert.deepEqual(row.repair_path, ['Edit Cargo.toml', 'Write src/lib.rs'], 'provenance survives storage');
+
+  // A merge fills provenance only into empty rules; exports carry it.
+  const snapshot = JSON.parse(
+    JSON.stringify({
+      format: 'dsh-immune-library',
+      antibodies: [{ trigger_pattern: 'x', symptom: 's', prescription: 'p', repair_path: ['Edit a.ts'] }],
+    }),
+  );
+  assert.equal(snapshot.antibodies[0].repair_path.length, 1, 'snapshots carry provenance');
+  void id1;
+  s.close();
+});

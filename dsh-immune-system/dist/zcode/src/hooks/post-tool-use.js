@@ -70,7 +70,7 @@ await runHook('PostToolUse', (event) => {
             const successTrace = failure.repair_path.length > 0
                 ? `${trace}\nrepair actions: ${failure.repair_path.join(' | ')}`
                 : trace;
-            store.enqueueJob(toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint);
+            store.enqueueJob(toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path);
         }
     }
     finally {

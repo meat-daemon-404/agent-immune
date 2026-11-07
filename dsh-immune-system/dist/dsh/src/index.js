@@ -247,7 +247,7 @@ async function drain(store, budgetMs = drainBudgetMs()) {
                 humanHint: job.human_hint ?? '',
             });
             if (result.ok) {
-                store.insertShared(result.antibody, {
+                store.insertShared({ ...result.antibody, repair_path: job.repair_path ?? [] }, {
                     generic: matchGenericLesson(result.antibody.symptom) !== null,
                 });
                 store.finishJob(job.id, 'done');
@@ -446,7 +446,7 @@ function startPlugin(ctx) {
             const successTrace = failure.repair_path.length > 0
                 ? `${baseTrace}\nrepair actions: ${failure.repair_path.join(' | ')}`
                 : baseTrace;
-            store.enqueueJob(event.toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint);
+            store.enqueueJob(event.toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path);
         }
         return downstream;
     });
