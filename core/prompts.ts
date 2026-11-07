@@ -28,6 +28,11 @@ Rules:
   Space separated, at most 8 items, no sentences.
 - symptom: one sentence, at most 35 characters, the wrong instinct that caused the failure.
 - prescription: one sentence, at most 60 characters, the verified correct move.
+- The success trace may end with a "repair actions:" line — those are the edits
+  that actually fixed the problem. The prescription should state the FIX (for
+  example "edit tsconfig.json before building"), not restate the retried command.
+- Error codes (ERR_*, EACCES, HTTP 404) are strong trigger tokens; include the
+  code verbatim when it discriminates this failure from others.
 - Write symptom and prescription in the language the agent was working in.
 - Be specific. "be careful" is not a prescription.
 - Never include secrets, tokens, or hostnames in any field.`;
@@ -50,6 +55,9 @@ Field rules are the same as single-episode distillation:
   space separated, at most 8 items, no sentences.
 - symptom: one sentence, at most 35 characters, the wrong instinct.
 - prescription: one sentence, at most 60 characters, the verified correct move.
+- A fixedTrace may end with a "repair actions:" line — the prescription should
+  state the FIX those edits made, not restate the retried command. Error codes
+  (ERR_*, EACCES, HTTP 404) are strong trigger tokens; include them verbatim.
 - Write in the language the agent was working in.
 - Never include secrets, tokens, or hostnames.
 

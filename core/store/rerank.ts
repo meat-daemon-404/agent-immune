@@ -23,7 +23,7 @@ export interface RerankOptions {
    * Retriever relevance as id → score in (0, 1], built from retrieval order.
    * When present it is the score's base (retrieval decided relevance; the
    * multipliers only refine it). Without it the hit-count log stays the base,
-   * as before.
+   * as before. Tool affinity is folded into this order by the caller.
    */
   relevance?: ReadonlyMap<number, number>;
   /** Injected by the caller for tests. */

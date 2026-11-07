@@ -63,25 +63,26 @@ await runHook('PreToolUse', (event) => {
                 return null;
             }
             // warn: still advisory, but placed ahead of the usual recall block.
-            const recall = formatToolWarning(recallFor(input, sessionId));
+            const recall = formatToolWarning(recallFor(input, sessionId, toolNameOf(event)));
             return [thrash, banner, recall].filter(Boolean).join('\n\n');
         }
     }
     // ------------------------------------------------------------- antibodies
-    const recall = formatToolWarning(recallFor(input, sessionId));
+    const recall = formatToolWarning(recallFor(input, sessionId, toolNameOf(event)));
     return [thrash, recall].filter(Boolean).join('\n\n');
 });
 /**
  * Recall for this specific call.
  *
- * Only the arguments are searched: including the tool name would make every
- * "Bash …" antibody match every Bash call. The tool name is still used later,
- * for the relevance-guarded penalty.
+ * Only the arguments are SEARCHED: including the tool name would make every
+ * "Bash …" antibody match every Bash call. The tool name still participates
+ * twice — as ranking affinity (a Bash-specific rule ranks higher here) and
+ * later, for the relevance-guarded penalty.
  */
-function recallFor(input, sessionId) {
+function recallFor(input, sessionId, toolName) {
     const store = new ImmuneStore();
     try {
-        return store.match(input, { limit: 2, sessionId });
+        return store.match(input, { limit: 2, sessionId, toolName });
     }
     finally {
         store.close();

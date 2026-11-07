@@ -1053,3 +1053,37 @@ test('the ZCode drain budget is clamped like the displayed one', async () => {
   assert.equal(drainBudgetMs({ IMMUNE_DISTILL_BUDGET_MS: '0' }), 12_000, 'non-positive falls back');
   assert.equal(drainBudgetMs({ IMMUNE_DISTILL_BUDGET_MS: '5000' }), 5_000, 'sane values pass');
 });
+
+test('same-tool affinity ranks a tool-specific rule higher on that tool', () => {
+  const s = store();
+  const a = s.insert({
+    trigger_pattern: 'npm install 冲突 ERESOLVE',
+    symptom: '装不上',
+    prescription: 'legacy-peer-deps',
+    tool_name: 'Bash',
+  });
+  const b = s.insert({
+    trigger_pattern: 'npm install 冲突 ERESOLVE',
+    symptom: '装不上（另一条）',
+    prescription: '对齐 peer 版本',
+    tool_name: 'Edit',
+  });
+  assert.ok(a && b && a !== b, 'two distinct rules for the affinity test');
+
+  const bashHits = s.match('npm install 冲突', { limit: 3, toolName: 'Bash' });
+  const editHits = s.match('npm install 冲突', { limit: 3, toolName: 'Edit' });
+  assert.equal(bashHits[0].id, a, 'under Bash, the Bash rule ranks first');
+  assert.equal(editHits[0].id, b, 'under Edit, the Edit rule ranks first');
+  s.close();
+});
+
+test('the distill prompts teach the model the new evidence shapes', async () => {
+  const { DISTILL_PROMPT, BATCH_DISTILL_PROMPT } = await import(
+    '../dsh-immune-system/dist/core/prompts.js'
+  );
+  for (const prompt of [DISTILL_PROMPT, BATCH_DISTILL_PROMPT]) {
+    assert.match(prompt, /repair actions:/, 'the prompt explains the action diff');
+    assert.match(prompt, /Error codes/, 'the prompt explains error-code triggers');
+    assert.doesNotMatch(prompt, /previous rule \(retired/, 'the junk flow stays dead');
+  }
+});

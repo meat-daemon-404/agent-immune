@@ -113,7 +113,16 @@ export class ImmuneStore {
             }
         }
         const merged = [...own, ...shared];
-        const relevance = new Map(merged.map((r, i) => [r.id, 1 / (1 + i)]));
+        // Tool affinity is a TIE-BREAKER inside the retrieval order, not a
+        // post-multiplier: two rules with near-identical text get near-arbitrary
+        // bm25 positions, and a same-tool rule should win that tie. The stable
+        // sort keeps retrieval order otherwise; the relevance spread stays the
+        // dominant signal.
+        const aff = (r) => opts.toolName && r.tool_name?.toLowerCase() === opts.toolName.toLowerCase() ? 0 : 1;
+        const ordered = merged
+            .map((r, i) => ({ r, i }))
+            .sort((x, y) => aff(x.r) - aff(y.r) || x.i - y.i);
+        const relevance = new Map(ordered.map((e, i) => [e.r.id, 1 / (1 + i)]));
         const ranked = rerank(merged, { query: queryText, sharedIds, relevance }).slice(0, limit);
         const rankedOwn = ranked.filter((r) => !sharedIds.has(r.id));
         const rankedShared = ranked.filter((r) => sharedIds.has(r.id));
