@@ -427,17 +427,13 @@ function startPlugin(ctx) {
                 return downstream;
             const failedTarget = targetSignature(event.toolName, event.toolInput);
             const snapshot = store.recordFailure(event.sessionId, event.toolName, traceFor(event, `error=${event.errorText}`), failedTarget.signature);
-            const retired = store.penalize(snapshot.injected_ids, {
+            // Anti-rot retirement is the handling: a failure-only episode has no
+            // repair evidence, and re-distilling one produced literal "previous
+            // rule (retired after N failures)" prescriptions (production data).
+            store.penalize(snapshot.injected_ids, {
                 failureText: snapshot.trace,
                 toolName: event.toolName,
             });
-            // Self-noise (the harness operating on the plugin's own storage) only
-            // retires rules; it never seeds an episode or a mutation job.
-            if (!isSelfEpisode(snapshot.trace, selfMarkers())) {
-                for (const ab of retired) {
-                    store.enqueueJob(event.toolName, snapshot.trace, `previous rule (retired after ${ab.fail_count} failures): ${ab.prescription}`, []);
-                }
-            }
             return downstream;
         }
         const successTarget = targetSignature(event.toolName, event.toolInput);

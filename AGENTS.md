@@ -230,6 +230,15 @@ identical-retry note).
     did not. When display and execution share a value, they share the clamp,
     and a test pins the clamp on the executing side.
 
+24. **Retirement is the handling; a failure-only episode cannot be distilled.**
+    When anti-rot retired a rule, the adapters used to re-distill it with the
+    meta text as the success trace — the deterministic path, having no repair
+    evidence, turned the literal sentence "previous rule (retired after N
+    failures)…" into a prescription. Production data showed two such junk
+    rules. Removing the flow lost nothing: a genuine recurrence forms a new
+    rule through the normal failure -> success loop, which is the only path
+    that carries repair evidence.
+
 ## Verification
 
 ```bash

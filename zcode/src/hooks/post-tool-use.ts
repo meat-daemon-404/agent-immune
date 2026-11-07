@@ -60,23 +60,15 @@ await runHook('PostToolUse', (event) => {
 
     if (outcome.failed) {
       const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
-      const retired = store.penalize(snapshot.injected_ids, {
+      // Anti-rot retires rules that failed to prevent this; retirement itself
+      // is the handling. A failure-only episode has no repair evidence, so
+      // re-distilling it only produced literal "previous rule (retired after
+      // N failures)" prescriptions (production data). A genuine recurrence
+      // forms a new rule through the normal failure -> success loop.
+      store.penalize(snapshot.injected_ids, {
         failureText: snapshot.trace,
         toolName,
       });
-      // A retired rule is re-distilled with the new evidence, so a stale
-      // antibody is replaced rather than merely deleted — but a self-noise
-      // failure only retires the rule, it never seeds a mutation job.
-      if (!isSelfEpisode(snapshot.trace, selfMarkers())) {
-        for (const antibody of retired) {
-          store.enqueueJob(
-            toolName,
-            snapshot.trace,
-            `previous rule (retired after ${antibody.fail_count} failures): ${antibody.prescription}`,
-            [],
-          );
-        }
-      }
       return null;
     }
 
