@@ -457,6 +457,11 @@ test('a weak single-window match is ranked last, not dropped', () => {
   });
   assert.ok(strong && weak);
 
+  // Equalise timestamps: time decay would otherwise order by insertion
+  // millisecond, and this test pins the WINDOW-COUNT ranking basis.
+  const stamp = Date.now() - 60 * 60 * 1000;
+  s['db'].prepare('UPDATE antibodies SET updated_at = ?, created_at = ?').run(stamp, stamp);
+
   // "文件占用" shares two windows with `strong` (文件, 占用) and one with `weak`.
   const hits = s.match('文件占用', { limit: 3 });
   assert.equal(hits[0].id, strong, 'the two-window rule ranks first');
