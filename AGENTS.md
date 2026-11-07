@@ -205,6 +205,10 @@ silently broke the canonical episode shape.
   made (quota 402 during development).
 - `IMMUNE_GUARD=warn` is ZCode-only: DSH's `PreToolDecision` has no context
   channel.
+- GitHub push protection scans test fixtures too: a redaction-fixture token
+  shaped like the real thing (Slack's digit-group `xoxp-…`) is blocked from
+  being pushed. Write fixtures with letter-only groups; our own regexes accept
+  them and the scanner does not.
 
 ## When you finish a change
 

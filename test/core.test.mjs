@@ -695,6 +695,56 @@ test('redacts credentials before they reach the database', () => {
   assert.match(clean, /<redacted>/);
 });
 
+test('redacts provider token shapes: npm, GitHub fine-grained, GitLab, Google, Slack, Stripe', () => {
+  const raw = [
+    'npm publish --//registry.npmjs.org/:_authToken=npm_0123456789abcdefghij0123456789',
+    'gh auth with github_pat_11ABCDEF0123456789abcdefgh',
+    'git clone https://oauth2:glpat-0123456789abcdef012@gitlab.com/x/y.git',
+    'curl "https://maps.googleapis.com/maps/api/js?key=AIza0AbCdEfGhIjKlMnOpQrStUvWxYz0123456"',
+    'slack: xoxp-abcdefghij-klmnopqrst-uvwxyz01-234567',
+    'STRIPE_KEY=sk_live_0123456789abcdefgh',
+  ].join('\n');
+  const clean = redact(raw);
+  assert.doesNotMatch(clean, /npm_0123456789/);
+  assert.doesNotMatch(clean, /github_pat_11ABCDEF/);
+  assert.doesNotMatch(clean, /glpat-0123456789/);
+  assert.doesNotMatch(clean, /AIza0AbCdEfGh/);
+  assert.doesNotMatch(clean, /xoxp-abcdefghij/);
+  assert.doesNotMatch(clean, /sk_live_0123456789/);
+  assert.match(clean, /<redacted-token>/);
+  assert.match(clean, /<redacted-api-key>/);
+  assert.match(clean, /<redacted-key>/);
+  // No false positive on a variable named npm_<15 chars>: the npm pattern
+  // requires 20+ characters after the prefix.
+  assert.match(redact('npm_config_registry=https://registry.npmjs.org'), /npm_config_registry/);
+});
+
+test('pruneStale reclaims terminal distill jobs and dead session-turn rows', () => {
+  const s = store();
+  const weekAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+  const doneJob = s.enqueueJob('Bash', 'fail trace', 'ok trace', []);
+  const pendJob = s.enqueueJob('Bash', 'fail trace 2', 'ok trace 2', []);
+  s.finishJob(doneJob, 'done');
+  const db = s['db'];
+  db.prepare('UPDATE distill_jobs SET updated_at = ? WHERE id IN (?, ?)').run(weekAgo, doneJob, pendJob);
+  const turn =
+    db.prepare('INSERT INTO session_turns (session_id, signature, turns, updated_at) VALUES (?, ?, ?, ?)');
+  turn.run('old-sess', '', 3, weekAgo);
+  turn.run('fresh-sess', '', 0, Date.now());
+  const counts = s.pruneStale();
+  assert.equal(counts.jobs, 1, 'only the terminal job is deleted');
+  assert.equal(counts.sessions, 1, 'only the dead session row is deleted');
+  const doneLeft = db.prepare('SELECT COUNT(*) AS n FROM distill_jobs WHERE id = ?').get(doneJob).n;
+  const pendLeft = db.prepare('SELECT COUNT(*) AS n FROM distill_jobs WHERE id = ?').get(pendJob).n;
+  assert.equal(doneLeft, 0, 'done job from a week ago is gone');
+  assert.equal(pendLeft, 1, 'pending job survives retention');
+  const oldSess = db.prepare('SELECT COUNT(*) AS n FROM session_turns WHERE session_id = ?').get('old-sess').n;
+  const freshSess = db.prepare('SELECT COUNT(*) AS n FROM session_turns WHERE session_id = ?').get('fresh-sess').n;
+  assert.equal(oldSess, 0, 'stale session row is gone');
+  assert.equal(freshSess, 1, 'fresh session row survives');
+  s.close();
+});
+
 test('pipes destructive SQL through bound parameters only', () => {
   const s = store();
   const id = s.insert({

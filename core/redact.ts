@@ -20,6 +20,14 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/\bsk-[A-Za-z0-9\-_]{16,}/g, '<redacted-key>'],
   [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, '<redacted-token>'],
   [/\bAKIA[0-9A-Z]{16}\b/g, '<redacted-aws-key>'],
+  // More provider token shapes (npm granular tokens, fine-grained GitHub PATs,
+  // GitLab PATs, Google API keys, Slack tokens, Stripe live keys).
+  [/\bnpm_[A-Za-z0-9]{20,}/g, '<redacted-token>'],
+  [/\bgithub_pat_[A-Za-z0-9_]{20,}/g, '<redacted-token>'],
+  [/\bglpat-[A-Za-z0-9\-_]{16,}/g, '<redacted-token>'],
+  [/\bAIza[0-9A-Za-z\-_]{30,}/g, '<redacted-api-key>'],
+  [/\bxox[baprs]-[A-Za-z0-9\-]{10,}/g, '<redacted-token>'],
+  [/\bsk_live_[A-Za-z0-9]{16,}/g, '<redacted-key>'],
   // URLs with inline credentials: scheme://user:pass@host
   [/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]+:[^\s/@]+@/gi, '$1<redacted>@'],
   // Long base64/hex blobs (JWTs, signatures, hashes).

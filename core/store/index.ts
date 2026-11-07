@@ -343,8 +343,8 @@ export class ImmuneStore {
     return penalizeAntibodies(this.db, ids, ctx);
   }
 
-  pruneStale(now = Date.now()): void {
-    pruneStale(this.db, now);
+  pruneStale(now = Date.now()) {
+    const counts = pruneStale(this.db, now);
     // The shared library has no other caller for its zombie aging: without
     // this, a shared rule that is never recalled lives forever, and the
     // library can only ever grow. Retiring (not deleting) keeps it
@@ -355,6 +355,7 @@ export class ImmuneStore {
     } catch {
       // Aging the shared library is best-effort.
     }
+    return counts;
   }
 
   exportable(minHits = 3): Antibody[] {

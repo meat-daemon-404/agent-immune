@@ -4,6 +4,14 @@ import { canCloseEpisode } from '../pairing.js';
 export const PENDING_TTL_MS = 30 * 60 * 1000;
 /** Injected antibodies are only penalised for failures within this window. */
 export const INJECTION_TTL_MS = 30 * 60 * 1000;
+/**
+ * Terminal distill jobs (done/failed/skipped) are history: the antibody they
+ * produced is already in the library, so the raw job rows only matter for
+ * debugging. Keep a week, then let pruneStale reclaim the space.
+ */
+export const JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+/** Turn-state rows for sessions quiet for a week are dead sessions. */
+export const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 function parseIds(raw) {
     try {
         const parsed = JSON.parse(raw);
@@ -134,8 +142,29 @@ export function claimFailure(db, sessionId, toolName, incoming) {
         created_at: row.created_at,
     };
 }
-/** Drop pending failures and injection records older than the TTL. */
+/**
+ * Drop expired rows before any episode pairing runs. Called on every episode
+ * close, so the database cannot grow without bound even if the agent runs for
+ * months: terminal distill jobs and dead sessions are reclaimed on a weekly
+ * retention window, pending state on the tighter 30-minute TTLs.
+ */
 export function pruneStale(db, now = Date.now()) {
-    db.prepare('DELETE FROM pending_failures WHERE created_at < ?').run(now - PENDING_TTL_MS);
-    db.prepare('DELETE FROM session_injections WHERE created_at < ?').run(now - INJECTION_TTL_MS);
+    const pendingFailures = db
+        .prepare('DELETE FROM pending_failures WHERE created_at < ?')
+        .run(now - PENDING_TTL_MS);
+    const sessionInjections = db
+        .prepare('DELETE FROM session_injections WHERE created_at < ?')
+        .run(now - INJECTION_TTL_MS);
+    const jobs = db
+        .prepare("DELETE FROM distill_jobs WHERE status IN ('done','failed','skipped') AND updated_at < ?")
+        .run(now - JOB_RETENTION_MS);
+    const sessions = db
+        .prepare('DELETE FROM session_turns WHERE updated_at < ?')
+        .run(now - SESSION_RETENTION_MS);
+    return {
+        pendingFailures: Number(pendingFailures.changes),
+        sessionInjections: Number(sessionInjections.changes),
+        jobs: Number(jobs.changes),
+        sessions: Number(sessions.changes),
+    };
 }

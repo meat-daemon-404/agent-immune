@@ -9,6 +9,24 @@ export const PENDING_TTL_MS = 30 * 60 * 1000;
 /** Injected antibodies are only penalised for failures within this window. */
 export const INJECTION_TTL_MS = 30 * 60 * 1000;
 
+/**
+ * Terminal distill jobs (done/failed/skipped) are history: the antibody they
+ * produced is already in the library, so the raw job rows only matter for
+ * debugging. Keep a week, then let pruneStale reclaim the space.
+ */
+export const JOB_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Turn-state rows for sessions quiet for a week are dead sessions. */
+export const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** What one pruneStale pass removed, for doctor output and tests. */
+export interface PruneCounts {
+  pendingFailures: number;
+  sessionInjections: number;
+  jobs: number;
+  sessions: number;
+}
+
 function parseIds(raw: string): number[] {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -177,8 +195,31 @@ export function claimFailure(
   };
 }
 
-/** Drop pending failures and injection records older than the TTL. */
-export function pruneStale(db: DatabaseSync, now = Date.now()): void {
-  db.prepare('DELETE FROM pending_failures WHERE created_at < ?').run(now - PENDING_TTL_MS);
-  db.prepare('DELETE FROM session_injections WHERE created_at < ?').run(now - INJECTION_TTL_MS);
+/**
+ * Drop expired rows before any episode pairing runs. Called on every episode
+ * close, so the database cannot grow without bound even if the agent runs for
+ * months: terminal distill jobs and dead sessions are reclaimed on a weekly
+ * retention window, pending state on the tighter 30-minute TTLs.
+ */
+export function pruneStale(db: DatabaseSync, now = Date.now()): PruneCounts {
+  const pendingFailures = db
+    .prepare('DELETE FROM pending_failures WHERE created_at < ?')
+    .run(now - PENDING_TTL_MS);
+  const sessionInjections = db
+    .prepare('DELETE FROM session_injections WHERE created_at < ?')
+  .run(now - INJECTION_TTL_MS);
+  const jobs = db
+    .prepare(
+      "DELETE FROM distill_jobs WHERE status IN ('done','failed','skipped') AND updated_at < ?",
+    )
+    .run(now - JOB_RETENTION_MS);
+  const sessions = db
+    .prepare('DELETE FROM session_turns WHERE updated_at < ?')
+    .run(now - SESSION_RETENTION_MS);
+  return {
+    pendingFailures: Number(pendingFailures.changes),
+    sessionInjections: Number(sessionInjections.changes),
+    jobs: Number(jobs.changes),
+    sessions: Number(sessions.changes),
+  };
 }
