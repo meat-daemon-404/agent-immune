@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="120" viewBox="0 0 360 120">
+  <defs>
+    <linearGradient id="shieldL" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f6fd6"/>
+      <stop offset="1" stop-color="#1f9e63"/>
+    </linearGradient>
+  </defs>
+  <!-- shield mark -->
+  <path d="M44 14 L74 26 V54 C74 76 61 92 44 100 C27 92 14 76 14 54 V26 Z"
+        fill="none" stroke="url(#shieldL)" stroke-width="5" stroke-linejoin="round"/>
+  <!-- antibody "Y" inside the shield -->
+  <path d="M44 34 V58 M32 46 L44 58 L56 46" fill="none" stroke="#10151d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="44" cy="72" r="4.5" fill="#1f9e63"/>
+  <!-- episodes flowing in -->
+  <circle cx="92" cy="40" r="4" fill="#d64545"/>
+  <circle cx="104" cy="56" r="4" fill="#b97f1f"/>
+  <circle cx="116" cy="72" r="4" fill="#1f9e63"/>
+  <path d="M92 40 C104 44 108 50 116 72" fill="none" stroke="#8a97a8" stroke-width="1.6" stroke-dasharray="3 4"/>
+  <!-- wordmark -->
+  <text x="140" y="62" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="34" font-weight="700" fill="#10151d">dsh-immune</text>
+  <text x="142" y="88" font-family="Segoe UI,Helvetica,Arial,sans-serif" font-size="15" fill="#5b6878">self-evolving pitfall immunity</text>
+</svg>

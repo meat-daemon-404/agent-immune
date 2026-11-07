@@ -1,14 +1,22 @@
-# dsh-plugin-immune
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" alt="dsh-immune — self-evolving pitfall immunity" width="360">
+  </picture>
 
-<p align="center"><b>Your coding agents stop re-debugging what you already fixed.</b></p>
+  <p><b>Your coding agents stop re-debugging what they already fixed.</b></p>
 
-[![npm](https://img.shields.io/npm/v/dsh-immune-system)](https://www.npmjs.com/package/dsh-immune-system)
-[![ci](https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg)](https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml)
-![license](https://img.shields.io/badge/license-MIT-green)
-![node](https://img.shields.io/badge/node-%E2%89%A522.5-blue)
-[![Listed on DSH Plugin Hub](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune)
+  <p>
+    <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm"></a>
+    <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+    <img src="https://img.shields.io/badge/coverage-82.6%25-4c9f4c" alt="coverage 82.6%">
+    <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
+    <img src="https://img.shields.io/badge/node-%E2%89%A522.5-blue" alt="node">
+    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
+  </p>
 
-**English** | [简体中文](README.zh-CN.md)
+  <p><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
+</div>
 
 Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
 no docs required. Next session the relevant antibodies are injected before the
@@ -18,7 +26,9 @@ Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
 against the real host contract) and **ZCode** (verified against its hooks).
 Same npm package, one pitfall paid once, immune everywhere.
 
-![demo](docs/hero.svg)
+<div align="center">
+  <img src="docs/hero.svg" alt="immune demo — the real pipeline, in-memory" width="720">
+</div>
 
 **Try it in 30 seconds — no install, no host, nothing persisted:**
 
