@@ -190,7 +190,9 @@ export class ImmuneStore {
       }
     }
 
-    const ranked = rerank([...own, ...shared], { query: queryText, sharedIds }).slice(0, limit);
+    const merged = [...own, ...shared];
+    const relevance = new Map(merged.map((r, i) => [r.id, 1 / (1 + i)]));
+    const ranked = rerank(merged, { query: queryText, sharedIds, relevance }).slice(0, limit);
     const rankedOwn = ranked.filter((r) => !sharedIds.has(r.id));
     const rankedShared = ranked.filter((r) => sharedIds.has(r.id));
 

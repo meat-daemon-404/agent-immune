@@ -43,7 +43,10 @@ export function rerank(candidates, opts) {
     const now = opts.now ?? Date.now();
     const sharedIds = opts.sharedIds;
     const scored = candidates.map((antibody) => {
-        let score = 1 + Math.log1p(Math.max(0, antibody.hit_count));
+        const relevance = opts.relevance?.get(antibody.id);
+        let score = relevance !== undefined
+            ? relevance * (1 + Math.log1p(Math.max(0, antibody.hit_count)))
+            : 1 + Math.log1p(Math.max(0, antibody.hit_count));
         if (hasPathAffinity(antibody.trigger_pattern, tokens))
             score *= 1.5;
         if (sharedIds?.has(antibody.id))

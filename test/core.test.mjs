@@ -50,6 +50,59 @@ test('de-duplicates identical prescriptions', () => {
   s.close();
 });
 
+test('merging rules unions trigger tokens, widening recall', () => {
+  const s = store();
+  const a = s.insert({
+    trigger_pattern: 'npm peer dependency ERESOLVE',
+    symptom: 'install 报 peer 冲突',
+    prescription: 'legacy-peer-deps',
+  });
+  const b = s.insert({
+    trigger_pattern: 'npm 装依赖 冲突',
+    symptom: '装依赖冲突',
+    prescription: 'legacy-peer-deps',
+  });
+  assert.equal(b, a, 'same fix re-merges into the original rule');
+  const row = s.listAll().find((r) => r.id === a);
+  assert.match(row.trigger_pattern, /ERESOLVE/);
+  assert.match(row.trigger_pattern, /装依赖/, 'the paraphrase tokens are kept');
+  assert.equal(s.listAll().length, 1);
+  s.close();
+});
+
+test('a paraphrased prescription with an overlapping trigger merges too', () => {
+  const s = store();
+  const a = s.insert({
+    trigger_pattern: 'docker volume permission',
+    symptom: '写挂载目录被拒',
+    prescription: 'user uid:gid 或 chown 挂载目录',
+  });
+  const b = s.insert({
+    trigger_pattern: 'docker 容器 没权限',
+    symptom: '容器内写文件失败',
+    prescription: 'user $(id -u):$(id -g) 或 chown 挂载目录',
+  });
+  assert.equal(b, a, 'similar prescription + shared trigger token is one lesson');
+  assert.equal(s.listAll().length, 1);
+  s.close();
+});
+
+test('unrelated triggers never fuse, even with a similar prescription', () => {
+  const s = store();
+  s.insert({
+    trigger_pattern: 'docker volume permission',
+    symptom: '写挂载目录被拒',
+    prescription: 'user uid:gid 或 chown 挂载目录',
+  });
+  const c = s.insert({
+    trigger_pattern: 'kubernetes pod 调度',
+    symptom: '调度失败',
+    prescription: 'user $(id -u):$(id -g) 或 chown 挂载目录',
+  });
+  assert.equal(s.listAll().length, 2, 'no shared trigger token: two rows');
+  s.close();
+});
+
 test('pairs a failure with the next success on the same tool only once', () => {
   const s = store();
   s.recordFailure('sess-1', 'Bash', 'npm run build -> error');

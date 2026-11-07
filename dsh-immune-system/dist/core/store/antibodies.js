@@ -1,18 +1,74 @@
 import { buildFtsQuery, cjkBigrams } from './tokenize.js';
 import { isRelated } from '../relevance.js';
 import { prescriptionSimilarity } from '../similarity.js';
+import { tokenize } from './tokenize.js';
 /** An antibody is retired after this many injected-but-still-failed episodes. */
 export const RETIRE_AFTER_FAILURES = 3;
 /** Prescriptions at or above this similarity are the same rule. */
 export const MERGE_THRESHOLD = 0.7;
+/** Escape a token for a bound LIKE value (the pattern part is constant). */
+function escapeLike(token) {
+    return token.replace(/[\\%_]/g, '\\$&');
+}
+/**
+ * Candidate rules that might be the same lesson in different words: the exact
+ * trigger, plus any active rule whose trigger shares a token with the incoming
+ * one. The old exact-equality net missed every paraphrase ("npm 装依赖" vs
+ * "npm peer dependency ERESOLVE"), splitting one lesson into two rows.
+ */
+function findMergeCandidates(db, trigger) {
+    const tokens = tokenize(trigger, 8);
+    const clauses = ['trigger_pattern = ?'];
+    const params = [trigger];
+    for (const token of tokens) {
+        clauses.push('trigger_pattern LIKE ? ESCAPE \'\\\'');
+        params.push(`%${escapeLike(token)}%`);
+    }
+    return db
+        .prepare(`SELECT id, trigger_pattern, prescription, symptom FROM antibodies
+        WHERE status = 'active' AND (${clauses.join(' OR ')})
+        LIMIT 25`)
+        .all(...params);
+}
+/**
+ * Union the incoming trigger into the stored one, keeping every recall path
+ * the rule has earned. Returns null unless the merge adds tokens AND the two
+ * triggers already share at least one token (so unrelated text cannot fuse),
+ * and the result still fits the 200-character cap.
+ */
+export function mergeTriggers(existing, incoming) {
+    const oldTokens = existing.split(/\s+/).filter(Boolean);
+    const seen = new Set(oldTokens.map((t) => t.toLowerCase()));
+    const added = [];
+    for (const token of incoming.split(/\s+/).filter(Boolean)) {
+        const key = token.toLowerCase();
+        if (!seen.has(key)) {
+            seen.add(key);
+            added.push(token);
+        }
+    }
+    if (added.length === 0)
+        return null;
+    const shares = incoming
+        .split(/\s+/)
+        .some((t) => oldTokens.some((o) => o.toLowerCase() === t.toLowerCase()));
+    if (!shares)
+        return null;
+    const merged = [...oldTokens, ...added].join(' ');
+    if (merged.length > 200)
+        return null;
+    return merged;
+}
 /**
  * Insert a new antibody, merging near-duplicates.
  *
  * Exact prescription equality is the cheap first check. Beyond that, a rule
  * whose prescription is ≥70% similar (character 3-gram Jaccard) to an existing
- * active rule about the same trigger is the same lesson in different words:
- * inserting it would give the library two rows that say the same thing and halve
- * the observed hit count of each.
+ * active rule with an overlapping trigger is the same lesson in different
+ * words: inserting it would give the library two rows that say the same thing
+ * and halve the observed hit count of each. On every merge the incoming
+ * trigger's tokens are unioned into the stored trigger, so each paraphrase
+ * widens the rule's recall surface instead of being thrown away.
  */
 export function insertAntibody(db, ab, options = {}) {
     // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
@@ -25,29 +81,36 @@ export function insertAntibody(db, ab, options = {}) {
     const now = Date.now();
     // 1. Exact prescription match.
     const exact = db
-        .prepare('SELECT id FROM antibodies WHERE prescription = ? LIMIT 1')
+        .prepare('SELECT id, trigger_pattern FROM antibodies WHERE prescription = ? LIMIT 1')
         .get(prescription);
     if (exact) {
-        db.prepare('UPDATE antibodies SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(now, exact.id);
-        return exact.id;
-    }
-    // 2. Near-duplicate: same trigger, similar prescription.
-    const candidates = db
-        .prepare(`SELECT id, prescription, symptom FROM antibodies
-        WHERE status = 'active' AND trigger_pattern = ?
-        LIMIT 25`)
-        .all(trigger);
-    for (const candidate of candidates) {
-        if (prescriptionSimilarity(candidate.prescription, prescription) < MERGE_THRESHOLD)
-            continue;
-        if (options.humanHint || options.fromLlm) {
-            // A human correction or a model rewrite outranks the stored wording.
-            db.prepare('UPDATE antibodies SET prescription = ?, symptom = ?, hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(prescription, symptom || candidate.symptom, now, candidate.id);
+        const merged = mergeTriggers(exact.trigger_pattern, trigger);
+        if (merged) {
+            db.prepare('UPDATE antibodies SET trigger_pattern = ?, hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(merged, now, exact.id);
+            return exact.id;
         }
         else {
-            db.prepare('UPDATE antibodies SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(now, candidate.id);
+            db.prepare('UPDATE antibodies SET hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(now, exact.id);
+            return exact.id;
         }
-        return candidate.id;
+    }
+    else {
+        // 2. Near-duplicate: overlapping trigger, similar prescription.
+        const candidates = findMergeCandidates(db, trigger);
+        for (const candidate of candidates) {
+            if (prescriptionSimilarity(candidate.prescription, prescription) < MERGE_THRESHOLD)
+                continue;
+            if (options.humanHint || options.fromLlm) {
+                // A human correction or a model rewrite outranks the stored wording.
+                const mergedTrigger = mergeTriggers(candidate.trigger_pattern, trigger);
+                db.prepare('UPDATE antibodies SET prescription = ?, symptom = ?, trigger_pattern = ?, hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(prescription, symptom || candidate.symptom, mergedTrigger ?? candidate.trigger_pattern, now, candidate.id);
+            }
+            else {
+                const mergedTrigger = mergeTriggers(candidate.trigger_pattern, trigger);
+                db.prepare('UPDATE antibodies SET trigger_pattern = ?, hit_count = hit_count + 1, updated_at = ? WHERE id = ?').run(mergedTrigger ?? candidate.trigger_pattern, now, candidate.id);
+            }
+            return candidate.id;
+        }
     }
     const info = db
         .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, created_at, updated_at)
