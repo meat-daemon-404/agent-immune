@@ -1,0 +1,25 @@
+name: Feature request
+description: An idea for the immune system
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The pitfall this would prevent
+      description: "Describe the repeated mistake (yours or the agent's) this feature would stop — with the actual failure→fix sequence if you have it."
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed shape
+      description: "What the agent should recall/inject/warn about, and when."
+    validations:
+      required: true
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Have you read AGENTS.md?
+      description: "Several proposals are already covered there — either implemented, or tried and reverted with a recorded reason."
+      options:
+        - label: "Yes, and I believe this is not covered by an existing invariant or a documented rejection"

@@ -1,0 +1,46 @@
+name: Bug report
+description: Something injected, distilled, or gated wrongly
+labels: [bug]
+body:
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options:
+        - ZCode
+        - DeepSeek Harness (DSH)
+        - MCP client
+        - other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Plugin version
+      description: "`npm view dsh-immune-system version` or the release tag"
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`immune doctor` output"
+      description: "Run `npx dsh-immune-system doctor` (or `node <plugin>/dist/zcode/src/cli.js doctor`) in the affected project and paste the result. It answers most setup questions in advance."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: What happened
+      description: "The tool call that failed/succeeded, what was injected (if anything), and what you expected instead. Redact secrets — the plugin redacts credentials itself, but double-check."
+    validations:
+      required: true
+  - type: dropdown
+    id: restart
+    attributes:
+      label: "Did you restart the host after installing/updating?"
+      description: "Hook processes run the code loaded at startup — updates do not apply until a restart."
+      options:
+        - "Yes"
+        - "No / not sure"
+    validations:
+      required: true
