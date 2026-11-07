@@ -1,6 +1,6 @@
 {
   "name": "dsh-immune-system",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Self-evolving pitfall immunity for DeepSeek Harness: capture every failed-then-fixed tool episode, distil it into a reusable antibody stored in SQLite+FTS5, and inject the relevant ones before the agent repeats the mistake.",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,7 @@
   "dsh": {
     "id": "dsh-immune-system",
     "name": "DSH Immune System",
-    "version": "1.0.17",
+    "version": "1.0.18",
     "repo": "meat-daemon-404/dsh-plugin-immune",
     "permissions": "读取工具调用结果与斜杠命令输入；在本机写 SQLite 抗体库（默认落在 $DSH_HOME/storages/dsh-immune-system/ 下按项目隔离）；仅在显式配置 IMMUNE_LLM_BASE_URL 与 IMMUNE_LLM_MODEL 时才向该端点发起请求；不读取其它插件的配置，不执行任意命令",
     "bundle": {
