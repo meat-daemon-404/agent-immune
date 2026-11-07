@@ -43,6 +43,18 @@ export const GUARD_RULES = [
         pattern: /\bgit\s+reset\s+--hard\b/i,
         instead: '先用 git stash 或先建分支备份，再决定是否丢弃',
     },
+    {
+        id: 'git-clean-force',
+        what: 'git clean -f 会永久删除未跟踪文件（-x 连 .env/node_modules 一起删）',
+        pattern: /\bgit\s+clean\b[^\n]*(?:\s-[a-z]*f[a-z]*\b|\s--force\b)/i,
+        instead: '先 git clean -n 或 git status 预览将删除什么；确认后只清理具体路径',
+    },
+    {
+        id: 'git-discard-worktree',
+        what: 'git checkout/restore . 会丢弃整个工作区的未提交改动',
+        pattern: /\bgit\s+(?:checkout|restore)(?:\s+--)?\s+\.(?:\s|$)/i,
+        instead: '先 git stash 暂存，或只还原具体文件 git restore <file>',
+    },
 ];
 export function guardMode(env = process.env) {
     const raw = env.IMMUNE_GUARD?.trim().toLowerCase();

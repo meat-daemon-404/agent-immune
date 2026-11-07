@@ -901,6 +901,23 @@ test('guard patterns never block their own advice', async () => {
 
   assert.equal(findGuardHit('git reset --hard HEAD~1')?.rule.id, 'git-reset-hard');
   assert.equal(findGuardHit('git reset --harder x'), null, 'a longer flag is not --hard');
+
+  // git clean: the force flag is the tripwire; the advice's dry-run passes.
+  assert.equal(findGuardHit('git clean -fd')?.rule.id, 'git-clean-force');
+  assert.equal(findGuardHit('git clean -xdf')?.rule.id, 'git-clean-force');
+  assert.equal(findGuardHit('git clean -df ./build')?.rule.id, 'git-clean-force');
+  assert.equal(findGuardHit('git clean -n'), null, 'the dry-run the advice suggests passes');
+  assert.equal(findGuardHit('git clean -nd'), null);
+  assert.equal(findGuardHit('git status'), null);
+
+  // checkout/restore discard: only the bare-dot form; the advice's
+  // file-scoped restore passes.
+  assert.equal(findGuardHit('git checkout .')?.rule.id, 'git-discard-worktree');
+  assert.equal(findGuardHit('git checkout -- .')?.rule.id, 'git-discard-worktree');
+  assert.equal(findGuardHit('git restore .')?.rule.id, 'git-discard-worktree');
+  assert.equal(findGuardHit('git checkout main'), null, 'switching branches is not discarding');
+  assert.equal(findGuardHit('git restore src/a.ts'), null, 'a file-scoped restore passes');
+  assert.equal(findGuardHit('git checkout ./src'), null, 'a narrowed path passes');
 });
 
 test('the action diff travels from the buffer into the claimed episode', () => {
