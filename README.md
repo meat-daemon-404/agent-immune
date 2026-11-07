@@ -41,6 +41,14 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
         下一次会话提问 ─► <immune_memory> 注入模型上下文
 ```
 
+### 质量，用数字说
+
+检索层不是「宣称可用」，而是被闸门约束：固定中英场景矩阵（8 条改述正例、6 条
+gram 干净负例）当前 **R@1 100% / R@3 100% / FP 0%**，闸门（R@3 ≥ 7/8、FP ≤ 1/6）
+在 CI 每次 push 自动执行。`scripts/bench-tool-latency.mjs` 钉住回合末蒸馏的
+成本曲线（工具路径始终不碰模型），`scripts/verify-llm.mjs` 在配置了 LLM 端点时
+一条命令真机验证外部蒸馏。
+
 ### 安装
 
 #### DSH
@@ -376,6 +384,15 @@ scene itself into a rule.
 
 Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
 against the real host contract) and **ZCode** (verified against its hooks).
+
+### Quality, measured
+
+The retrieval layer is gated, not claimed: a fixed zh/en scenario matrix
+(8 paraphrase positives, 6 gram-clean negatives) currently scores
+**R@1 100% / R@3 100% / FP 0%**, and the gate (R@3 ≥ 7/8, FP ≤ 1/6) runs in CI
+on every push. `scripts/bench-tool-latency.mjs` pins the drain cost curve (the
+tool path never touches the model), and `scripts/verify-llm.mjs` live-verifies
+external distillation in one command when an LLM endpoint is configured.
 
 ### Install
 
