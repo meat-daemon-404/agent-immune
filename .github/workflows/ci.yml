@@ -30,6 +30,12 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # The retrieval gate is fast (<1 s) and self-contained: R@3 and the
+      # false-positive rate over a fixed zh/en scenario matrix. A retrieval
+      # regression fails CI instead of waiting for someone to run the bench.
+      - name: Recall gate
+        run: node scripts/bench-recall.mjs
+
       # These two are self-contained (fake hosts + temp SQLite). The other two
       # acceptance scripts need a local DSH checkout / profile and stay
       # machine-only — see AGENTS.md "Verification".

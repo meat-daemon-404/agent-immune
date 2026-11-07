@@ -162,6 +162,20 @@ identical-retry note).
     /plugins/<id>/client.js`:
     the desktop port is an auth-gated gateway that 404s *every* plugin's bundle.
 
+16. **A predicate must receive the value whose contract it encodes.** Match-time
+    promotion fed `isPromotable` the PRE-bump hit count (4) while the predicate
+    requires POST-bump (≥ 5): four is never five, so the feature never fired
+    once in its life — and no test noticed because no test exercised it. When a
+    feature is reachable only through a crossing (`=== 4`) plus a threshold
+    (`>= 5`), the two must be derived from one constant, or a regression test
+    must watch the feature's OUTPUT (a shared-library row), not its internals.
+
+17. **A guard regex is tested against its own advice.** The force-push pattern
+    denied `--force-with-lease` — the alternative its `instead` text recommends
+    — because `\b` after `--force` matches inside the longer flag. Every guard
+    pattern's false-positive matrix now includes exactly the commands its own
+    `instead` line suggests (`--force(?!-)` is the fix shape).
+
 ## Verification
 
 ```bash
