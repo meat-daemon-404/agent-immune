@@ -17,7 +17,10 @@ export interface LlmConfig {
   model: string;
   allowPrivate: boolean;
   timeoutMs: number;
-  maxTokens: number;
+  /** Omitted unless configured: some reasoning models reject max_tokens. */
+  maxTokens?: number;
+  /** Omitted unless configured: reasoning models reject it. */
+  temperature?: number;
 }
 
 /** Read configuration from the environment; null when no model is configured. */
@@ -28,6 +31,9 @@ export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig |
 
   const timeout = Number(env.IMMUNE_LLM_TIMEOUT_MS ?? '');
   const maxTokens = Number(env.IMMUNE_LLM_MAX_TOKENS ?? '');
+  // Reasoning models (SenseNova 6.8, o1-style, most free gateways) reject
+  // `temperature`. Omit it unless the operator asks for it explicitly.
+  const temperature = Number(env.IMMUNE_LLM_TEMPERATURE ?? '');
 
   return {
     endpoint,
@@ -35,7 +41,8 @@ export function readLlmConfig(env: NodeJS.ProcessEnv = process.env): LlmConfig |
     model,
     allowPrivate: env.IMMUNE_ALLOW_PRIVATE_ENDPOINT === '1',
     timeoutMs: Number.isFinite(timeout) && timeout > 0 ? timeout : 20_000,
-    maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 400,
+    ...(Number.isFinite(maxTokens) && maxTokens > 0 ? { maxTokens } : {}),
+    ...(Number.isFinite(temperature) && temperature >= 0 ? { temperature } : {}),
   };
 }
 
@@ -132,35 +139,63 @@ export async function chat(
       : `${base.toString().replace(/\/$/, '')}/chat/completions`,
   );
 
-  const timeout = AbortSignal.timeout(cfg.timeoutMs);
-  const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: cfg.model,
-      temperature: 0.1,
-      max_tokens: cfg.maxTokens,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    }),
-    signal: combined,
+  const body = JSON.stringify({
+    model: cfg.model,
+    ...(cfg.temperature !== undefined ? { temperature: cfg.temperature } : {}),
+    ...(cfg.maxTokens !== undefined ? { max_tokens: cfg.maxTokens } : {}),
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
   });
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`model endpoint returned ${response.status}: ${body.slice(0, 200)}`);
-  }
+  // Rate-limited free/gateway channels answer 4xx with a rate-limit body.
+  // One spaced retry absorbs the common case; the caller's AbortSignal still
+  // bounds the total wait, and anything else fails through to the caller.
+  for (let attempt = 0; ; attempt += 1) {
+    const timeout = AbortSignal.timeout(cfg.timeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
-  const data = (await response.json()) as {
-    choices?: Array<{ message?: { content?: unknown } }>;
-  };
-  const content = data.choices?.[0]?.message?.content;
-  return typeof content === 'string' ? content : '';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
+      signal: combined,
+    });
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      // Free/gateway channels rate-limit in bursts and some answer 400 for it.
+      // Retry any non-auth 4xx once after a spaced wait; 401/403 are permanent.
+      const retryable =
+        response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 403;
+      if (retryable && attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        continue;
+      }
+      throw new Error(`model endpoint returned ${response.status}: ${errBody.slice(0, 200)}`);
+    }
+
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: unknown } }>;
+      error?: { message?: unknown; code?: unknown; type?: unknown };
+    };
+    // Some gateways answer HTTP 200 with an error body; a rate-limit verdict
+    // there gets the same single retry as a 4xx.
+    const bodyErr = data.error as { message?: unknown; type?: unknown } | undefined;
+    if (bodyErr !== undefined) {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        continue;
+      }
+      throw new Error(
+        `model endpoint error: ${String(bodyErr.type ?? 'error')}: ${String(bodyErr.message ?? '').slice(0, 160)}`,
+      );
+    }
+
+    const content = data.choices?.[0]?.message?.content;
+    return typeof content === 'string' ? content : '';
+  }
 }
