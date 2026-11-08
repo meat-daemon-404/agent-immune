@@ -11,7 +11,21 @@ function readJsonString(trace, from) {
     for (let i = from; i < trace.length; i += 1) {
         const ch = trace[i];
         if (ch === '\\' && i + 1 < trace.length) {
-            value += trace[i + 1];
+            const esc = trace[i + 1] ?? '';
+            if (esc === 'u' && i + 5 < trace.length) {
+                const code = Number.parseInt(trace.slice(i + 2, i + 6), 16);
+                if (Number.isFinite(code)) {
+                    value += String.fromCharCode(code);
+                    i += 5;
+                    continue;
+                }
+            }
+            // The old code appended the escaped character and dropped the backslash,
+            // so `\n` became the LETTER "n": a heredoc or any multi-line command
+            // arrived as `2>&1n# Put webp…` and that mash was stored as the
+            // prescription. Traces are single-line, so line breaks become a space;
+            // `\"`, `\\` and `\/` still decode to their characters.
+            value += /[nrtbf]/.test(esc) ? ' ' : esc;
             i += 1;
             continue;
         }

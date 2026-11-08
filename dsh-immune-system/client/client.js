@@ -495,7 +495,12 @@ window.__ModuleLoader__.load({
                     stats.jobsTotal +
                     ' 任务 / jobs · ' +
                     (stats.suppressedRepeats || 0) +
-                    ' 拦截 / intercepted'
+                    ' 拦截 / intercepted' +
+                    (stats.llmDistilled || stats.llmFallbacks
+                      ? ' · 模型 / model ' +
+                        (stats.llmDistilled || 0) +
+                        (stats.llmFallbacks ? ' (+' + stats.llmFallbacks + ' degraded)' : '')
+                      : '')
                 : '',
             ),
             h('a', { href: API + '/export?format=md', download: 'immune-library.md' }, '导出 / export'),

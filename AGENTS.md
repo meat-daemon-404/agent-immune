@@ -237,7 +237,12 @@ identical-retry note).
     failures)…" into a prescription. Production data showed two such junk
     rules. Removing the flow lost nothing: a genuine recurrence forms a new
     rule through the normal failure -> success loop, which is the only path
-    that carries repair evidence.
+    that carries repair evidence. The flow lived in THREE places and survived
+    the first cleanup in `zcode/src/hooks/post-tool-use-failure.ts`; the
+    production rule it kept minting was nested twice and injected 21 times.
+    `ruleDistill` now refuses that trace shape outright, so a fourth copy
+    cannot bring it back — when you delete a flow, grep every adapter for its
+    text, not just the function you remember.
 
 25. **Exit-code failure semantics have a quantified false-positive class, and
     it is accepted.** Replaying 20,100 real host-labeled tool calls through
@@ -249,6 +254,16 @@ identical-retry note).
     is contained downstream (probes rarely close an episode; anti-rot retires
     the noise rules they do form). Accept the 2.46%; do not chase it with
     output heuristics — that way lies the reverted "minimum 2 windows" gate.
+
+26. **Tool traces are JSON fragments; unescape them, do not strip them.** The
+    hand-rolled `readJsonString` in `core/trace.ts` used to append the escaped
+    character and drop the backslash, so `\n` arrived as the LETTER "n". Every
+    multi-line Bash command — heredocs, `&&`-chained edits — reached the
+    distiller as `rm x.webp 2>&1n# Put webp…`, and production rule #62 stored
+    exactly that as its prescription. Escapes now decode (line breaks become a
+    space, `\"` `\\` `\/` their characters, `\uXXXX` its code point) and a test
+    pins the heredoc case. Anything that reads a trace — keywords, symptom,
+    prescription, prompt — inherits this; fix it here, not at four call sites.
 
 ## Verification
 

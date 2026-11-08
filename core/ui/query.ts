@@ -22,6 +22,9 @@ export interface DashboardStats {
   jobsTotal: number;
   /** Value metric: repeats the suppression window measurably prevented. */
   suppressedRepeats: number;
+  /** Model path: rules it produced, and times it degraded to the rule path. */
+  llmDistilled: number;
+  llmFallbacks: number;
   dbBytes: number | null;
 }
 
@@ -56,6 +59,8 @@ export function dashboardStats(store: ImmuneStore): DashboardStats {
     jobsPending: s.jobsPending,
     jobsTotal: s.jobsTotal,
     suppressedRepeats: s.suppressedRepeats,
+    llmDistilled: s.llmDistilled,
+    llmFallbacks: s.llmFallbacks,
     dbBytes: s.dbBytes,
   };
 }

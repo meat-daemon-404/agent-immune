@@ -106,8 +106,20 @@ export function finishJob(
   );
 }
 
+/**
+ * How long a 'running' claim may be silent before another drain may take it.
+ *
+ * A claim is only held for the life of one drain, and the drain aborts its
+ * model calls at its own deadline — but `backfill --budget-ms` may legitimately
+ * pass ten minutes, so a five-minute window let a hook's turn-end drain steal
+ * jobs out from under a live backfill and distil the same episode twice. The
+ * window must therefore exceed the largest legal budget (plus request
+ * overhead), not the common one.
+ */
+export const STUCK_JOB_MS = 15 * 60 * 1000;
+
 /** Recover jobs whose worker died mid-flight, so they are not lost forever. */
-export function requeueStuckJobs(db: DatabaseSync, olderThanMs = 5 * 60 * 1000): number {
+export function requeueStuckJobs(db: DatabaseSync, olderThanMs = STUCK_JOB_MS): number {
   const info = db
     .prepare(
       `UPDATE distill_jobs SET status = 'pending', updated_at = ?

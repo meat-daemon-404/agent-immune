@@ -45,6 +45,7 @@ const LABELS = {
         budgetHint: '回合末可用的时间预算（IMMUNE_DISTILL_BUDGET_MS）',
         intercepted: '拦截',
         storage: '库大小',
+        modelRules: '模型产出',
         exportLabel: '导出',
         importLabel: '导入',
         toastImported: '已导入',
@@ -93,6 +94,7 @@ const LABELS = {
         budgetHint: 'Time budget available at turn end (IMMUNE_DISTILL_BUDGET_MS)',
         intercepted: 'intercepted',
         storage: 'storage',
+        modelRules: 'from model',
         exportLabel: 'export',
         importLabel: 'import',
         toastImported: 'imported',
@@ -489,6 +491,22 @@ export function renderPage(options) {
       s.sessions + ' sessions · ' + s.jobsTotal + ' jobs (' + s.jobsPending + ' queued)',
     );
     kpisEl.appendChild(storageCard);
+
+    // Only when a model actually ran: a zero card for everyone else is noise.
+    if ((s.llmDistilled || 0) + (s.llmFallbacks || 0) > 0) {
+      var modelCard = el('div', 'kpi');
+      modelCard.setAttribute('data-tone', s.llmFallbacks > 0 ? 'warn' : 'plain');
+      modelCard.appendChild(el('div', 'v', String(s.llmDistilled || 0)));
+      modelCard.appendChild(el('div', 'k', T.modelRules));
+      modelCard.setAttribute(
+        'title',
+        (s.llmDistilled || 0) +
+          ' rule(s) from the model · ' +
+          (s.llmFallbacks || 0) +
+          ' degraded to the rule path',
+      );
+      kpisEl.appendChild(modelCard);
+    }
 
     nProject.textContent = String(s.active + s.retired);
     nShared.textContent = String(s.shared);

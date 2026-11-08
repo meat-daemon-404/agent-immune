@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 
@@ -18,6 +19,60 @@ function runHook(name, event, env) {
   });
   return result;
 }
+
+test('a retired rule is retired, not re-distilled into a "previous rule" episode', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-retire-'));
+  const dbPath = join(dir, 'immune.sqlite');
+  const env = { IMMUNE_DB_PATH: dbPath, ZCODE_PROJECT_DIR: dir };
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // Seed a rule one failure away from retirement, and deliver it this turn.
+  process.env.IMMUNE_DB_PATH = dbPath;
+  const { ImmuneStore } = await import(
+    pathToFileURL(join(ROOT, 'dsh-immune-system', 'dist', 'core', 'store', 'index.js')).href
+  );
+  const { DatabaseSync } = await import('node:sqlite');
+  const store = new ImmuneStore();
+  const id = store.insert({
+    trigger_pattern: 'Bash npm run build vite',
+    symptom: 'missing script: build',
+    prescription: 'run the build through npx so the local binary is used',
+    tool_name: 'Bash',
+  });
+  assert.ok(id, 'the seed rule must insert');
+  store.match('npm run build', { sessionId: 'sess-R' });
+  store.close();
+  const raw = new DatabaseSync(dbPath);
+  raw.prepare('UPDATE antibodies SET fail_count = 2 WHERE id = ?').run(id);
+  raw.close();
+
+  // The rule fails to prevent this one, so anti-rot retires it.
+  const failed = runHook(
+    'post-tool-use-failure',
+    {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'sess-R',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm run build' },
+      error: 'npm ERR! missing script: build',
+    },
+    env,
+  );
+  assert.equal(failed.status, 0);
+  assert.equal(failed.stdout, '', 'retirement must not inject context either');
+
+  const check = new DatabaseSync(dbPath, { readOnly: true });
+  const status = check.prepare('SELECT status FROM antibodies WHERE id = ?').get(id);
+  assert.equal(status.status, 'retired', 'the failure must actually retire the rule');
+
+  // AGENTS.md #24: the retired prescription must never become the success
+  // trace of a new job — that is what produced the nested junk rule.
+  const junk = check
+    .prepare("SELECT COUNT(*) AS c FROM distill_jobs WHERE success_trace LIKE '%previous rule (retired%'")
+    .get();
+  assert.equal(junk.c, 0, 'no job may carry the retired rule as its repair evidence');
+  check.close();
+});
 
 test('closed loop across separate hook processes', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'immune-'));

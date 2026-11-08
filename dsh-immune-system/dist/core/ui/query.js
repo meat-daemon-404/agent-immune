@@ -23,6 +23,8 @@ export function dashboardStats(store) {
         jobsPending: s.jobsPending,
         jobsTotal: s.jobsTotal,
         suppressedRepeats: s.suppressedRepeats,
+        llmDistilled: s.llmDistilled,
+        llmFallbacks: s.llmFallbacks,
         dbBytes: s.dbBytes,
     };
 }

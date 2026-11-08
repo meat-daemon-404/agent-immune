@@ -148,3 +148,13 @@ test('the dashboard exports and imports library snapshots behind the token', asy
   const list = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
   assert.equal(list.antibodies.length, 2, 'no duplicates after the round-trip');
 });
+
+test('the API exposes the value and model counters for the KPI row', async (t) => {
+  const { handle, token } = await boot(t);
+  const state = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
+  for (const key of ['suppressedRepeats', 'llmDistilled', 'llmFallbacks', 'dbBytes']) {
+    assert.equal(typeof state.stats[key], 'number', `${key} must be a number in the payload`);
+  }
+  assert.equal(state.stats.llmDistilled, 0, 'no model ran in a fresh library');
+  assert.equal(state.stats.llmFallbacks, 0);
+});

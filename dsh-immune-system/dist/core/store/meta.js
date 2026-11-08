@@ -7,8 +7,11 @@
  */
 /** Increment (or initialise) a counter. Returns the new value. */
 export function bumpMeta(db, key, delta = 1) {
+    // Both sides are cast: `CAST(integer + ?)` returns REAL when the driver binds
+    // the parameter as one, and CAST(REAL AS TEXT) then stores "4.0" — a counter
+    // the UI prints verbatim. Keep the column text integral.
     db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + ? AS TEXT)`).run(key, String(delta), delta);
+     ON CONFLICT(key) DO UPDATE SET value = CAST(CAST(value AS INTEGER) + CAST(? AS INTEGER) AS TEXT)`).run(key, String(Math.trunc(delta)), Math.trunc(delta));
     return readMeta(db, key);
 }
 /** Read one key, defaulting to 0. */

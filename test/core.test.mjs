@@ -224,6 +224,45 @@ test('JSON-shaped results surface their human field, not the wrapper', async () 
   assert.equal(extractError('tool=Bash input={} error=plain text'), 'plain text');
 });
 
+test('JSON escapes decode correctly, so a heredoc does not become letter soup', async () => {
+  const { extractInvocation, extractError } = await import(
+    '../dsh-immune-system/dist/core/trace.js'
+  );
+
+  // Production rule #62: `\n` was appended as a literal "n", storing
+  // `rm x.webp 2>&1n# Put webp…` as the prescription.
+  const heredoc =
+    'tool=Bash input={"command":"rm a.webp 2>&1\\n# Put webp in the root\\ncp src/a.webp out/"}';
+  assert.equal(
+    extractInvocation(heredoc),
+    'rm a.webp 2>&1 # Put webp in the root cp src/a.webp out/',
+    'escaped newlines become spaces, not the letter n',
+  );
+  assert.doesNotMatch(extractInvocation(heredoc) ?? '', /1n#/);
+
+  // Quotes inside the value stay quotes; an escaped backslash stays one.
+  assert.equal(
+    extractInvocation('tool=Bash input={"command":"echo \\"hi\\" > \\\\tmp\\\\a"}'),
+    'echo "hi" > \\tmp\\a',
+  );
+  // Unicode escapes decode rather than leaking `u00e9` inside a JSON payload.
+  assert.equal(
+    extractError('tool=Bash input={} result={"message":"caf\\u00e9 failed"}'),
+    'café failed',
+  );
+});
+
+test('counters stay integral text, so the UI never prints "4.0 degraded"', () => {
+  const s = store();
+  s.bumpMeta('llm_fallbacks');
+  s.bumpMeta('llm_fallbacks');
+  s.bumpMeta('llm_fallbacks', 2);
+  const raw = s['db'].prepare("SELECT value FROM meta WHERE key = 'llm_fallbacks'").get().value;
+  assert.equal(raw, '4', 'stored as integer text, not "4.0"');
+  assert.equal(s.stats().llmFallbacks, 4);
+  s.close();
+});
+
 test('a retried invocation stays a learnable episode', async () => {
   const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
 
@@ -232,6 +271,23 @@ test('a retried invocation stays a learnable episode', async () => {
   const trace = 'tool=Bash input={"command":"npm test"} error=2 suites failed';
   const result = ruleDistill('Bash', trace, 'tool=Bash input={"command":"npm test"} result=all green');
   assert.equal(result.ok, true, 'fail-then-succeed with the same command is a lesson');
+});
+
+test('a retired rule can never masquerade as repair evidence', async () => {
+  const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
+
+  // AGENTS.md #24: production rule #58 was this meta sentence distilled into a
+  // prescription, nested twice. The adapters stopped enqueueing it; this pin
+  // keeps any future caller from minting that junk again.
+  const trace = 'tool=Bash input={"command":"npm run build"} error=missing script: build';
+  for (const meta of [
+    'previous rule (retired after 3 failures): npm run build',
+    '  previous rule (retired after 1 failures): whatever',
+  ]) {
+    const result = ruleDistill('Bash', trace, meta);
+    assert.equal(result.ok, false, `refused: ${meta.trim()}`);
+    assert.equal(result.reason, 'skip');
+  }
 });
 
 test('rules injected this session are not injected twice when asked to dedup', async () => {
@@ -839,6 +895,29 @@ test('pruneStale reclaims terminal distill jobs and dead session-turn rows', () 
   const freshSess = db.prepare('SELECT COUNT(*) AS n FROM session_turns WHERE session_id = ?').get('fresh-sess').n;
   assert.equal(oldSess, 0, 'stale session row is gone');
   assert.equal(freshSess, 1, 'fresh session row survives');
+  s.close();
+});
+
+test('a live backfill keeps its claims; only a dead drain is requeued', () => {
+  const s = store();
+  const db = s['db'];
+
+  // Claimed six minutes ago: inside `backfill --budget-ms 600000`, so a hook's
+  // turn-end drain must leave it alone. The old five-minute window stole it and
+  // distilled the same episode twice.
+  const live = s.enqueueJob('Bash', 'fail trace', 'ok trace', []);
+  s.claimJob();
+  db.prepare('UPDATE distill_jobs SET updated_at = ? WHERE id = ?').run(Date.now() - 6 * 60 * 1000, live);
+  assert.equal(s.requeueStuckJobs(), 0, 'a live claim is not stolen');
+  assert.equal(s.stats().jobsPending, 0, 'and it does not go back to pending');
+
+  // Sixteen minutes of silence means the process died; the episode is not lost.
+  const dead = s.enqueueJob('Bash', 'fail trace 2', 'ok trace 2', []);
+  s.claimJob();
+  db.prepare('UPDATE distill_jobs SET updated_at = ? WHERE id = ?').run(Date.now() - 16 * 60 * 1000, dead);
+  assert.equal(s.requeueStuckJobs(), 1, 'a dead claim is recovered');
+  const state = db.prepare('SELECT status FROM distill_jobs WHERE id = ?').get(dead).status;
+  assert.equal(state, 'pending');
   s.close();
 });
 

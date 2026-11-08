@@ -90,6 +90,13 @@ export function ruleDistill(toolName, failureTrace, successTrace, humanHint = ''
     if (TRANSIENT.test(failureTrace)) {
         return { ok: false, reason: 'skip', detail: 'transient failure' };
     }
+    // Defensive pin for AGENTS.md #24: retirement is not repair evidence. The
+    // adapters no longer enqueue a retired rule as a "success" trace, but that
+    // flow lived in two places and survived once already — if any caller
+    // reintroduces it, refuse here instead of minting a nested junk rule.
+    if (/^previous rule \(retired\b/i.test(successTrace.trim())) {
+        return { ok: false, reason: 'skip', detail: 'retirement is not a repair' };
+    }
     // NOTE: an identical retry (same invocation failing then succeeding) is a
     // LEARNABLE episode, not noise — the host's own acceptance flow
     // (scripts/verify-steps23.mjs) encodes exactly that shape, and a retried
