@@ -1,6 +1,6 @@
 {
   "name": "dsh-immune-system",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "description": "Self-evolving pitfall immunity: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
   "description_i18n": {
     "en": "Self-evolving pitfall immunity: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
