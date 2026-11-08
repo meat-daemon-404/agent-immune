@@ -256,12 +256,14 @@ export function setAntibodyStatus(db, id, status) {
  *
  * With `ctx`, only antibodies whose trigger actually relates to the failure are
  * penalised — an unrelated failing command must not retire a good rule.
- * Returns the antibodies retired by this call.
+ * Returns the retired antibodies plus the ids that were actually penalised:
+ * attribution has to credit exactly those, not every id that was in context.
  */
 export function penalizeAntibodies(db, ids, ctx) {
     if (ids.length === 0)
-        return [];
+        return { retired: [], penalized: [] };
     const retired = [];
+    const penalized = [];
     const now = Date.now();
     const bump = db.prepare('UPDATE antibodies SET fail_count = fail_count + 1, updated_at = ? WHERE id = ?');
     for (const id of ids) {
@@ -271,12 +273,13 @@ export function penalizeAntibodies(db, ids, ctx) {
         if (ctx && !isRelated(before.trigger_pattern, ctx.failureText, ctx.toolName))
             continue;
         bump.run(now, id);
+        penalized.push(id);
         if (before.fail_count + 1 < RETIRE_AFTER_FAILURES)
             continue;
         setAntibodyStatus(db, id, 'retired');
         retired.push({ ...before, status: 'retired', fail_count: before.fail_count + 1 });
     }
-    return retired;
+    return { retired, penalized };
 }
 /** Antibodies worth sharing: proven by repeated successful injection. */
 export function exportableAntibodies(db, minHits) {

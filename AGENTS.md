@@ -265,6 +265,15 @@ identical-retry note).
     pins the heredoc case. Anything that reads a trace — keywords, symptom,
     prescription, prompt — inherits this; fix it here, not at four call sites.
 
+27. **Model attribution is per delivery, never per session.** The hook payload
+    has no model; the host's `model_usage` rows do. Caching one lookup for the
+    whole session looks right and is wrong: on the maintainer's machine a
+    single session used GLM-5.3-Flash 1,395 times and auto/deepseek-v4.1-flash
+    1,248 times, so a session-long cache credits every later rule to whichever
+    model answered first. `session_models` is refreshed every 30 s (one 6 ms
+    read) and `crossModelRuleCount()` is the only honest claim about a rule
+    surviving a model switch. Do not "optimise" the TTL back up.
+
 ## Verification
 
 ```bash

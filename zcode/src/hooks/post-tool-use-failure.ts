@@ -33,6 +33,7 @@ await runHook('PostToolUseFailure', (event) => {
     store.penalize(snapshot.injected_ids, {
       failureText: snapshot.trace,
       toolName,
+      sessionId,
     });
 
     // Retirement is the handling (AGENTS.md #24). A failure-only episode has no

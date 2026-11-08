@@ -107,4 +107,24 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (session_id, signature)
   )`,
+  // Which model was driving when a rule was delivered, and whether that
+  // delivery held. One row per (rule, model) keeps the table bounded by the
+  // library size: the question it answers is "does this lesson survive a model
+  // switch", which needs the pair, not a per-event log.
+  `CREATE TABLE IF NOT EXISTS model_hits (
+    rule_id    INTEGER NOT NULL,
+    model      TEXT    NOT NULL,
+    hits       INTEGER NOT NULL DEFAULT 0,
+    fails      INTEGER NOT NULL DEFAULT 0,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (rule_id, model)
+  )`,
+  // session_id -> model cache. The host records the model on its own usage
+  // rows, not in the hook payload, so the first delivery of a session pays one
+  // read-only lookup against the host database and every later one reads here.
+  `CREATE TABLE IF NOT EXISTS session_models (
+    session_id  TEXT PRIMARY KEY,
+    model       TEXT NOT NULL,
+    resolved_at INTEGER NOT NULL
+  )`,
 ];

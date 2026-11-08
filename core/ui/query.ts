@@ -28,6 +28,10 @@ export interface DashboardStats {
    * pair is what says the rules are being used, not merely accumulated.
    */
   fails: number;
+  /** Deliveries per model; 'unknown' when the host reported none. */
+  byModel: Array<{ model: string; hits: number; fails: number; rules: number }>;
+  /** Rules delivered under more than one model: the cross-model proof. */
+  crossModelRules: number;
   /** Model path: rules it produced, and times it degraded to the rule path. */
   llmDistilled: number;
   llmFallbacks: number;
@@ -60,6 +64,8 @@ export function dashboardStats(store: ImmuneStore): DashboardStats {
     retired: all.filter((a) => a.status === 'retired').length,
     hits: all.reduce((sum, a) => sum + a.hit_count, 0),
     fails: all.reduce((sum, a) => sum + a.fail_count, 0),
+    byModel: store.modelBreakdown(),
+    crossModelRules: store.crossModelRules(),
     shared: store.sharedAntibodies(1000).length,
     pendingFailures: s.pendingFailures,
     sessions: s.sessions,

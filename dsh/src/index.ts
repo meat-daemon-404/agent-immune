@@ -492,6 +492,7 @@ function startPlugin(ctx: DshContext): void {
         store.penalize(snapshot.injected_ids, {
           failureText: snapshot.trace,
           toolName: event.toolName,
+          sessionId: event.sessionId,
         });
         return downstream;
       }

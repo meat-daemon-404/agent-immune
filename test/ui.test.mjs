@@ -166,4 +166,6 @@ test('the API exposes the value and model counters for the KPI row', async (t) =
   assert.equal(state.stats.fails, 4, 'two rules penalised twice each');
   assert.equal(state.stats.llmDistilled, 0, 'no model ran in a fresh library');
   assert.equal(state.stats.llmFallbacks, 0);
+  assert.ok(Array.isArray(state.stats.byModel), 'the per-model strip has data to render');
+  assert.equal(typeof state.stats.crossModelRules, 'number');
 });

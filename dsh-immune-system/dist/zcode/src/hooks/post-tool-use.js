@@ -58,6 +58,7 @@ await runHook('PostToolUse', (event) => {
             store.penalize(snapshot.injected_ids, {
                 failureText: snapshot.trace,
                 toolName,
+                sessionId,
             });
             return null;
         }

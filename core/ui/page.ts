@@ -31,6 +31,8 @@ interface Labels {
   tabsShared: string;
   intercepted: string;
   heldUp: string;
+  byModel: string;
+  crossModel: string;
   storage: string;
   modelRules: string;
   exportLabel: string;
@@ -108,6 +110,8 @@ const LABELS: Record<'zh-CN' | 'en', Labels> = {
     budgetHint: '回合末可用的时间预算（IMMUNE_DISTILL_BUDGET_MS）',
     intercepted: '拦截',
     heldUp: '注入后未失败',
+    byModel: '按模型',
+    crossModel: '跨模型成立',
     storage: '库大小',
     modelRules: '模型产出',
     exportLabel: '导出',
@@ -158,6 +162,8 @@ const LABELS: Record<'zh-CN' | 'en', Labels> = {
     budgetHint: 'Time budget available at turn end (IMMUNE_DISTILL_BUDGET_MS)',
     intercepted: 'intercepted',
     heldUp: 'held up',
+    byModel: 'by model',
+    crossModel: 'cross-model',
     storage: 'storage',
     modelRules: 'from model',
     exportLabel: 'export',
@@ -286,6 +292,25 @@ export function renderPage(options: PageOptions): string {
   .kpi .v { font-size: 23px; font-weight: 660; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
   .kpi .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
   .kpi .hint { color: var(--faint); font-size: 10.5px; margin-top: 1px; }
+
+  /* ---------- per-model strip ---------- */
+  .by-model {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 7px;
+    margin-top: 10px; font-size: 12px;
+  }
+  .by-model[hidden] { display: none; }
+  .by-model .lbl {
+    color: var(--muted); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .05em;
+  }
+  .by-model .chip {
+    border: 1px solid var(--line); background: var(--panel); color: var(--text);
+    border-radius: 999px; padding: 3px 9px; font-variant-numeric: tabular-nums;
+    box-shadow: var(--shadow);
+  }
+  .by-model .chip[data-bad="1"] { border-color: var(--warn); }
+  .by-model .chip .x { color: var(--warn); margin-left: 4px; }
+  .by-model .chip.proof { border-color: var(--ok); color: var(--ok); }
 
   /* ---------- toolbar ---------- */
   .toolbar {
@@ -449,6 +474,7 @@ export function renderPage(options: PageOptions): string {
   </div>
 
   <div class="kpis" id="kpis" aria-live="polite"></div>
+  <div class="by-model" id="byModel" hidden></div>
 
   <div class="toolbar">
     <div class="search">
@@ -487,6 +513,7 @@ export function renderPage(options: PageOptions): string {
   var BUDGET_HINT = ${JSON.stringify(t.budgetHint)};
 
   var kpisEl = document.getElementById('kpis');
+  var byModelEl = document.getElementById('byModel');
   var bodyEl = document.getElementById('body');
   var countEl = document.getElementById('count');
   var budgetEl = document.getElementById('budget');
@@ -515,6 +542,40 @@ export function renderPage(options: PageOptions): string {
     if (cls) n.className = cls;
     if (text !== undefined) n.textContent = text;
     return n;
+  }
+
+  // Who was driving when a rule was delivered. The host does not put a model
+  // in the hook payload, so this is filled from its usage rows; "unknown"
+  // means nobody reported one and is shown as such, never as a default.
+  function renderByModel(rows, cross) {
+    byModelEl.textContent = '';
+    var known = rows.filter(function (r) { return r.model !== 'unknown'; });
+    if (known.length === 0 && cross === 0) {
+      byModelEl.hidden = true;
+      return;
+    }
+    byModelEl.hidden = false;
+    byModelEl.appendChild(el('span', 'lbl', T.byModel));
+    known.slice(0, 6).forEach(function (r) {
+      var chip = el('span', 'chip');
+      chip.setAttribute('data-bad', r.fails > 0 ? '1' : '0');
+      chip.appendChild(document.createTextNode(r.model + ' ' + r.hits));
+      if (r.fails > 0) chip.appendChild(el('span', 'x', '✗' + r.fails));
+      chip.setAttribute(
+        'title',
+        r.model + ': ' + r.hits + ' delivery(ies) over ' + r.rules + ' rule(s), ' +
+          r.fails + ' followed by a relevant failure',
+      );
+      byModelEl.appendChild(chip);
+    });
+    if (cross > 0) {
+      var proof = el('span', 'chip proof', T.crossModel + ' ' + cross);
+      proof.setAttribute(
+        'title',
+        cross + ' rule(s) were delivered and held under more than one model',
+      );
+      byModelEl.appendChild(proof);
+    }
   }
 
   function renderStats(s) {
@@ -592,6 +653,8 @@ export function renderPage(options: PageOptions): string {
       );
       kpisEl.appendChild(modelCard);
     }
+
+    renderByModel(s.byModel || [], s.crossModelRules || 0);
 
     nProject.textContent = String(s.active + s.retired);
     nShared.textContent = String(s.shared);

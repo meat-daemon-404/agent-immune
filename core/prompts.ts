@@ -33,6 +33,10 @@ Rules:
   example "edit tsconfig.json before building"), not restate the retried command.
 - Error codes (ERR_*, EACCES, HTTP 404) are strong trigger tokens; include the
   code verbatim when it discriminates this failure from others.
+- Write the rule so a DIFFERENT model or agent can follow it. Strip
+  vendor-specific phrasing — one model's error banner, its internal tool names,
+  its own restatement of the problem — and keep the action. If the fix only
+  works because of that vendor, say so in the prescription instead of hiding it.
 - Write symptom and prescription in the language the agent was working in.
 - Be specific. "be careful" is not a prescription.
 - Never include secrets, tokens, or hostnames in any field.`;
@@ -58,6 +62,9 @@ Field rules are the same as single-episode distillation:
 - A fixedTrace may end with a "repair actions:" line — the prescription should
   state the FIX those edits made, not restate the retried command. Error codes
   (ERR_*, EACCES, HTTP 404) are strong trigger tokens; include them verbatim.
+- Write the rule so a DIFFERENT model or agent can follow it: keep the action,
+  drop vendor-specific banners and internal tool names, and name the vendor
+  explicitly when the fix only works for it.
 - Write in the language the agent was working in.
 - Never include secrets, tokens, or hostnames.
 

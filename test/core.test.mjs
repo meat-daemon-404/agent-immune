@@ -187,6 +187,55 @@ test('a related failure does penalise the antibody', () => {
   s.close();
 });
 
+test('the distillation prompt asks for model-neutral wording', async () => {
+  const { DISTILL_PROMPT, BATCH_DISTILL_PROMPT } = await import(
+    '../dsh-immune-system/dist/core/prompts.js'
+  );
+  // The measurable counterpart is crossModelRuleCount(): a rule that only
+  // works for the model that produced it is a model quirk, not a lesson.
+  for (const prompt of [DISTILL_PROMPT, BATCH_DISTILL_PROMPT]) {
+    assert.match(prompt, /DIFFERENT model or agent/, 'both prompts carry the rule');
+    assert.match(prompt, /vendor/i, 'and say what to strip');
+  }
+});
+
+test('the "tokens not spent" estimate is measured and refuses to guess', async (t) => {
+  const { estimateAvoided, formatTokens, ROUND_TRIPS_PER_REPEAT } = await import(
+    '../dsh-immune-system/dist/core/value.js'
+  );
+  const { rmSync } = await import('node:fs');
+
+  assert.equal(formatTokens(950), '950');
+  assert.equal(formatTokens(2_400_000), '2.4M');
+  assert.equal(formatTokens(1_500_000_000), '1.5B');
+
+  const missing = join(tmpdir(), 'immune-no-host-db.sqlite');
+  assert.equal(estimateAvoided(3, { IMMUNE_HOST_DB: missing }), null, 'no host db, no number');
+  assert.equal(estimateAvoided(0, { IMMUNE_HOST_DB: missing }), null, 'nothing suppressed, nothing claimed');
+
+  // A stand-in host database with a known distribution: 30 rows, 1000..30000.
+  const dir = mkdtempSync(join(tmpdir(), 'immune-value-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const host = join(dir, 'host.sqlite');
+  const db = new DatabaseSync(host);
+  db.exec(`CREATE TABLE model_usage (
+    status TEXT NOT NULL,
+    computed_total_tokens INTEGER NOT NULL,
+    started_at INTEGER NOT NULL
+  )`);
+  const insert = db.prepare('INSERT INTO model_usage VALUES (?, ?, ?)');
+  for (let i = 1; i <= 30; i += 1) insert.run('completed', i * 1000, i);
+  insert.run('error', 999999, 31); // failures are not a round-trip cost sample
+  db.close();
+
+  const estimate = estimateAvoided(4, { IMMUNE_HOST_DB: host });
+  assert.ok(estimate);
+  // floor(30 / 2) = index 15 of the sorted 1000..30000 -> 16000.
+  assert.equal(estimate.medianRequestTokens, 16000);
+  assert.equal(estimate.samples, 30);
+  assert.equal(estimate.avoidedTokens, 4 * 16000 * ROUND_TRIPS_PER_REPEAT);
+});
+
 test('the distill parser accepts fenced JSON, skips, and rejects junk', async () => {
   const { parseDistillOutput } = await import('../dsh-immune-system/dist/core/prompts.js');
 
@@ -260,6 +309,90 @@ test('counters stay integral text, so the UI never prints "4.0 degraded"', () =>
   const raw = s['db'].prepare("SELECT value FROM meta WHERE key = 'llm_fallbacks'").get().value;
   assert.equal(raw, '4', 'stored as integer text, not "4.0"');
   assert.equal(s.stats().llmFallbacks, 4);
+  s.close();
+});
+
+test('deliveries are attributed to the model that was driving', (t) => {
+  const previous = process.env.IMMUNE_MODEL_NAME;
+  t.after(() => {
+    if (previous === undefined) delete process.env.IMMUNE_MODEL_NAME;
+    else process.env.IMMUNE_MODEL_NAME = previous;
+  });
+
+  const s = store();
+  const id = s.insert({
+    trigger_pattern: 'alpha.ts vite build',
+    symptom: 'build fails',
+    prescription: 'run the local vite binary',
+  });
+  assert.ok(id);
+
+  // Session 1 under one model.
+  process.env.IMMUNE_MODEL_NAME = 'glm-5.3-flash';
+  s.match('alpha.ts vite build', { sessionId: 'sess-glm' });
+
+  // Session 2 under another: the same rule is delivered again, which is the
+  // cross-model evidence the dashboard reports.
+  process.env.IMMUNE_MODEL_NAME = 'deepseek-v4.1-flash';
+  s.match('alpha.ts vite build', { sessionId: 'sess-ds' });
+
+  let rows = s.modelBreakdown();
+  assert.deepEqual(
+    rows.map((r) => [r.model, r.hits]),
+    [
+      ['deepseek-v4.1-flash', 1],
+      ['glm-5.3-flash', 1],
+    ],
+    'one delivery per model, busiest first',
+  );
+  assert.equal(s.crossModelRules(), 1, 'the rule held under two models');
+
+  // A penalty is credited to the model on duty, and only when the failure is
+  // relevant to the rule (the same guard that protects retirement).
+  s.penalize([id], {
+    failureText: 'alpha.ts vite build failed: command not found',
+    toolName: 'Bash',
+    sessionId: 'sess-ds',
+  });
+  rows = s.modelBreakdown();
+  const ds = rows.find((r) => r.model === 'deepseek-v4.1-flash');
+  assert.equal(ds.fails, 1, 'the blame lands on the model that was driving');
+  const glm = rows.find((r) => r.model === 'glm-5.3-flash');
+  assert.equal(glm.fails, 0, 'the other model is not blamed');
+
+  // An unrelated failure is not credited to anyone.
+  s.penalize([id], {
+    failureText: 'unrelated: disk full',
+    toolName: 'Bash',
+    sessionId: 'sess-ds',
+  });
+  assert.equal(
+    s.modelBreakdown().find((r) => r.model === 'deepseek-v4.1-flash').fails,
+    1,
+    'the relevance guard also guards attribution',
+  );
+  s.close();
+});
+
+test('an unreported model is labelled unknown, never guessed', (t) => {
+  const previousModel = process.env.IMMUNE_MODEL_NAME;
+  const previousHost = process.env.IMMUNE_HOST_DB;
+  t.after(() => {
+    if (previousModel === undefined) delete process.env.IMMUNE_MODEL_NAME;
+    else process.env.IMMUNE_MODEL_NAME = previousModel;
+    if (previousHost === undefined) delete process.env.IMMUNE_HOST_DB;
+    else process.env.IMMUNE_HOST_DB = previousHost;
+  });
+
+  delete process.env.IMMUNE_MODEL_NAME;
+  process.env.IMMUNE_HOST_DB = join(tmpdir(), 'no-such-host-db.sqlite');
+
+  const s = store();
+  s.insert({ trigger_pattern: 'beta.ts lint', symptom: 's', prescription: 'p' });
+  s.match('beta.ts lint', { sessionId: 'sess-x' });
+  assert.equal(s.modelBreakdown().length, 1);
+  assert.equal(s.modelBreakdown()[0].model, 'unknown');
+  assert.equal(s.crossModelRules(), 0, 'unknown never counts as a second model');
   s.close();
 });
 

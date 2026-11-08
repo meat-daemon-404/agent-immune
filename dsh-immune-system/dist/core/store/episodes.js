@@ -243,6 +243,9 @@ export function pruneStale(db, now = Date.now()) {
     const sessions = db
         .prepare('DELETE FROM session_turns WHERE updated_at < ?')
         .run(now - SESSION_RETENTION_MS);
+    // Model attribution is a cache keyed by session; old rows cost a lookup each
+    // and answer nothing. The aggregate stays in model_hits, which is the point.
+    db.prepare('DELETE FROM session_models WHERE resolved_at < ?').run(now - SESSION_RETENTION_MS);
     const repairs = db
         .prepare('DELETE FROM repair_actions WHERE created_at < ?')
         .run(now - PENDING_TTL_MS);

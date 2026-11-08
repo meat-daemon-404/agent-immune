@@ -18,6 +18,8 @@ export function dashboardStats(store) {
         retired: all.filter((a) => a.status === 'retired').length,
         hits: all.reduce((sum, a) => sum + a.hit_count, 0),
         fails: all.reduce((sum, a) => sum + a.fail_count, 0),
+        byModel: store.modelBreakdown(),
+        crossModelRules: store.crossModelRules(),
         shared: store.sharedAntibodies(1000).length,
         pendingFailures: s.pendingFailures,
         sessions: s.sessions,

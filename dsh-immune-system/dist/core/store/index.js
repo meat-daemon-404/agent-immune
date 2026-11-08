@@ -12,6 +12,7 @@ export const LLM_SUCCESS_KEY = 'llm_distilled';
 export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
 import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
 export { RETIRE_AFTER_FAILURES } from './antibodies.js';
@@ -182,6 +183,12 @@ export class ImmuneStore {
             recordInjection(this.db, opts.sessionId, rankedOwn.map((r) => r.id), ranked.map((r) => r.prescription));
             if (opts.suppressRepeats)
                 recordTurnInjection(this.db, opts.sessionId, rankedOwn.map((r) => r.id));
+            // Attribute the delivery to whichever model is driving this session.
+            // Shared-library ids do not live in this database, so only own rules are
+            // counted here; the shared library keeps its own totals.
+            if (rankedOwn.length > 0) {
+                recordModelHits(this.db, resolveModel(this.db, opts.sessionId), rankedOwn.map((r) => r.id));
+            }
         }
         return ranked;
     }
@@ -281,7 +288,22 @@ export class ImmuneStore {
         return injectedIds(this.db, sessionId);
     }
     penalize(ids, ctx) {
-        return penalizeAntibodies(this.db, ids, ctx);
+        const { retired, penalized } = penalizeAntibodies(this.db, ids, ctx);
+        // Attribution counts what the relevance guard actually blamed, not every
+        // id that happened to be in context — otherwise a model looks worse than
+        // it is on turns where an unrelated failure occurred.
+        if (ctx?.sessionId && penalized.length > 0) {
+            recordModelFails(this.db, resolveModel(this.db, ctx.sessionId), penalized);
+        }
+        return retired;
+    }
+    /** Deliveries per model, for the dashboard and `immune stats`. */
+    modelBreakdown() {
+        return modelBreakdown(this.db);
+    }
+    /** Rules delivered under more than one model — the cross-model proof. */
+    crossModelRules() {
+        return crossModelRuleCount(this.db);
     }
     pruneStale(now = Date.now()) {
         const counts = pruneStale(this.db, now);

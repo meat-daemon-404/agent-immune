@@ -17,6 +17,7 @@ import { SNAPSHOT_FORMAT, exportLibrary, importLibrary } from '../../core/sync.j
 import { syncDoc } from '../../core/sync-doc.js';
 import { backfill } from '../../core/backfill.js';
 import { readLlmConfig } from '../../core/llm.js';
+import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -84,12 +85,34 @@ function cmdStats(store) {
     const model = s.llmDistilled > 0 || s.llmFallbacks > 0
         ? `model distillation: ${s.llmDistilled} from the model, ${s.llmFallbacks} degraded to the rule path\n`
         : '';
+    // Attribution answers "is a model worse here, and did a lesson survive a
+    // model switch" — neither is visible from a single library total.
+    const byModel = store.modelBreakdown().filter((r) => r.model !== 'unknown');
+    const cross = store.crossModelRules();
+    const attribution = byModel.length > 0
+        ? 'by model:\n' +
+            byModel
+                .slice(0, 6)
+                .map((r) => `  ${r.model}: ${r.hits} deliveries, ${r.fails} failed, ${r.rules} rule(s)\n`)
+                .join('') +
+            (cross > 0 ? `cross-model rules: ${cross} (held under more than one model)\n` : '')
+        : '';
+    // Measured, never asserted: the round-trip size comes from this project's own
+    // usage rows, and the only assumption (two round-trips per suppressed repeat)
+    // is printed with the number.
+    const avoided = estimateAvoided(s.suppressedRepeats);
+    const valueLine = avoided
+        ? `value: ${avoided.suppressed} suppressed repeat(s) ≈ ${formatTokens(avoided.avoidedTokens)} tokens not spent ` +
+            `(median round-trip ${formatTokens(avoided.medianRequestTokens)} × ${ROUND_TRIPS_PER_REPEAT}, ${avoided.samples} samples)\n`
+        : '';
     process.stdout.write(`antibodies: ${all.length} (active ${active.length}, retired ${retired})\n` +
         `injections: ${hits}\n` +
         heldLine +
         `repeats suppressed: ${s.suppressedRepeats}\n` +
         `queued distill jobs: ${store.pendingJobCount()}\n` +
         model +
+        attribution +
+        valueLine +
         `database: ${store.dbPath}\n`);
 }
 function cmdExport(store, args) {
