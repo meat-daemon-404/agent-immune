@@ -20,9 +20,7 @@ import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
 import { selfMarkers } from '../root-marker.js';
-
-/** File-writing tools: their invocations between a failure and a retry are the repair path. */
-const REPAIR_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+import { REPAIR_TOOLS } from '../../../core/repair-tools.js';
 
 await runHook('PostToolUse', (event) => {
   const record = event as Record<string, unknown>;

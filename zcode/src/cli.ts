@@ -15,9 +15,12 @@ import { renderSkillMarkdown } from '../../core/export.js';
 import { strings } from '../../core/i18n.js';
 import { SNAPSHOT_FORMAT, exportLibrary, importLibrary } from '../../core/sync.js';
 import { syncDoc } from '../../core/sync-doc.js';
+import { backfill } from '../../core/backfill.js';
+import { readLlmConfig } from '../../core/llm.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
-import { dshDirOf } from './root-marker.js';
+import { dshDirOf, selfMarkers } from './root-marker.js';
+import { drainJobs } from './drain.js';
 
 const WIDE =
   /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe6f\uff00-\uff60\uffe0-\uffe6]/;
@@ -101,6 +104,10 @@ function cmdExport(store: ImmuneStore, args: string[]): void {
 function main(argv: string[]): number {
   const [command = 'list', ...args] = argv;
 
+  // Async commands that outlive main() own the store close themselves; the
+  // shared finally below must not close theirs out from under them.
+  let deferStoreClose = false;
+
   // `demo` needs no user database and runs the REAL pipeline (distill, recall,
   // render) on an in-memory store, so the quickstart cannot pollute anything.
   // main() is synchronous, so the async demo pins the process with a timer
@@ -159,6 +166,61 @@ function main(argv: string[]): number {
       case 'export':
         cmdExport(store, args);
         return 0;
+      case 'backfill': {
+        // Mine the host's own session history for failed-then-fixed episodes
+        // and distil them with the deterministic rule (fast, no API calls).
+        deferStoreClose = true;
+        const dbArg = args.indexOf('--db');
+        const daysArg = args.indexOf('--days');
+        const sessionArg = args.indexOf('--session');
+        const budgetArg = args.indexOf('--budget-ms');
+        const report = backfill(store, {
+          sourceDb: dbArg >= 0 ? resolve(args[dbArg + 1] ?? '') : undefined,
+          days: daysArg >= 0 ? Number(args[daysArg + 1] ?? '120') : 120,
+          sessionId: sessionArg >= 0 ? args[sessionArg + 1] : undefined,
+          selfMarkers: selfMarkers(),
+        });
+        const budget = budgetArg >= 0 ? Number(args[budgetArg + 1] ?? '60000') : 60_000;
+        // Backfill is the LLM path's best use case: hundreds of real episodes
+        // with the repair evidence a deterministic echo cannot phrase. The
+        // rule path runs when no LLM is configured or --no-llm is passed.
+        const noLlm = args.includes('--no-llm');
+        const llm = noLlm ? null : readLlmConfig();
+        // main() is synchronous: pin the process with a timer while the async
+        // drain loop settles (the same pattern the demo uses).
+        const keepAlive = setInterval(() => {}, 60_000);
+        let drained = 0;
+        const drainLoop = (async () => {
+          for (;;) {
+            const r = await drainJobs(store, Number.isFinite(budget) ? budget : 60_000, {
+              llm,
+            });
+            drained += r.processed;
+            if (store.pendingJobCount() === 0 || r.processed === 0) break;
+          }
+        })();
+        drainLoop
+          .then(() => {
+            process.stdout.write(
+              `scanned ${report.scanned} calls · ${report.failures} failures · ` +
+                `${report.paired} paired (${report.superseded} superseded) · ` +
+                `${report.enqueued} enqueued (${report.skippedSelf} self-noise skipped)\n` +
+                `distilled ${drained} episode(s) with the deterministic rule · ` +
+                `${store.pendingJobCount()} left queued\n`,
+            );
+          })
+          .catch((error: unknown) => {
+            process.stderr.write(
+              `backfill drain failed: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+            process.exitCode = 1;
+          })
+          .finally(() => {
+            clearInterval(keepAlive);
+            store.close();
+          });
+        return 0;
+      }
       case 'sync-doc': {
         // Write proven rules into AGENTS.md / CLAUDE.md as a managed section,
         // so agents WITHOUT our hooks still get the lessons.
@@ -333,7 +395,7 @@ function main(argv: string[]): number {
         return 2;
     }
   } finally {
-    store.close();
+    if (!deferStoreClose) store.close();
   }
 }
 

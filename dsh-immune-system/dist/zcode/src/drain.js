@@ -46,13 +46,15 @@ function commit(store, job, result) {
  * Process queued jobs until the queue is empty or the budget runs out.
  * Never throws: a distillation error marks the job failed and moves on.
  */
-export async function drainJobs(store, budgetMs = drainBudgetMs()) {
+export async function drainJobs(store, budgetMs = drainBudgetMs(), opts = {}) {
     const deadline = Date.now() + budgetMs;
     let processed = 0;
     let learned = 0;
     // Recover jobs whose previous attempt died mid-flight.
     store.requeueStuckJobs();
-    const llm = readLlmConfig();
+    // A backfill passes llm: null to force the deterministic rule path —
+    // hundreds of historical episodes must not turn into hundreds of API calls.
+    const llm = opts.llm !== undefined ? opts.llm : readLlmConfig();
     while (Date.now() < deadline) {
         const remaining = deadline - Date.now();
         if (remaining <= 0)

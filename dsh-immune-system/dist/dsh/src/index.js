@@ -24,6 +24,7 @@ import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { targetSignature } from '../../core/pairing.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
+import { REPAIR_TOOLS } from '../../core/repair-tools.js';
 import { redact } from '../../core/redact.js';
 import { registerImmuneUiRoute } from './ui-route.js';
 import { maybeSyncDocAfterDrain } from '../../core/sync-doc.js';
@@ -118,8 +119,6 @@ function renderMemory(blocks, preamble, maxChars) {
 function sanitize(value) {
     return value.replace(/[<>]/g, ' ').replace(/\s+/g, ' ').trim();
 }
-/** File-writing tools: their invocations between a failure and a retry are the repair path. */
-const REPAIR_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
 /**
  * Build the episode trace in the format `core/` distils from.
  *

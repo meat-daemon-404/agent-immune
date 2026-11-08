@@ -12,6 +12,7 @@
  * the difference between draining a backlog within the turn and not.
  */
 import type { ImmuneStore, DistillJob } from '../../core/store/index.js';
+import type { LlmConfig } from '../../core/llm.js';
 import { distillBatch, distillEpisode } from '../../core/distiller.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { matchGenericLesson } from '../../core/lessons.js';
@@ -78,7 +79,11 @@ function commit(
  * Process queued jobs until the queue is empty or the budget runs out.
  * Never throws: a distillation error marks the job failed and moves on.
  */
-export async function drainJobs(store: ImmuneStore, budgetMs = drainBudgetMs()): Promise<DrainResult> {
+export async function drainJobs(
+  store: ImmuneStore,
+  budgetMs = drainBudgetMs(),
+  opts: { llm?: LlmConfig | null } = {},
+): Promise<DrainResult> {
   const deadline = Date.now() + budgetMs;
   let processed = 0;
   let learned = 0;
@@ -86,7 +91,9 @@ export async function drainJobs(store: ImmuneStore, budgetMs = drainBudgetMs()):
   // Recover jobs whose previous attempt died mid-flight.
   store.requeueStuckJobs();
 
-  const llm = readLlmConfig();
+  // A backfill passes llm: null to force the deterministic rule path —
+  // hundreds of historical episodes must not turn into hundreds of API calls.
+  const llm = opts.llm !== undefined ? opts.llm : readLlmConfig();
 
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
