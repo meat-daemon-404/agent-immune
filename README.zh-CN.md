@@ -6,7 +6,7 @@
     <img src="docs/logo-light.svg" alt="dsh-immune — 自进化避坑免疫系统" width="360">
   </picture>
 
-  <p><b>让 coding agent 不再重复调试自己已经修好的问题。</b></p>
+  <p><b>让 coding agent 少重复调试自己已经修好过的问题。</b></p>
 
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm"></a>
@@ -20,28 +20,30 @@
   <p><a href="README.md">English</a> | <b>简体中文</b></p>
 </div>
 
-Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，下次在同一个坑面前，相关抗体先一步进入它的上下文。
+Agent 踩了坑、修好了，往往没人写文档。这个插件把那次经验提炼成一条**抗体**；下次再碰到同类问题，相关抗体会先进入上下文。
 
-Agent 踩了坑、修好了，却没人写文档——这次的经验被自动提炼成一条**抗体**，下次在同一个坑面前，相关抗体先一步进入它的上下文。
-
-两个宿主共用同一份 `core/`：**DSH**（DeepSeek Harness，按真实宿主契约实测）与 **ZCode**（按实测 hook 契约）。一次踩坑、处处免疫。
+两个宿主共用同一份 `core/`：**DSH**（DeepSeek Harness，按真实宿主契约实测）与 **ZCode**（按实测 hook 契约）。同一套包，两边都能用。
 
 ![demo](docs/hero.svg)
 
-**30 秒上手——零安装、零持久化：**
+**30 秒试一下（不用安装、不落盘）：**
 
+```bash
+npx dsh-immune-system@latest demo
+```
 
+会跑真实流水线：蒸馏一条失败→成功，再用改述提问召回，并打出 hooks 实际注入的 `<immune_memory>`。全程内存。
 
 ---
 
 ### 它解决什么问题
 
-同一个坑反复踩，是 Agent 最浪费时间的模式：
+同一个坑反复踩，很浪费时间：
 
 - 改了 `vite.config.ts`，`process.env` 读不到客户端变量，报错，换 `loadEnv` 才好；
 - 下次换个会话，**又这么写一遍**。
 
-静态文档解决不了——没人维护，很快过期。这个插件让**踩坑现场自己变成规则**：
+静态文档往往没人维护，很快过期。这个插件让踩坑现场变成规则：
 
 ```
  工具失败 ─┐
@@ -51,42 +53,36 @@ Agent 踩了坑、修好了，却没人写文档——这次的经验被自动�
         下一次会话提问 ─► <immune_memory> 注入模型上下文
 ```
 
-### 质量，用数字说
+### 质量（有数字）
 
-检索层不是「宣称可用」，而是被闸门约束：固定中英场景矩阵（8 条改述正例、6 条
-gram 干净负例）当前 **R@1 100% / R@3 100% / FP 0%**，闸门（R@3 ≥ 7/8、FP ≤ 1/6）
-在 CI 每次 push 自动执行。规模实测（`scripts/bench-scale.mjs`）：**300 条规则
-41 ms 入库（0.14 ms/条），67 次 match p50 0.37 ms / p95 0.66 ms**——检索在数百
-条规则的库里仍是亚毫秒级。`scripts/bench-tool-latency.mjs` 钉住回合末蒸馏的
-成本曲线（工具路径始终不碰模型），`scripts/verify-llm.mjs` 在配置了 LLM 端点时
-一条命令真机验证外部蒸馏。
+检索层有闸门，不是口头「可用」。固定中英场景矩阵（8 条改述正例、6 条 gram 干净负例）当前 **R@1 100% / R@3 100% / FP 0%**。闸门（R@3 ≥ 7/8、FP ≤ 1/6）在 CI 每次 push 跑。
+
+规模实测（`scripts/bench-scale.mjs`）：**300 条规则 41 ms 入库（0.14 ms/条），67 次 match p50 0.37 ms / p95 0.66 ms**——几百条规则时检索仍是亚毫秒。`scripts/bench-tool-latency.mjs` 钉住回合末蒸馏成本（工具路径不碰模型）。配了 LLM 端点时，`scripts/verify-llm.mjs` 一条命令做真机验证。
 
 ### 没有 hook 也能用
 
-不跑我们 hook 的 agent 也会读 `AGENTS.md` / `CLAUDE.md`。一个确定性、幂等的
-段落同步把成熟教训写进去：
+不跑我们 hook 的 agent 也会读 `AGENTS.md` / `CLAUDE.md`。确定性、幂等的段落同步会把成熟教训写进去：
 
 ```bash
 immune sync-doc                 # AGENTS.md（不存在则 CLAUDE.md）
 immune sync-doc --out CLAUDE.md --min-hits 5
 ```
 
-段落由 `immune:generated` 标记围栏并完全托管——在段落**外**编辑，永远别在段落内改。
-写入前字段剥尖括号，段落外的人写内容保留，重复运行是替换不是追加。
+段落由 `immune:generated` 标记围栏，内容完全托管——只在段落**外**编辑，别改段落内。写入前字段会剥尖括号；段外人写的内容保留；重复运行是替换，不是追加。
 
 ### 安装
 
 #### DSH
 
-**npm（现在可用，最简）**：
+**npm（推荐，最简单）：**
 
 ```bash
 dsh plugin --profile <profile> add dsh-immune-system
 ```
 
-包发布在 https://www.npmjs.com/package/dsh-immune-system ，`dist/` 预构建随包。
+包在 https://www.npmjs.com/package/dsh-immune-system ，`dist/` 预构建随包。
 
-**tarball / git**（等价，无需 npm 账号）：
+**tarball / git**（等价，不需要 npm 账号）：
 
 ```bash
 cd dsh-immune-system && npm pack          # → dsh-immune-system-<version>.tgz
@@ -94,17 +90,14 @@ dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
-`git:` 安装会在安装时跑 `prepare` 构建，被 pnpm 默认拦截——需要把 pnpm 打印的 key
-加进 profile 的 `pnpm-workspace.yaml → allowBuilds`。除非你就要这个形态，否则用前两种。
+`git:` 安装会在安装时跑 `prepare` 构建，pnpm 默认会拦——把 pnpm 打印的 key 加进 profile 的 `pnpm-workspace.yaml → allowBuilds`。一般用前两种就行。
 
-装完**重启 DSH**（bundle 是启动时装配的，运行中的进程不会自己加载）。
-`<profile>` 就是 `~/.dsh/profiles/` 下你实际在用的那个（桌面端通常是 `desktop`）。
+装完**重启 DSH**（bundle 在启动时装配，运行中不会自己加载）。
+`<profile>` 是 `~/.dsh/profiles/` 里你正在用的那个（桌面端通常是 `desktop`）。
 
 装完可用 `/immune` 自检：能返回「暂无抗体」就说明挂上了。
 
-**上架 DSH Plugin Hub**：仓库已打 `dsh-plugin` topic，Hub 会周期性自动抓取；
-也可在 `dsh-plugin.org/submit` 主动提交。注意 Hub 索引的是仓库条目，**安装仍走
-上面的 tarball / npm**。
+**上架 DSH Plugin Hub**：仓库已打 `dsh-plugin` topic，Hub 会周期性抓取；也可在 `dsh-plugin.org/submit` 提交。Hub 索引的是仓库条目，**安装仍走上面的 tarball / npm**。
 
 #### ZCode
 
@@ -115,12 +108,11 @@ node "<zcode.cjs 路径>" plugins marketplace add meat-daemon-404/dsh-plugin-imm
 node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
-装完**新建一个任务**才生效（旧任务保留的是旧能力清单）。
+装完**新建一个任务**才生效（旧任务还是旧能力清单）。
 
 ### 怎么用
 
-正常干活就行。踩坑 → 修好 → 下一回合自动提炼。
-之后问到含相同文件名/命令的话，上下文里会出现 `<immune_memory>…</immune_memory>`。
+正常干活就行。踩坑 → 修好 → 下一回合自动提炼。之后问到含相同文件名/命令的话，上下文里会出现 `<immune_memory>…</immune_memory>`。
 
 | 命令 | 宿主 | 作用 |
 | --- | --- | --- |
@@ -141,59 +133,38 @@ node "<zcode.cjs 路径>" plugins install dsh-immune-system@dev-dsh-plugin-immun
 | `cli.js export-json <path>` / `import-json <path>` | 两者 | 库快照导出/导入——跨机器同步、git 提交、团队共享 |
 | `cli.js doctor` | 两者 | 安装健康自检：node 版本、FTS5、数据库、marker、MCP 脚本 |
 
-> 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）
-> 走参数化 LIKE 兜底**——trigram 压根无法索引 2 字词，只靠 MATCH 会把这类词整段漏掉。
+> 检索层同时跑两条通道：3 字以上走 FTS5 trigram，**2 字中文词（跨域/端口/权限/死锁）走参数化 LIKE 兜底**——trigram 索引不了 2 字词，只靠 MATCH 会漏掉这类词。
 
 ### 仪表盘
 
-`/dsh-immune-system:immune-ui`（或 `cli.js ui`）会起一个本地页面：
+`/dsh-immune-system:immune-ui`（或 `cli.js ui`）起一个本地页面：
 
-- 搜索触发词/症状/处方，实时过滤；**浏览不计入命中数**，所以晋升和淘汰的统计不会被点鼠标污染
-- 每条可**退役 / 恢复 / 删除**，分「项目库」「共享库」两个页签，可按「最近更新 / 命中最多 / 失效最多」排序
+- 搜触发词/症状/处方，实时过滤；**浏览不计入命中数**，晋升和淘汰统计不会被点鼠标污染
+- 每条可**退役 / 恢复 / 删除**；「项目库」「共享库」两个页签；可按「最近更新 / 命中最多 / 失效最多」排序
 - 顶部 5 张 KPI：生效数、退役数、累计注入、共享库条数，外加**当前蒸馏预算**
-- 跟随系统深浅色、窄屏自动把表格降级成卡片、骨架屏与空态都是有设计的那种
+- 跟随系统深浅色；窄屏表格降成卡片；有骨架屏和空态
 
-安全边界是刻意收窄的：只绑 `127.0.0.1`、每次启动生成随机 token 且所有 `/api` 都要带它
-（跨站简单 POST 不需要预检，只靠 Origin 判断不够）、严格 CSP、页面不加载任何外部资源。
+安全边界收得比较紧：只绑 `127.0.0.1`；每次启动生成随机 token，所有 `/api` 都要带（跨站简单 POST 不需要预检，只靠 Origin 不够）；严格 CSP；页面不加载外部资源。
 
-UI 是自建的而非宿主插件 UI——ZCode 插件没有 UI 插槽（只有 hooks/commands/skills/MCP），
-所以走本地 HTTP，两个宿主通用。
+UI 是自建的，不是宿主插件 UI——ZCode 插件没有 UI 插槽（只有 hooks/commands/skills/MCP），所以走本地 HTTP，两个宿主通用。
 
 #### the agent harness 原生 UI（设置页里的 tab）
 
-the agent harness 有 web GUI 和客户端插槽，所以那边**不用另开页面**：
-`设置 → 插件` 里会出现一个「免疫 / Immune」tab。它与独立仪表盘共用同一套设计：
-KPI（含预算）、搜索与清除、页签计数、排序、状态圆点、窄屏卡片、骨架屏与空态。
+the agent harness 有 web GUI 和客户端插槽，那边**不用另开页面**：`设置 → 插件` 里会出现「免疫 / Immune」tab。和独立仪表盘同一套：KPI（含预算）、搜索与清除、页签计数、排序、状态圆点、窄屏卡片、骨架屏与空态。
 
-- 客户端是 `dsh-immune-system/client/client.js`，按模块装载器契约手写
-  （`window.__ModuleLoader__.load({ id, factory })`），**不需要打包器、不写 JSX**
-- 样式是注入一段静态 `<style>`（选择器全部 scope 在 `.imm` 下），所以 hover、媒体查询、
-  跟随宿主的 `--dsh-*` 深浅色变量都能用，而不是几十个 inline style
-- 数据走宿主路由 `/plugins/dsh-immune-system/api`，用
-  `ctx.inject(['webServer'], …)` 注册——这是可选依赖，CLI/桌面 profile 没有 web 服务时
-  插件照常工作，只是没有这个 tab
-- **manifest 必须同时声明** `dsh.client: { platform: "web" }` 与字符串
-  `exports["./client"]`。宿主的 `client-modules` 只按这两条把包认成「浏览器半」，
-  再把文件原样挂到 `/plugins/<id>/client.js?rev=<hash>`；少一条，文件在磁盘上存在
-  但路由 404、tab 永不出现（而且判定在本进程内缓存，必须重启才生效）。
-  `test/manifests.test.mjs` 与 `scripts/verify-installed.mjs` 把声明、导出目标与
-  文件内容三件事都钉死了
-- 变更类请求要求 `content-type: application/json` 且同源：JSON 会强制 CORS 预检，
-  跨站页面过不去
+- 客户端是 `dsh-immune-system/client/client.js`，按模块装载器契约手写（`window.__ModuleLoader__.load({ id, factory })`），**不需要打包器、不写 JSX**
+- 样式注入一段静态 `<style>`（选择器全部 scope 在 `.imm` 下），所以 hover、媒体查询、跟随宿主的 `--dsh-*` 深浅色变量都能用，而不是堆 inline style
+- 数据走宿主路由 `/plugins/dsh-immune-system/api`，用 `ctx.inject(['webServer'], …)` 注册——可选依赖；CLI/桌面 profile 没有 web 服务时插件照常工作，只是没有这个 tab
+- **manifest 必须同时声明** `dsh.client: { platform: "web" }` 与字符串 `exports["./client"]`。宿主的 `client-modules` 只按这两条把包认成「浏览器半」，再把文件原样挂到 `/plugins/<id>/client.js?rev=<hash>`；少一条，文件在磁盘上存在但路由 404、tab 不出现（判定在本进程内缓存，必须重启才生效）。`test/manifests.test.mjs` 与 `scripts/verify-installed.mjs` 把声明、导出目标与文件内容三件事都钉死了
+- 变更类请求要求 `content-type: application/json` 且同源：JSON 会强制 CORS 预检，跨站页面过不去
 
-> 诚实说明：客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、
-> 跨源拒绝、无 web 服务时不注册、预算透传），布局则用真实 React 18 做过静态渲染自检
-> （含深色模式、空态、窄屏）。
+> 客户端与路由的**契约**有测试（模拟 `__ModuleLoader__` 装载、假 ctx 验证路由、跨源拒绝、无 web 服务时不注册、预算透传）。布局用真实 React 18 做过静态渲染自检（含深色模式、空态、窄屏）。
 >
-> **已在真实宿主里验证过**：0.9.8 补齐 `dsh.client` 声明后，`设置 → 插件` 里的 tab
-> 确实出现了（此前 `/plugins/dsh-immune-system/client.js` 返回 404，只有宿主半在跑）。
-> 0.9.12 进一步把它放进 **shadow root**——真实的设置弹窗会用自己的样式表重排裸
-> `table`/`td`/`div`，导致行被压成几像素、下拉框空白；shadow root 双向隔离，
-> 宿主 CSS 进不来、我们的样式也出不去。
+> **已在真实宿主里验证过**：0.9.8 补齐 `dsh.client` 声明后，`设置 → 插件` 里的 tab 确实出现了（此前 `/plugins/dsh-immune-system/client.js` 返回 404，只有宿主半在跑）。0.9.12 进一步放进 **shadow root**——真实设置弹窗会用自己的样式表重排裸 `table`/`td`/`div`，行被压成几像素、下拉框空白；shadow root 双向隔离，宿主 CSS 进不来，我们的样式也出不去。
 
 ### 同步与体检
 
-库快照是纯 JSON（带格式标签），合并语义刻意保守：
+库快照是纯 JSON（带格式标签）。合并偏保守：
 
 - **处方是身份**——与库自身的去重规则一致
 - 两侧都认识的规则，命中/失效计数取 **max**（两台机器各自独立计数，不该相乘）
@@ -205,90 +176,62 @@ node "<plugin>/dist/zcode/src/cli.js" import-json library.json   # 合并进当�
 node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
 ```
 
-把 `library.json` 提交进仓库（或放进共享库 `global.sqlite` 所在目录的 git），团队每个
-成员 `import-json` 一次就继承全部教训。`doctor` 逐项报告 node 版本、FTS5 trigram
-探针、库可写性、marker、MCP 脚本，任何一项失败退出码非零，可以接进 CI。
+把 `library.json` 提交进仓库（或放进共享库 `global.sqlite` 所在目录的 git），团队成员各 `import-json` 一次就能继承教训。`doctor` 逐项报告 node 版本、FTS5 trigram 探针、库可写性、marker、MCP 脚本；任一项失败退出码非零，可接 CI。
 
-### 四个关键设计
+### 关键设计
 
-**① 失败感知不赌单一事件（这是最要命的一条）**
+**① 失败感知不赌单一事件**
 
-两个宿主上「bash 退出码非 0」都**不是**错误结果：
+两个宿主上，「bash 退出码非 0」都**不是**错误结果：
 
 - ZCode：`PostToolUseFailure` 只在工具处理器**抛异常**时触发，命令非零退出是正常返回；
-- DSH：`result.isError` **只覆盖基础设施失败**（spawn 错误、abort、监听器抛错），
-  非零退出被明确设计为「reported, not errored」，模型自己决定怎么办。
+- DSH：`result.isError` **只覆盖基础设施失败**（spawn 错误、abort、监听器抛错），非零退出被设计为「reported, not errored」，模型自己决定怎么办。
 
-所以两版都自己判结果。DSH 侧的判据按权威度排序：
+所以两版都自己判结果。DSH 侧判据按权威度排序：
 `isError` → sandbox 拒绝标记（判失败但**不入库学习**）→ kill/timeout（含 `value.timedOut`）→
 结构化 `value.exitCode`（**有则权威：0 成功、非 0 失败，不再看文本**）→
 有结构化 `value` 但无退出状态（**载荷即结论，正文是数据，不扫**）→ 行尾 `[exit code: N]` →
-窄口径失败标记正则（**仅当无任何结构化状态**）。后面两步刻意让位给结构化信号：一条退出 0
-的命令在 `grep` 输出里顺带印出 `command not found` 是常事，而 `read` 一个含 `Error:` 的日志
-文件更是日常——都不该被记成失败。
+窄口径失败标记正则（**仅当无任何结构化状态**）。
+
+后面两步会让位给结构化信号：退出 0 的命令在 `grep` 输出里印出 `command not found` 很常见；`read` 一份含 `Error:` 的日志也日常——都不该记成失败。
 
 **② 抗体失效会被淘汰（Anti-Rot）**
 
-一条抗体注入后工具**仍然**失败，说明它没起作用，扣分；满 3 次自动退役并联合新证据重新蒸馏。
-扣分**带相关性判断**——失败内容必须与该抗体的触发词有共同词才算数，且**排除工具名本身**
-（否则每条 `Bash …` 抗体都会被任何一次 Bash 失败冤枉）。
+一条抗体注入后工具**仍然**失败，说明没起作用，扣分；满 3 次自动退役，并结合新证据重新蒸馏。扣分**带相关性判断**——失败内容必须与该抗体的触发词有共同词才算，且**排除工具名本身**（否则每条 `Bash …` 抗体都会被任意一次 Bash 失败冤枉）。
 
 **②⁺ 泛型坑只学一条（Generic lessons）**
 
-`File has been modified since read` 这类坑与具体文件无关——实测它在三个不同文件上
-各学了一条重复规则。精选模式表（`core/lessons.ts`）把这类症状归一成泛型触发词和处方，
-规则的处方级去重随后把所有实例合并成一条，教训靠命中数累积而不是繁殖。
-规则蒸馏与模型蒸馏两条路径共用同一张表。
+`File has been modified since read` 这类坑与具体文件无关——实测它在三个不同文件上各学过一条重复规则。精选模式表（`core/lessons.ts`）把这类症状归一成泛型触发词和处方；处方级去重再把实例合并成一条，教训靠命中数累积，而不是繁殖。规则蒸馏与模型蒸馏共用同一张表。
 
 **②⁺⁺ 人类纠偏优先于模型猜测（Cross-turn hint）**
 
-真实会话经常是：工具失败 → Agent 问人 → 人类说"这个仓库用 pnpm" → 重试成功。
-那句人话是最好的蒸馏输入。`UserPromptSubmit` 会把**新回合的人类消息**挂到上一回合
-未闭合的失败上，蒸馏时作为处方的最优来源（人类陈述规则，模型只能从 diff 里猜）。
-"继续""ok"这类空话会被 `isSubstantiveHint` 挡掉——否则会变成 `do: 继续` 这种废处方。
+常见流程：工具失败 → Agent 问人 → 人类说「这个仓库用 pnpm」→ 重试成功。那句人话是最好的蒸馏输入。`UserPromptSubmit` 会把**新回合的人类消息**挂到上一回合未闭合的失败上，蒸馏时优先当处方来源（人陈述规则，模型只能从 diff 猜）。「继续」「ok」这类空话会被 `isSubstantiveHint` 挡掉——否则容易变成 `do: 继续` 这种废处方。
 
 **②⁺⁺⁺ 全局共享库（Shared library）**
 
-按项目隔离防串味，代价是新项目从零开踩。泛型抗体（`core/lessons.ts` 判定的，
-或触发词不含具体文件路径且命中 ≥5 次的）会同步到同目录的 `global.sqlite`，
-新项目召回不足时从它补齐。
+按项目隔离防串味，代价是新项目从零开踩。泛型抗体（`core/lessons.ts` 判定的，或触发词不含具体文件路径且命中 ≥5 次的）会同步到同目录的 `global.sqlite`，新项目召回不足时从它补齐。
 
-**没有用 `ATTACH DATABASE`**：SQLite 明确说明 WAL 模式下跨附加库的事务不原子，
-而本插件每进程短连接、多 hook 并发。改用两条独立连接——每次写入仍是单文件事务。
-代价只是召回变成两次查询，这个量级无所谓。项目库与共享库的 id 在合并时**从不按 id 混用**
-（两个库的 AUTOINCREMENT 各自独立，会撞）。
+**没有用 `ATTACH DATABASE`**：SQLite 说明 WAL 下跨附加库事务不原子，而本插件每进程短连接、多 hook 并发。改用两条独立连接——每次写入仍是单文件事务。代价只是召回变成两次查询，量级可接受。项目库与共享库的 id 合并时**从不按 id 混用**（两个库的 AUTOINCREMENT 各自独立，会撞）。
 
 **③ 事前检查（Guard，默认关闭）**
 
-提示词是软建议，长上下文里模型偶尔照样照错发。`IMMUNE_GUARD` 提供一层确定性检查：
-`off`（默认）/ `warn`（更醒目的提示）/ `deny`（拒绝执行该工具调用）。
+提示词是软建议，长上下文里模型偶尔仍会照错发。`IMMUNE_GUARD` 提供确定性检查：`off`（默认）/ `warn`（更醒目的提示）/ `deny`（拒绝该工具调用）。
 
-三条只在任何环境都错的规则：强推 main、`rm -rf /`、`git reset --hard`。
-**规则写在代码里，不进数据库**——蒸馏产物是模型输出，把它编译成正则去拦截工具调用
-等于让未经审阅的字符串获得停止工作的权力，还有 ReDoS 风险。
-`deny` 是唯一有破坏性的模式，所以它从不是默认值。
+三条在几乎任何环境都错的规则：强推 main、`rm -rf /`、`git reset --hard`。**规则写在代码里，不进数据库**——蒸馏产物是模型输出，把它编译成正则去拦工具调用，等于让未经审阅的字符串获得停工权力，还有 ReDoS 风险。`deny` 是唯一有破坏性的模式，所以不是默认。
 
-两侧都接上了：ZCode 用 `permissionDecision: deny`，the agent harness 用
-`tools/pre-execute` 返回 `{ kind: 'deny', reason }`（`PreToolDecision` 的三种形态
-查自 `packages/core/tools/src/index.ts:588`）。**`warn` 仅 ZCode 有效**——
-`PreToolDecision` 没有携带上下文的字段，the agent harness 侧只能"拦或不拦"。
+两侧都接上了：ZCode 用 `permissionDecision: deny`，the agent harness 用 `tools/pre-execute` 返回 `{ kind: 'deny', reason }`（`PreToolDecision` 的三种形态见 `packages/core/tools/src/index.ts:588`）。**`warn` 仅 ZCode 有效**——`PreToolDecision` 没有携带上下文的字段，the agent harness 侧只能「拦或不拦」。
 
 **③ 注入卫生**
-注入内容只来自我们自己提炼的字段，从不放原始工具输出；抗体文本里的尖括号被剥离，
-无法闭合包裹标签；有长度上限；明确标注「仅供参考」，避免模型把它当成用户指令。
-一个回合最多注入一次、且只在回合第一步匹配（工具循环里每步都匹配既会重复灌入，
-也会把抗体的命中计数灌成「这回合跑了几步」的噪声）。
+
+注入内容只来自我们自己提炼的字段，从不放原始工具输出；抗体文本里的尖括号被剥离，无法闭合包裹标签；有长度上限；明确标注「仅供参考」，避免模型当成用户指令。一个回合最多注入一次，且只在回合第一步匹配（工具循环每步都匹配会重复灌入，也会把命中计数变成「这回合跑了几步」的噪声）。
 
 **④ 蒸馏在回合边界跑，不在工具结果路径里**
 
-`drain()` 可能向配置的 LLM 端点发一次 HTTP 请求。DSH 的 `tools/post-execute` 监听器被 await
-在工具结果路径上，把蒸馏放进去会让每次「失败后成功」的工具调用都卡到 HTTP 返回；
-所以它挂在 `agent/turn-stopping`（`@mode serial`，回合边界提交前 await）。
-未清空的队列还会在下次 `session-start` 由 `requeueStuckJobs()` 兜底。
+`drain()` 可能向配置的 LLM 端点发一次 HTTP。DSH 的 `tools/post-execute` 监听器被 await 在工具结果路径上；把蒸馏放进去，每次「失败后成功」都会卡到 HTTP 返回。所以挂在 `agent/turn-stopping`（`@mode serial`，回合边界提交前 await）。未清空的队列还会在下次 `session-start` 由 `requeueStuckJobs()` 兜底。
 
 ### 失败怎么被判出来（四层判定 × 三类失败）
 
-`judgeOutcome` 不是「看一个 boolean」，而是按权威顺序逐层走。三类常见失败在四层里的落点并不相同：
+`judgeOutcome` 不是「看一个 boolean」，而是按权威顺序逐层走。三类常见失败在各层落点不同：
 
 | 层 | 判据 | bash 非零退出 | 超时 | 沙箱拒绝 |
 | --- | --- | --- | --- | --- |
@@ -310,7 +253,7 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
   └─ 其余 ─────────────────────────────────→ 成功
 ```
 
-要点：**结构化 exitCode 一旦存在就压过文本**——`grep` 命中内容、测试打印 `Error:` 都不会被误判成功/失败；而 bash 的非零退出正是靠第 4 层抓到的（宿主本身不会把它置成 `isError`）。这也解释了为什么「读一份含 `Error:` 的日志」不会凭空长出一条抗体。
+要点：**结构化 exitCode 一旦存在就压过文本**——`grep` 命中内容、测试打印 `Error:` 都不会被误判；bash 非零退出靠第 4 层抓到（宿主不会把它置成 `isError`）。这也解释了为什么「读一份含 `Error:` 的日志」不会凭空长出一条抗体。
 
 ### 存储
 
@@ -321,16 +264,9 @@ node "<plugin>/dist/zcode/src/cli.js" doctor                     # 安装自检
   —— **按项目隔离**，不同工作区互不串味，也不往项目目录里丢文件。
 - ZCode 默认：插件数据目录（`ZCODE_PLUGIN_DATA`），无则 `<项目>/.dsh/immune.sqlite`。
 
-**不会无限膨胀**：`pruneStale` 在每次配对时顺带回收——pending 状态按 30 分钟 TTL，
-已终态（done/failed/skipped）的蒸馏任务和一周没有动静的会话行按 7 天保留窗删除
-（pending/running 的任务不动），`immune doctor` 的 storage 行可以看见各表行数与库文件大小。
-落盘前统一过脱敏：Authorization/Bearer、`KEY=`/`SECRET=`/`TOKEN=`/`PASSWORD=` 赋值、
-`sk-`、`ghp_`、`AKIA`、npm granular、GitHub fine-grained PAT、GitLab PAT、Google `AIza`、
-Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后再进库。
+**不会无限膨胀**：`pruneStale` 在每次配对时顺带回收——pending 状态按 30 分钟 TTL；已终态（done/failed/skipped）的蒸馏任务和一周没有动静的会话行按 7 天保留窗删除（pending/running 的任务不动）。`immune doctor` 的 storage 行可以看到各表行数与库文件大小。落盘前统一脱敏：Authorization/Bearer、`KEY=`/`SECRET=`/`TOKEN=`/`PASSWORD=` 赋值、`sk-`、`ghp_`、`AKIA`、npm granular、GitHub fine-grained PAT、GitLab PAT、Google `AIza`、Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后再进库。
 
-**冷启动**：`agent/pre-step` 在 `resume`/`clear`/`compact` 时拿到的是「seed 之后新增」的批次，
-不含人类提问。DSH 版订阅 `session/event` 的 `user/message` 记住每个会话最近的提问，
-作为匹配依据的兜底，所以冷启动后的第一句也能召回。
+**冷启动**：`agent/pre-step` 在 `resume`/`clear`/`compact` 时拿到的是「seed 之后新增」的批次，不含人类提问。DSH 版订阅 `session/event` 的 `user/message`，记住每个会话最近的提问作匹配兜底，所以冷启动后第一句也能召回。
 
 ### 配置（全部可选）
 
@@ -352,7 +288,7 @@ Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后
 
 ### 什么时候值得开 LLM 蒸馏（成本 / 收益）
 
-不配 `IMMUNE_LLM_*` 时走离线规则蒸馏器：零成本、结果确定，只从失败/成功的调用串里抽关键词拼出 trigger / prescription。配上模型后，同一段「失败→成功」会被改写成一句更像人话的处方（跨项目复用、导出成 `SKILL.md` 都更好），代价是**每条蒸馏一次模型往返**。
+不配 `IMMUNE_LLM_*` 时走离线规则蒸馏器：零成本、结果确定，只从失败/成功的调用串里抽关键词拼出 trigger / prescription。配上模型后，同一段「失败→成功」会被改写成更像人话的处方（跨项目复用、导出成 `SKILL.md` 都更好），代价是**每条蒸馏一次模型往返**。
 
 实测（`scripts/bench-tool-latency.mjs`，mock 端点 1500 ms/次）：
 
@@ -363,16 +299,14 @@ Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后
 | 3 | ~4.6 s | 3 |
 | 5 | ~7.5 s | 5 |
 
-- 成本只落在**回合边界**一次（`agent/turn-stopping`），不落在工具调用上——`tools/post-execute` 中位稳定在 ~1 ms。
+- 成本只落在**回合边界**一次（`agent/turn-stopping`），不落在工具调用上——`tools/post-execute` 中位约 ~1 ms。
 - 预算默认 12 s（`IMMUNE_DISTILL_BUDGET_MS`）。队列超过预算时，多出的任务留到下一次边界：实测 3000 ms 预算 + 6 个任务只蒸馏 2 个，其余 4 个顺延。
-- 经验阈值：**每回合最多攒几条**「失败→成功」时才开模型。如果一个回合常常攒十几条，先跑离线规则蒸馏，或把 `IMMUNE_DISTILL_BUDGET_MS` 调小、让它跨多个回合摊平。
+- 经验阈值：**每回合最多攒几条**「失败→成功」时再开模型。若一个回合常常攒十几条，先跑离线规则蒸馏，或把 `IMMUNE_DISTILL_BUDGET_MS` 调小，跨多个回合摊平。
 
 ### 安全
 
-- **脱敏**：写入磁盘前擦除 Bearer 令牌、`*_KEY=` 类赋值、URL 内嵌凭证、JWT。
-  这些记录之后可能被导出成团队共享的 `SKILL.md`，泄漏在那里比泄漏在日志更糟。
-- **失败不致命**：DSH 版 `apply()` 把启动包在 try/catch 里，抗体库打不开只写一条
-  `warn` 并把本会话降级为「无免疫」——插件坏了不能拖垮会话。ZCode 版 hook 永远 `exit 0`。
+- **脱敏**：写入磁盘前擦除 Bearer 令牌、`*_KEY=` 类赋值、URL 内嵌凭证、JWT。这些记录之后可能被导出成团队共享的 `SKILL.md`，泄漏在那里比泄漏在日志更糟。
+- **失败不致命**：DSH 版 `apply()` 把启动包在 try/catch 里，抗体库打不开只写一条 `warn`，本会话降级为「无免疫」——插件坏了不能拖垮会话。ZCode 版 hook 永远 `exit 0`。
 - **SQL 只走参数绑定**，不拼接；FTS 查询词逐条加引号并转义，用户文本无法注入 FTS 语法。
 
 ### 验证状态
@@ -389,14 +323,9 @@ Slack、Stripe live key、内联 URL 凭证和 JWT，全部替换为占位符后
 
 ### 已知限制
 
-- **模型端点默认拒绝环回**：本地 Ollama 类服务需显式设 `IMMUNE_ALLOW_PRIVATE_ENDPOINT=1`。
-  这是防 SSRF 的代价，不是疏漏。
-- **外部 LLM 蒸馏未实测**：规则蒸馏器全流程有测试；接真实模型端点的路径只有 mock 覆盖
-  （含批量路径的降级链）。
-- **真实 agent 端到端未验**：验证期间模型额度返回 402，turn 到不了工具阶段。同一条链路改为
-  向安装副本投喂真实事件载荷验证（含真 Cordis 宿主的 20 条断言）。
-- **`IMMUNE_GUARD=warn` 仅 ZCode 有效**：DSH 的 `PreToolDecision` 没有携带上下文的字段，
-  那边只能"拦或不拦"。
+- **模型端点默认拒绝环回**：本地 Ollama 类服务需显式设 `IMMUNE_ALLOW_PRIVATE_ENDPOINT=1`。这是防 SSRF 的代价，不是疏漏。
+- **外部 LLM 蒸馏未实测**：规则蒸馏器全流程有测试；接真实模型端点的路径只有 mock 覆盖（含批量路径的降级链）。
+- **真实 agent 端到端未验**：验证期间模型额度返回 402，turn 到不了工具阶段。同一条链路改为向安装副本投喂真实事件载荷验证（含真 Cordis 宿主的 20 条断言）。
+- **`IMMUNE_GUARD=warn` 仅 ZCode 有效**：DSH 的 `PreToolDecision` 没有携带上下文的字段，那边只能「拦或不拦」。
 
 ---
-

@@ -4,7 +4,7 @@
     <img src="docs/logo-light.svg" alt="dsh-immune — self-evolving pitfall immunity" width="360">
   </picture>
 
-  <p><b>Your coding agents stop re-debugging what they already fixed.</b></p>
+  <p><b>Coding agents that stop re-debugging fixes they already made.</b></p>
 
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm"></a>
@@ -18,13 +18,13 @@
   <p><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
 </div>
 
-Agent steps on a rake, fixes it, and the lesson is captured as an *antibody* —
-no docs required. Next session the relevant antibodies are injected before the
-mistake can repeat.
+An agent hits a failure, fixes it, and the lesson is saved as an *antibody* —
+you do not have to write docs for it. Next session, matching antibodies are
+injected before the same mistake repeats.
 
-Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
-against the real host contract) and **ZCode** (verified against its hooks).
-Same npm package, one pitfall paid once, immune everywhere.
+One shared `core/` on two hosts: **DSH** (DeepSeek Harness, checked against the
+real host contract) and **ZCode** (checked against its hooks). Same npm package
+on both.
 
 <div align="center">
   <img src="docs/hero.svg" alt="immune demo — the real pipeline, in-memory" width="720">
@@ -36,20 +36,16 @@ Same npm package, one pitfall paid once, immune everywhere.
 npx dsh-immune-system@latest demo
 ```
 
-The command runs the real pipeline: distils a fresh failure→success episode,
-recalls it from a paraphrase prompt, and renders the exact `<immune_memory>`
-block the hooks inject. In-memory only.
+Runs the real pipeline: distils a failure→success episode, recalls it from a
+paraphrase prompt, and prints the same `<immune_memory>` block the hooks inject.
+In-memory only.
 
 ---
 
 ### What it does
 
-Repeating the same mistake is the most expensive pattern an agent has. Static docs
-do not fix it — nobody maintains them, and they rot. This plugin turns the failure
-scene itself into a rule.
-
-Works on two hosts that share one `core/`: **DSH** (DeepSeek Harness, verified
-against the real host contract) and **ZCode** (verified against its hooks).
+Repeating the same mistake wastes a lot of agent time. Static docs rarely stay
+current. This plugin turns the failure scene into a rule instead.
 
 ### How it compares
 
@@ -61,26 +57,25 @@ against the real host contract) and **ZCode** (verified against its hooks).
 | Hosts | DSH + ZCode hooks (npm install) | Claude Code, Codex, Cursor, 36+ | any via SDK | Claude Code |
 | Quality gate | recall + scale benches in CI | published benchmarks | — | — |
 
-Honest positioning: deja-vu indexes *everything you did* and searches it;
-this plugin keeps only the lessons and *injects* them. Complementary, not
-competing.
+Short take: deja-vu indexes *everything you did* and searches it; this plugin
+keeps the lessons and *injects* them. Complementary, not competing.
 
 ### Quality, measured
 
-The retrieval layer is gated, not claimed: a fixed zh/en scenario matrix
+Retrieval is gated, not just claimed. A fixed zh/en scenario matrix
 (8 paraphrase positives, 6 gram-clean negatives) currently scores
-**R@1 100% / R@3 100% / FP 0%**, and the gate (R@3 ≥ 7/8, FP ≤ 1/6) runs in CI
-on every push. Measured at scale (`scripts/bench-scale.mjs`): **300 rules
-index in 41 ms (0.14 ms/rule), 67 matches at p50 0.37 ms / p95 0.66 ms** —
-retrieval stays sub-millisecond with hundreds of rules.
-`scripts/bench-tool-latency.mjs` pins the drain cost curve (the
-tool path never touches the model), and `scripts/verify-llm.mjs` live-verifies
-external distillation in one command when an LLM endpoint is configured.
+**R@1 100% / R@3 100% / FP 0%**. The gate (R@3 ≥ 7/8, FP ≤ 1/6) runs in CI on
+every push. At scale (`scripts/bench-scale.mjs`): **300 rules index in 41 ms
+(0.14 ms/rule), 67 matches at p50 0.37 ms / p95 0.66 ms** — still
+sub-millisecond with hundreds of rules. `scripts/bench-tool-latency.mjs` pins
+the drain cost curve (the tool path never touches the model).
+`scripts/verify-llm.mjs` live-checks external distillation when an LLM endpoint
+is configured.
 
 ### Works without hooks too
 
 Agents that do not run our hooks still read `AGENTS.md` / `CLAUDE.md`. A
-deterministic, idempotent section sync puts the proven lessons there:
+deterministic, idempotent section sync writes the proven lessons there:
 
 ```bash
 immune sync-doc                 # AGENTS.md (or CLAUDE.md if AGENTS.md is missing)
@@ -88,19 +83,18 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 ```
 
 The section is fenced by `immune:generated` markers and fully managed — edit
-around it, never inside it. Field text is angle-bracket-stripped before
-writing, human text outside the section is preserved, and re-running replaces
-instead of duplicating.
+around it, never inside it. Field text is angle-bracket-stripped before writing;
+human text outside the section is kept; re-running replaces instead of
+duplicating.
 
 **Automatic mode** — set `IMMUNE_SYNC_DOC=AGENTS.md` (or `=1` for the default)
-and the turn-end drain re-syncs the section after distilling, so freshly
-learned rules reach the docs the same turn. `IMMUNE_SYNC_DOC_MIN_HITS`
-overrides the threshold (default 3). Opt-in: writing your docs without being
-asked would be hostile.
+and the turn-end drain re-syncs after distilling, so new rules reach the docs in
+the same turn. `IMMUNE_SYNC_DOC_MIN_HITS` overrides the threshold (default 3).
+Opt-in only: the plugin should not rewrite your docs unless you ask.
 
 ### Install
 
-**Try it first** — the 30-second quickstart, no install, in-memory only:
+**Try it first** — 30-second quickstart, no install, in-memory only:
 
 ```bash
 npx dsh-immune-system@latest demo
@@ -122,7 +116,7 @@ dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
 
 `git:` installs build at install time via `prepare`, which pnpm blocks until
-allowlisted — see the Chinese section above for the exact fix. Prefer npm or the
+allowlisted — see the Chinese README for the exact fix. Prefer npm or the
 tarball.
 
 **Restart DSH** afterwards — bundles are composed at startup.
@@ -163,7 +157,7 @@ use and drained once at turn end under `IMMUNE_DISTILL_BUDGET_MS` (default
 12 s). Measured with a slow mock model (`scripts/bench-tool-latency.mjs`):
 `tools/post-execute` stays ~1 ms median, while `agent/turn-stopping` pays one
 round trip per queued job (~1.5 s each at 1500 ms/call) and defers whatever the
-budget cannot fit to the next boundary. With a model configured the drain now
+budget cannot fit to the next boundary. With a model configured the drain
 **batches four episodes per request**, so a backlog fits in one budget window
 instead of four.
 
@@ -189,8 +183,8 @@ statistics. `resume` / `clear` / `compact` reset the state.
 (`npm`/`npx`/`pnpm` are one family — a build failing under `npm` and passing
 under `npx` is the same task's fix; `npm …` then `git …` is not). Read-only
 probes (`ls`, `pwd`, `cat`, `git status`, `git log`, `git diff`, `which`, …)
-never close an episode: they cannot have fixed anything, and they sit between
-an error and its real fix constantly.
+never close an episode: they cannot have fixed anything, and they often sit
+between an error and its real fix.
 
 **Jaccard near-duplicate merge.** Before inserting, prescriptions within the
 same trigger are compared with character-3-gram Jaccard (blended with a
@@ -202,24 +196,23 @@ stored wording, because it outranks whatever was there.
 **Path-affinity rerank.** Retrieval fetches twice the requested limit, then
 re-ranks in memory: ×1.5 when the trigger names a file or directory the prompt
 mentions, ×0.85 for shared-library rules (project rules always win ties), and a
-time decay of `1 / (1 + 0.02 × days)` so a rule nobody has needed for a year
-does not outrank a fresh one.
+time decay of `1 / (1 + 0.02 × days)` so a rule unused for a year does not
+outrank a fresh one.
 
 ### Dashboard
 
 `cli.js ui` serves a local page at `http://127.0.0.1:7788/`: search, retire /
-restore / delete, project and shared tabs, live counts. Browsing is a
-read-only path — it never counts as an injection.
+restore / delete, project and shared tabs, live counts. Browsing is read-only —
+it never counts as an injection.
 
-Boundaries are deliberately narrow: binds `127.0.0.1` only, a random per-run
-token is required on every `/api` call (a cross-origin simple POST needs no
-preflight, so Origin checking alone would not do), strict CSP, and the page
-loads nothing external.
+Security is tight on purpose: binds `127.0.0.1` only; a random per-run token is
+required on every `/api` call (a cross-origin simple POST needs no preflight, so
+Origin checking alone would not do); strict CSP; the page loads nothing external.
 
 ### Native UI (dsh.client)
 
-The DSH web app gets a real settings tab instead of a separate page. The client
-is `dsh-immune-system/client/client.js`, hand-written against the module-loader
+The DSH web app gets a settings tab instead of a separate page. The client is
+`dsh-immune-system/client/client.js`, hand-written against the module-loader
 contract (`window.__ModuleLoader__.load({ id, factory })`) — no bundler, no JSX,
 no new dependency. Data comes from a host route registered as an *optional*
 `webServer` dependency, so CLI and desktop profiles still work without it.
@@ -227,10 +220,10 @@ Mutations require same-origin JSON, which forces a CORS preflight.
 
 ### Sync & Doctor
 
-Library snapshots are plain tagged JSON, and merging is conservative:
-prescription is the identity, tallies take the MAX (two machines count
-independently and must not multiply), status is active when either side says
-so, and malformed rows are counted invalid rather than aborting the import.
+Library snapshots are plain tagged JSON. Merging is conservative: prescription
+is the identity, tallies take the MAX (two machines count independently and must
+not multiply), status is active when either side says so, and malformed rows are
+counted invalid rather than aborting the import.
 
 ```bash
 node "<plugin>/dist/zcode/src/cli.js" export-json library.json
@@ -245,10 +238,9 @@ Any failure exits non-zero, so it can gate a script.
 
 ### Guard (IMMUNE_GUARD)
 
-Advisory text can be dropped by a model in a long turn, so a short curated list
-of calls that are wrong in essentially every environment also gets a
-deterministic pre-execution check: force-push to main, `rm -rf /`,
-`git reset --hard`.
+Advisory text can be dropped in a long turn, so a short curated list of calls
+that are wrong in essentially every environment also gets a deterministic
+pre-execution check: force-push to main, `rm -rf /`, `git reset --hard`.
 
 ```bash
 IMMUNE_GUARD=off   # default: no check
@@ -257,10 +249,9 @@ IMMUNE_GUARD=deny  # refuse the call (both hosts)
 ```
 
 Patterns live in code, never in the database: a distilled rule is model output,
-and compiling it into a regex that can block tool calls would hand an
-unreviewed string the power to stop work, plus ReDoS risk. `deny` is never the
-default. `warn` is ZCode-only because DSH's `PreToolDecision` carries no
-context channel.
+and compiling it into a regex that can block tool calls would hand an unreviewed
+string the power to stop work, plus ReDoS risk. `deny` is never the default.
+`warn` is ZCode-only because DSH's `PreToolDecision` carries no context channel.
 
 ### Storage & retention
 
