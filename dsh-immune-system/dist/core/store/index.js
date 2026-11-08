@@ -7,6 +7,9 @@ import { rerank } from './rerank.js';
 import { bumpMeta, readMeta } from './meta.js';
 /** meta-table key for the value metric: repeats the plugin measurably prevented. */
 export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
+/** Runtime truth for the optional model path: rules it produced / times it degraded. */
+export const LLM_SUCCESS_KEY = 'llm_distilled';
+export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
 import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
@@ -322,6 +325,8 @@ export class ImmuneStore {
             jobsPending: count("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'pending'"),
             jobsTotal: count('SELECT COUNT(*) AS n FROM distill_jobs'),
             suppressedRepeats: readMeta(this.db, SUPPRESSED_REPEATS_KEY),
+            llmDistilled: readMeta(this.db, LLM_SUCCESS_KEY),
+            llmFallbacks: readMeta(this.db, LLM_FALLBACK_KEY),
             dbBytes,
         };
     }
@@ -337,6 +342,16 @@ export class ImmuneStore {
     }
     finishJob(id, status, note = '') {
         finishJob(this.db, id, status, note);
+    }
+    /** Bump a named meta counter (value metrics surfaced by stats/doctor). */
+    bumpMeta(key, delta = 1) {
+        return bumpMeta(this.db, key, delta);
+    }
+    /** Attach a note to a job without changing its status. */
+    finishJobNote(id, note) {
+        this.db
+            .prepare('UPDATE distill_jobs SET note = ?, updated_at = ? WHERE id = ?')
+            .run(note.slice(0, 400), Date.now(), id);
     }
     requeueStuckJobs() {
         return requeueStuckJobs(this.db);

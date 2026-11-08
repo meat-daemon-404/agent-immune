@@ -22,6 +22,8 @@ export interface BackfillOptions {
   sourceDb?: string;
   /** Only look back this many days (default 120). */
   days?: number;
+  /** Cap how many episodes are enqueued (quota guard for slow LLM channels). */
+  max?: number;
   /** Restrict to one session, for tests and targeted runs. */
   sessionId?: string;
   /** Self-noise markers (the adapters' selfMarkers()). */
@@ -69,27 +71,45 @@ const BACKFILL_TOOLS = new Set([
   'Bash', 'bash', 'Edit', 'Write', 'MultiEdit', 'Read', 'Grep', 'Glob', 'NotebookEdit',
 ]);
 
-function loadParts(db: DatabaseSync): Map<string, { input: unknown; output: string }> {
+/**
+ * Full input/output per callID, for the sessions in scope only.
+ *
+ * The session database holds millions of part rows; loading every one of them
+ * exhausts memory on a real library (observed as a V8 OOM crash). Sessions are
+ * fetched in bounded chunks with bound parameters.
+ */
+function loadParts(
+  db: DatabaseSync,
+  sessionIds: string[],
+): Map<string, { input: unknown; output: string }> {
   const map = new Map<string, { input: unknown; output: string }>();
-  const rows = db
-    .prepare(
-      `SELECT data FROM part WHERE json_extract(data, '$.type') = 'tool' ORDER BY time_created ASC`,
-    )
-    .all() as Array<{ data: string }>;
-  for (const row of rows) {
-    try {
-      const d = JSON.parse(row.data) as {
-        callID?: unknown;
-        state?: { input?: unknown; output?: unknown };
-      };
-      if (typeof d.callID === 'string') {
-        map.set(d.callID, {
-          input: d.state?.input ?? null,
-          output: typeof d.state?.output === 'string' ? d.state.output : '',
-        });
+  const CHUNK = 200;
+  for (let i = 0; i < sessionIds.length; i += CHUNK) {
+    const chunk = sessionIds.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => '?').join(',');
+    const rows = db
+      .prepare(
+        `SELECT data FROM part
+          WHERE session_id IN (${placeholders})
+            AND json_extract(data, '$.type') = 'tool'
+          ORDER BY time_created ASC`,
+      )
+      .all(...chunk) as Array<{ data: string }>;
+    for (const row of rows) {
+      try {
+        const d = JSON.parse(row.data) as {
+          callID?: unknown;
+          state?: { input?: unknown; output?: unknown };
+        };
+        if (typeof d.callID === 'string') {
+          map.set(d.callID, {
+            input: d.state?.input ?? null,
+            output: typeof d.state?.output === 'string' ? d.state.output : '',
+          });
+        }
+      } catch {
+        // A malformed part is skipped; the error_message path still works.
       }
-    } catch {
-      // A malformed part is skipped; the error_message path still works.
     }
   }
   return map;
@@ -149,11 +169,12 @@ function pairSession(
 export function backfill(store: ImmuneStore, opts: BackfillOptions = {}): BackfillReport {
   const source = opts.sourceDb ?? defaultSourceDb();
   const days = opts.days ?? 120;
+  const cap = opts.max !== undefined && Number.isFinite(opts.max) && opts.max > 0 ? Math.trunc(opts.max) : null;
   const since = Date.now() - days * 24 * 60 * 60 * 1000;
   const db = new DatabaseSync(source, { readOnly: true });
   try {
     const calls = loadCalls(db, since, opts.sessionId);
-    const parts = loadParts(db);
+    const parts = loadParts(db, [...new Set(calls.map((c) => c.session_id))]);
     const report: BackfillReport = {
       scanned: calls.length,
       failures: 0,
@@ -168,6 +189,8 @@ export function backfill(store: ImmuneStore, opts: BackfillOptions = {}): Backfi
     const flush = (): void => {
       if (sessionCalls.length === 0) return;
       const stats = pairSession(sessionCalls, parts, (fail, success, repairs) => {
+        // Quota guard: a slow LLM channel needs an explicit cap.
+        if (cap !== null && report.enqueued >= cap) return;
         const failPart = parts.get(fail.tool_call_id);
         const successPart = parts.get(success.tool_call_id);
         const failureTrace = redactAndClamp(

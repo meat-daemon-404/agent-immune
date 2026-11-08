@@ -162,6 +162,27 @@ function storageRow(store) {
         detail: `${kb} db · ${s.pendingFailures} pending · ${s.sessions} sessions · ${s.jobsTotal} jobs (${s.jobsPending} queued)`,
     };
 }
+/**
+ * A reasoning-model channel can take 30-120 s per call, but the turn-end drain
+ * aborts at the budget. Without a warning the LLM path silently falls back to
+ * the rule distiller on every turn and the operator never learns why.
+ */
+function llmBudgetRow(env = process.env) {
+    const configured = Boolean(env.IMMUNE_LLM_BASE_URL?.trim() && env.IMMUNE_LLM_MODEL?.trim());
+    const budget = Number(env.IMMUNE_DISTILL_BUDGET_MS ?? '12000');
+    const timeout = Number(env.IMMUNE_LLM_TIMEOUT_MS ?? '20000');
+    if (!configured) {
+        return { name: 'LLM budget', ok: true, detail: 'no LLM configured - deterministic rule path' };
+    }
+    const tight = Number.isFinite(budget) && Number.isFinite(timeout) && budget < timeout;
+    return {
+        name: 'LLM budget',
+        ok: !tight,
+        detail: tight
+            ? `distill budget ${budget} ms < LLM timeout ${timeout} ms - each turn-end call will abort; raise IMMUNE_DISTILL_BUDGET_MS or use \`immune backfill\``
+            : `budget ${budget} ms covers the ${timeout} ms LLM timeout`,
+    };
+}
 export function runDoctor(store, options = {}) {
     const results = [nodeVersionOk(), ftsProbe()];
     results.push(...databaseChecks(store));
@@ -174,6 +195,16 @@ export function runDoctor(store, options = {}) {
         detail: `${store.listAll(false).length} active / ${store.listAll(true).length - store.listAll(false).length} retired / ${store.pendingJobCount()} queued jobs / ${store.stats().suppressedRepeats} repeats suppressed`,
     });
     results.push(storageRow(store));
+    results.push(llmBudgetRow());
+    const s = store.stats();
+    if (s.llmDistilled > 0 || s.llmFallbacks > 0) {
+        results.push({
+            name: 'LLM runtime',
+            ok: s.llmFallbacks === 0,
+            detail: `${s.llmDistilled} rule(s) from the model · ${s.llmFallbacks} degraded to the rule path` +
+                (s.llmFallbacks > 0 ? ' (see distill_jobs.note for the reason)' : ''),
+        });
+    }
     return results;
 }
 /** Resolve the database the same way hooks do, for doctor's own store. */

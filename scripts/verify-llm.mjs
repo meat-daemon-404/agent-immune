@@ -26,13 +26,11 @@ if (!cfg) {
 console.log(`llm: ${cfg.model} @ ${cfg.endpoint} (timeout ${cfg.timeoutMs} ms)`);
 
 // Leg 1: raw reachability, so a failure here is distinguishable from a
-// parsing failure downstream.
+// parsing failure downstream. chat(cfg, system, user, signal).
 const { chat } = await import('../dsh-immune-system/dist/core/llm.js');
 const t0 = Date.now();
 try {
-  await chat(cfg, [{ role: 'user', content: 'Reply with exactly: ok' }], {
-    signal: AbortSignal.timeout(cfg.timeoutMs),
-  });
+  await chat(cfg, 'You are a health check.', 'Reply with exactly: ok', AbortSignal.timeout(cfg.timeoutMs));
   console.log(`ok   endpoint reachable (${Date.now() - t0} ms)`);
 } catch (error) {
   console.log(

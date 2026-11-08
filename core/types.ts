@@ -82,5 +82,16 @@ export interface Episode {
 
 /** Result of a distillation attempt. */
 export type DistillResult =
-  | { ok: true; antibody: NewAntibody }
+  | {
+      ok: true;
+      antibody: NewAntibody;
+      /**
+       * Which path produced the rule. `rule` on a configured-LLM run means the
+       * model call failed and the loop degraded silently — the runtime
+       * counter is the only way an operator learns that.
+       */
+      source?: 'llm' | 'rule';
+      /** Why the LLM path did not produce the rule, when it did not. */
+      degradedReason?: string;
+    }
   | { ok: false; reason: 'skip' | 'invalid' | 'error'; detail?: string };

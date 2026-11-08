@@ -152,10 +152,12 @@ function main(argv) {
                 const daysArg = args.indexOf('--days');
                 const sessionArg = args.indexOf('--session');
                 const budgetArg = args.indexOf('--budget-ms');
+                const maxArg = args.indexOf('--max');
                 const report = backfill(store, {
                     sourceDb: dbArg >= 0 ? resolve(args[dbArg + 1] ?? '') : undefined,
                     days: daysArg >= 0 ? Number(args[daysArg + 1] ?? '120') : 120,
                     sessionId: sessionArg >= 0 ? args[sessionArg + 1] : undefined,
+                    ...(maxArg >= 0 ? { max: Number(args[maxArg + 1] ?? '0') } : {}),
                     selfMarkers: selfMarkers(),
                 });
                 const budget = budgetArg >= 0 ? Number(args[budgetArg + 1] ?? '60000') : 60_000;
@@ -180,10 +182,14 @@ function main(argv) {
                 })();
                 drainLoop
                     .then(() => {
+                    const s = store.stats();
+                    const path = llm === null
+                        ? 'deterministic rule path'
+                        : `${s.llmDistilled} by the model · ${s.llmFallbacks} degraded`;
                     process.stdout.write(`scanned ${report.scanned} calls · ${report.failures} failures · ` +
                         `${report.paired} paired (${report.superseded} superseded) · ` +
                         `${report.enqueued} enqueued (${report.skippedSelf} self-noise skipped)\n` +
-                        `distilled ${drained} episode(s) with the deterministic rule · ` +
+                        `distilled ${drained} episode(s) — ${path} · ` +
                         `${store.pendingJobCount()} left queued\n`);
                 })
                     .catch((error) => {

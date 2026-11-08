@@ -144,7 +144,12 @@ export function ruleDistill(toolName, failureTrace, successTrace, humanHint = ''
  */
 export async function distillEpisode(toolName, failureTrace, successTrace, opts = {}) {
     const hint = opts.humanHint ?? '';
-    const fallback = () => ruleDistill(toolName, failureTrace, successTrace, hint);
+    const fallback = (reason) => {
+        const ruled = ruleDistill(toolName, failureTrace, successTrace, hint);
+        if (!ruled.ok)
+            return ruled;
+        return { ...ruled, source: 'rule', ...(reason ? { degradedReason: reason } : {}) };
+    };
     const llm = opts.llm === undefined ? readLlmConfig() : opts.llm;
     if (!llm)
         return fallback();
@@ -152,14 +157,15 @@ export async function distillEpisode(toolName, failureTrace, successTrace, opts 
         const raw = await chat(llm, DISTILL_PROMPT, buildDistillInput(failureTrace, successTrace, hint), opts.signal);
         const parsed = parseDistillOutput(raw, toolName);
         if (!parsed.ok)
-            return fallback();
+            return fallback(`model output unparseable: ${parsed.detail ?? parsed.reason}`);
         // The model path is normalised with the same curated table, so both paths
         // converge on one generic rule per generic pitfall.
         const lesson = matchGenericLesson(parsed.antibody.symptom);
         if (!lesson)
-            return parsed;
+            return { ...parsed, source: 'llm' };
         return {
             ok: true,
+            source: 'llm',
             antibody: {
                 trigger_pattern: lesson.trigger,
                 symptom: lesson.symptom,
@@ -168,9 +174,10 @@ export async function distillEpisode(toolName, failureTrace, successTrace, opts 
             },
         };
     }
-    catch {
-        // Model unreachable or misconfigured: the rule-based path keeps the loop alive.
-        return fallback();
+    catch (error) {
+        // Model unreachable or misconfigured: the rule-based path keeps the loop
+        // alive, and the reason travels with the result so the caller can count it.
+        return fallback(error instanceof Error ? error.message.slice(0, 160) : String(error).slice(0, 160));
     }
 }
 /** Apply the curated generic table to a model-produced rule. */
@@ -182,6 +189,8 @@ function normaliseLesson(result, toolName) {
         return result;
     return {
         ok: true,
+        // Provenance of the ORIGINAL answer survives the curated-table rewrite.
+        ...(result.source ? { source: result.source } : {}),
         antibody: {
             trigger_pattern: lesson.trigger,
             symptom: lesson.symptom,
@@ -232,16 +241,20 @@ export async function distillBatch(episodes, opts = {}) {
             if (answer?.ok) {
                 // The batch response carries ids, not tool names — re-stamp it, and let
                 // the curated generic table normalise it exactly as the single path does.
+                // `source` must travel too: the runtime counter is the only evidence an
+                // operator has that the model path actually ran.
                 const stamped = {
                     ok: true,
+                    source: 'llm',
                     antibody: { ...answer.antibody, tool_name: episode.toolName },
                 };
                 results.set(episode.id, normaliseLesson(stamped, episode.toolName));
                 continue;
             }
             // Missing or malformed for this id: the deterministic rule fills the gap
-            // so no queued episode is lost.
-            results.set(episode.id, ruleDistill(episode.toolName, episode.failedTrace, episode.fixedTrace, episode.humanHint));
+            // so no queued episode is lost. Counted as a degradation with its reason.
+            const filled = ruleDistill(episode.toolName, episode.failedTrace, episode.fixedTrace, episode.humanHint);
+            results.set(episode.id, filled.ok ? { ...filled, source: 'rule', degradedReason: 'batch answer missing for id' } : filled);
         }
         return results;
     }

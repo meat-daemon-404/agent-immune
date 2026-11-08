@@ -17,6 +17,9 @@ import { bumpMeta, readMeta } from './meta.js';
 
 /** meta-table key for the value metric: repeats the plugin measurably prevented. */
 export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
+/** Runtime truth for the optional model path: rules it produced / times it degraded. */
+export const LLM_SUCCESS_KEY = 'llm_distilled';
+export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import {
   bumpTurn,
   clearTurnState,
@@ -436,6 +439,9 @@ export class ImmuneStore {
     jobsPending: number;
     jobsTotal: number;
     suppressedRepeats: number;
+    /** Rules the configured model produced, and times it degraded to the rule path. */
+    llmDistilled: number;
+    llmFallbacks: number;
     dbBytes: number | null;
   } {
     const count = (sql: string, ...params: (string | number)[]): number => {
@@ -456,6 +462,8 @@ export class ImmuneStore {
       jobsPending: count("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'pending'"),
       jobsTotal: count('SELECT COUNT(*) AS n FROM distill_jobs'),
       suppressedRepeats: readMeta(this.db, SUPPRESSED_REPEATS_KEY),
+      llmDistilled: readMeta(this.db, LLM_SUCCESS_KEY),
+      llmFallbacks: readMeta(this.db, LLM_FALLBACK_KEY),
       dbBytes,
     };
   }
@@ -482,6 +490,18 @@ export class ImmuneStore {
 
   finishJob(id: number, status: 'done' | 'failed' | 'skipped', note = ''): void {
     finishJob(this.db, id, status, note);
+  }
+
+  /** Bump a named meta counter (value metrics surfaced by stats/doctor). */
+  bumpMeta(key: string, delta = 1): number {
+    return bumpMeta(this.db, key, delta);
+  }
+
+  /** Attach a note to a job without changing its status. */
+  finishJobNote(id: number, note: string): void {
+    this.db
+      .prepare('UPDATE distill_jobs SET note = ?, updated_at = ? WHERE id = ?')
+      .run(note.slice(0, 400), Date.now(), id);
   }
 
   requeueStuckJobs(): number {

@@ -120,6 +120,59 @@ export function assertSafeEndpoint(raw, allowPrivate = false) {
     }
     return url;
 }
+/**
+ * Process-wide rate-limit gate.
+ *
+ * Public-beta gateways enforce a very low requests-per-minute budget; a burst
+ * of calls (a batch drain, a backfill loop) burns it in one go and every
+ * subsequent call fails. When a rate limit is observed the gate parks every
+ * later call until it expires, so one process self-throttles instead of
+ * hammering the endpoint.
+ */
+let cooldownUntil = 0;
+/** Smallest gap between two calls, in ms (IMMUNE_LLM_MIN_INTERVAL_MS). */
+export function minCallIntervalMs(env = process.env) {
+    const raw = Number(env.IMMUNE_LLM_MIN_INTERVAL_MS ?? '');
+    return Number.isFinite(raw) && raw >= 0 ? Math.trunc(raw) : 0;
+}
+/** Seconds to wait from a Retry-After header, or null when absent/bad. */
+function retryAfterMs(response) {
+    const raw = response.headers.get('retry-after');
+    if (!raw)
+        return null;
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds) && seconds > 0)
+        return Math.min(300_000, seconds * 1000);
+    const when = Date.parse(raw);
+    return Number.isFinite(when) ? Math.max(0, Math.min(300_000, when - Date.now())) : null;
+}
+/** True when a response body describes a rate limit, whatever the status. */
+function looksRateLimited(status, bodyText) {
+    if (status === 429)
+        return true;
+    return /rate.?limit|exceeds.*(?:tpm|rpm)|too many requests/i.test(bodyText);
+}
+async function waitForGate(signal) {
+    const wait = cooldownUntil - Date.now();
+    if (wait <= 0)
+        return;
+    if (signal?.aborted)
+        throw new Error('aborted before rate-limit cooldown ended');
+    await new Promise((resolve) => setTimeout(resolve, wait));
+}
+/** Backoff ladder in ms; overridable for tests via IMMUNE_LLM_BACKOFF_MS. */
+function backoffLadder(env = process.env) {
+    const raw = env.IMMUNE_LLM_BACKOFF_MS?.trim();
+    if (raw) {
+        const parsed = raw
+            .split(',')
+            .map((v) => Number(v.trim()))
+            .filter((v) => Number.isFinite(v) && v >= 0);
+        if (parsed.length > 0)
+            return parsed;
+    }
+    return [4_000, 12_000, 30_000, 60_000];
+}
 /** One chat completion. Throws on transport error, timeout, or non-2xx. */
 export async function chat(cfg, system, user, signal) {
     const base = assertSafeEndpoint(cfg.endpoint, cfg.allowPrivate);
@@ -138,41 +191,47 @@ export async function chat(cfg, system, user, signal) {
             { role: 'user', content: user },
         ],
     });
-    // Rate-limited free/gateway channels answer 4xx with a rate-limit body.
-    // One spaced retry absorbs the common case; the caller's AbortSignal still
-    // bounds the total wait, and anything else fails through to the caller.
+    // Up to four attempts with exponential backoff on a rate limit; the
+    // caller's AbortSignal still bounds the total wait. 401/403 never retry.
+    const backoff = backoffLadder();
     for (let attempt = 0;; attempt += 1) {
+        await waitForGate(signal);
+        const gap = minCallIntervalMs();
+        if (gap > 0)
+            await new Promise((resolve) => setTimeout(resolve, gap));
         const timeout = AbortSignal.timeout(cfg.timeoutMs);
         const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body,
-            signal: combined,
-        });
-        if (!response.ok) {
-            const errBody = await response.text().catch(() => '');
-            // Free/gateway channels rate-limit in bursts and some answer 400 for it.
-            // Retry any non-auth 4xx once after a spaced wait; 401/403 are permanent.
-            const retryable = response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 403;
-            if (retryable && attempt === 0) {
-                await new Promise((resolve) => setTimeout(resolve, 5_000));
-                continue;
+        const response = await fetch(url, { method: 'POST', headers, body, signal: combined });
+        if (response.ok) {
+            const data = (await response.json());
+            const bodyErr = data.error;
+            if (bodyErr !== undefined) {
+                const text = `${String(bodyErr.type ?? '')} ${String(bodyErr.message ?? '')}`;
+                if (looksRateLimited(0, text) && attempt < backoff.length) {
+                    cooldownUntil = Date.now() + (backoff[attempt] ?? 60_000);
+                    continue;
+                }
+                throw new Error(`model endpoint error: ${text.slice(0, 200)}`);
             }
-            throw new Error(`model endpoint returned ${response.status}: ${errBody.slice(0, 200)}`);
+            const content = data.choices?.[0]?.message?.content;
+            return typeof content === 'string' ? content : '';
         }
-        const data = (await response.json());
-        // Some gateways answer HTTP 200 with an error body; a rate-limit verdict
-        // there gets the same single retry as a 4xx.
-        const bodyErr = data.error;
-        if (bodyErr !== undefined) {
-            if (attempt === 0) {
-                await new Promise((resolve) => setTimeout(resolve, 5_000));
-                continue;
-            }
-            throw new Error(`model endpoint error: ${String(bodyErr.type ?? 'error')}: ${String(bodyErr.message ?? '').slice(0, 160)}`);
+        const errBody = await response.text().catch(() => '');
+        const permanent = response.status === 401 || response.status === 403;
+        const rateLimited = looksRateLimited(response.status, errBody);
+        const retryable = !permanent && response.status >= 400 && response.status < 500;
+        if (rateLimited && attempt < backoff.length) {
+            // Honour the server's own hint when it gives one; otherwise back off
+            // progressively and park the whole process on the gate.
+            const hinted = retryAfterMs(response);
+            const wait = hinted ?? backoff[attempt] ?? 60_000;
+            cooldownUntil = Date.now() + wait;
+            continue;
         }
-        const content = data.choices?.[0]?.message?.content;
-        return typeof content === 'string' ? content : '';
+        if (retryable && attempt < 2) {
+            await new Promise((resolve) => setTimeout(resolve, backoff[attempt] ?? 12_000));
+            continue;
+        }
+        throw new Error(`model endpoint returned ${response.status}: ${errBody.slice(0, 200)}`);
     }
 }

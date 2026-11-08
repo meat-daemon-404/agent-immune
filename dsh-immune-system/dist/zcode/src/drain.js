@@ -1,3 +1,4 @@
+import { LLM_FALLBACK_KEY, LLM_SUCCESS_KEY } from '../../core/store/index.js';
 import { distillBatch, distillEpisode } from '../../core/distiller.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { matchGenericLesson } from '../../core/lessons.js';
@@ -32,6 +33,16 @@ function commit(store, job, result) {
     if (!result.ok) {
         store.finishJob(job.id, result.reason === 'skip' ? 'skipped' : 'failed', result.detail ?? '');
         return false;
+    }
+    // Which path produced the rule is runtime truth an operator cannot see
+    // otherwise: a configured LLM that keeps degrading looks identical to no
+    // LLM at all. The note carries the reason for `immune list --all` readers.
+    if (result.source === 'llm') {
+        store.bumpMeta(LLM_SUCCESS_KEY);
+    }
+    else if (result.degradedReason) {
+        store.bumpMeta(LLM_FALLBACK_KEY);
+        store.finishJobNote(job.id, `llm degraded: ${result.degradedReason}`);
     }
     // A generic lesson is published to the shared library so the next project
     // starts already knowing it. The action diff rides along as provenance.

@@ -88,3 +88,90 @@ test('readLlmConfig returns null when unconfigured', async () => {
   const { readLlmConfig } = await import(mod);
   assert.equal(readLlmConfig({}), null);
 });
+
+test('a rate-limited endpoint is retried with backoff, then succeeds', async (t) => {
+  const { chat, readLlmConfig } = await import(mod);
+  const previous = process.env.IMMUNE_LLM_BACKOFF_MS;
+  process.env.IMMUNE_LLM_BACKOFF_MS = '10,20,30';
+  t.after(() => {
+    if (previous === undefined) delete process.env.IMMUNE_LLM_BACKOFF_MS;
+    else process.env.IMMUNE_LLM_BACKOFF_MS = previous;
+  });
+
+  let calls = 0;
+  const server = await startServer((_req, res) => {
+    calls += 1;
+    if (calls === 1) {
+      // The public-beta gateway shape: 400 with a rate-limit body.
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { message: 'inference exceeds tpm/rpm limit', type: 'rate_limit_error', code: '8' } }));
+      return;
+    }
+    respond(res, 'ok after waiting');
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const cfg = readLlmConfig({
+    IMMUNE_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
+    IMMUNE_LLM_MODEL: 'm',
+    IMMUNE_LLM_ALLOW_PRIVATE_ENDPOINT: '1',
+  });
+  // The endpoint validator refuses loopback; opt in for the test.
+  const localCfg = { ...cfg, allowPrivate: true };
+
+  const reply = await chat(localCfg, 'sys', 'hello');
+  assert.equal(reply, 'ok after waiting');
+  assert.equal(calls, 2, 'one retry after the rate limit');
+});
+
+test('an auth failure is never retried', async (t) => {
+  const { chat, readLlmConfig } = await import(mod);
+  let calls = 0;
+  const server = await startServer((_req, res) => {
+    calls += 1;
+    res.writeHead(403, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: { message: 'Forbidden' } }));
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const { port } = server.address();
+  const cfg = {
+    ...readLlmConfig({ IMMUNE_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`, IMMUNE_LLM_MODEL: 'm' }),
+    allowPrivate: true,
+  };
+  await assert.rejects(() => chat(cfg, 'sys', 'hello'), /403/);
+  assert.equal(calls, 1, 'a permanent auth failure is not hammered');
+});
+
+test('the distill result reports which path produced it', async () => {
+  const { distillEpisode } = await import(distillerMod);
+  const { readLlmConfig } = await import(mod);
+
+  const server = await startServer((_req, res) => {
+    respond(res, '{"trigger_pattern":"npm ERESOLVE","symptom":"peer conflict","prescription":"align peer versions"}');
+  });
+  try {
+    const { port } = server.address();
+    const llm = {
+      ...readLlmConfig({ IMMUNE_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`, IMMUNE_LLM_MODEL: 'm' }),
+      allowPrivate: true,
+    };
+    const viaLlm = await distillEpisode('Bash', 'tool=Bash error=ERESOLVE boom', 'tool=Bash result=ok', { llm });
+    assert.equal(viaLlm.ok, true);
+    assert.equal(viaLlm.source, 'llm', 'the model path is reported as such');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+
+  // A configured but unreachable endpoint degrades — and says why.
+  const dead = {
+    ...readLlmConfig({ IMMUNE_LLM_BASE_URL: 'http://127.0.0.1:9/v1', IMMUNE_LLM_MODEL: 'm' }),
+    allowPrivate: true,
+    timeoutMs: 1500,
+  };
+  const degraded = await distillEpisode('Bash', 'tool=Bash input={"command":"npm test"} error=boom', 'tool=Bash result=ok', { llm: dead });
+  assert.equal(degraded.ok, true, 'the loop keeps going');
+  assert.equal(degraded.source, 'rule', 'the degradation is visible');
+  assert.ok((degraded.degradedReason ?? '').length > 0, 'and carries a reason');
+});
