@@ -44,6 +44,7 @@ const LABELS = {
         budget: '蒸馏预算',
         budgetHint: '回合末可用的时间预算（IMMUNE_DISTILL_BUDGET_MS）',
         intercepted: '拦截',
+        heldUp: '注入后未失败',
         storage: '库大小',
         modelRules: '模型产出',
         exportLabel: '导出',
@@ -93,6 +94,7 @@ const LABELS = {
         budget: 'distill budget',
         budgetHint: 'Time budget available at turn end (IMMUNE_DISTILL_BUDGET_MS)',
         intercepted: 'intercepted',
+        heldUp: 'held up',
         storage: 'storage',
         modelRules: 'from model',
         exportLabel: 'export',
@@ -479,6 +481,22 @@ export function renderPage(options) {
     interceptedCard.appendChild(el('div', 'v', String(s.suppressedRepeats || 0)));
     interceptedCard.appendChild(el('div', 'k', T.intercepted));
     kpisEl.appendChild(interceptedCard);
+
+    // Delivery -> outcome. "Cumulative injections" only grows; the pair
+    // (delivered, still standing) is what answers "is the library being used,
+    // and is it working" instead of "is it big yet".
+    var fails = s.fails || 0;
+    var keptCard = el('div', 'kpi');
+    keptCard.setAttribute('data-tone', fails > 0 ? 'warn' : 'ok');
+    keptCard.appendChild(el('div', 'v', String(Math.max(0, (s.hits || 0) - fails))));
+    keptCard.appendChild(el('div', 'k', T.heldUp));
+    keptCard.setAttribute(
+      'title',
+      fails +
+        ' delivery(ies) were followed by a relevant failure' +
+        (s.hits > 0 ? ' — ' + Math.round((fails / s.hits) * 100) + '% of ' + s.hits + ' deliveries' : ''),
+    );
+    kpisEl.appendChild(keptCard);
 
     var storageCard = el('div', 'kpi');
     storageCard.setAttribute('data-tone', 'plain');

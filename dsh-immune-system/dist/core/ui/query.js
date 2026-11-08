@@ -17,6 +17,7 @@ export function dashboardStats(store) {
         active: all.filter((a) => a.status === 'active').length,
         retired: all.filter((a) => a.status === 'retired').length,
         hits: all.reduce((sum, a) => sum + a.hit_count, 0),
+        fails: all.reduce((sum, a) => sum + a.fail_count, 0),
         shared: store.sharedAntibodies(1000).length,
         pendingFailures: s.pendingFailures,
         sessions: s.sessions,

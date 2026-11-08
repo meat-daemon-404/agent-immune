@@ -47,7 +47,7 @@ dsh plugin --profile <profile> add dsh-immune-system
 想用 tarball 或直接从 git 装：
 
 ```bash
-cd dsh-immune-system && npm pack
+cd dsh-immune-system && npm pack        # 会打印它写出的 dsh-immune-system-<version>.tgz 文件名
 dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
@@ -62,6 +62,47 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
 装完开新任务；老任务还拿着它启动时的能力清单。
+
+### 装完先自检：该看到什么，没看到查什么
+
+先跑自检，出问题时客服（以及你自己）第一句就会问这个：
+
+```bash
+immune doctor
+# ZCode 斜杠命令还没生效时：
+node "<插件根目录>/dist/zcode/src/cli.js" doctor
+```
+
+八项检查：Node ≥ 22.5、FTS5 trigram 探针（含两字中文的兜底）、项目库和共享库可读、marker 文件、MCP 脚本、原生 UI 契约、以及各项计数。非零退出就说明下一个会话会缺东西。
+
+然后，摊开说哪些验过、哪些没验：
+
+* **hook** —— 在真实的 DSH 事件总线和 ZCode 的 hook 生命周期上验过（`scripts/verify-live-host.mjs`、`scripts/verify-client-serve.mjs`）。
+* **ZCode 的设置页 tab** —— 能挂载、能服务 `/plugins/<id>/client.js`；但没在浏览器里端到端点过。要是它没出现，数据本身还能从 `immune list` 和 `immune ui` 里看到。
+* **外部 LLM 蒸馏** —— 在一条真实的 OpenAI 兼容端点上跑通过（商汤 Token Plan）。别的厂商走同一份代码，但没实测。不配 `IMMUNE_LLM_BASE_URL` 和 `IMMUNE_LLM_MODEL` 就走确定性规则路径，模型计数保持为 0。有端点时用 `node scripts/verify-llm.mjs` 一条命令验。
+* **`IMMUNE_GUARD=warn` 只有 ZCode 支持。** DSH 侧配了 guard 照样**会拦**：宿主契约只给 allow / deny / ask，没有「仅提醒」这一档。不想被拦就保持默认的 `IMMUNE_GUARD=off`。
+
+### 把学到的东西分享出去
+
+```bash
+immune export 5                     # 导出 SKILL.md，只收命中 ≥5 次的
+immune export 3 ./docs/pitfalls.md  # 自己指定路径
+```
+
+```markdown
+---
+name: project-pitfalls
+description: 本仓库踩过的坑 … 11 proven rules.
+---
+
+| 触发 / Trigger | 错误直觉 / Wrong instinct | 正确做法 / Do this instead | 命中 / Hits |
+| --- | --- | --- | --- |
+| Edit old_string-not-found 精确匹配 | old_string 与文件实际内容不一致 | Edit: 重新 Read 后精确复制待替换文本 | 234 |
+| EPERM mkdir 只读目录 模型测试 | 在只读目录建 .dsh 或文件报 EPERM | 换可写工作目录，或用 IMMUNE_DB_PATH 显式指定库路径 | 37 |
+| … | … | … | … |
+```
+
+仪表盘的 `/api/export?format=json` 导出的快照能被 `immune import` 读回，团队可以从某个人的成熟规则起步。
 
 ### 不跑 hook 的 agent 怎么办
 
@@ -80,8 +121,9 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 
 每次 push 都在 Node 22 和 24 上跑一遍召回闸和单测：
 
+* **单测**：`npm test` 是 **138 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
 * **召回**：固定的中英场景矩阵，8 条改述正例、6 条 gram 干净的负例。现在是 R@1 100%、R@3 100%、误报 0%。低于 R@3 7/8 或高于误报 1/6 就红。
-* **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 41 ms（每条 0.14 ms）；67 次匹配 p50 0.37 ms、p95 0.66 ms。
+* **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 41 ms（每条 0.14 ms）；67 次匹配 p50 0.38 ms、p95 0.75 ms。
 * **hook 开销**（`scripts/bench-tool-latency.mjs`）：工具执行路径永远不碰模型，蒸馏的钱花在回合边界上。
 * **真机验证 LLM**（`scripts/verify-llm.mjs`）：配了端点就一条命令走通全链路。
 

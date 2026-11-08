@@ -47,7 +47,7 @@ dsh plugin --profile <profile> add dsh-immune-system
 Same package from a tarball or from git:
 
 ```bash
-cd dsh-immune-system && npm pack
+cd dsh-immune-system && npm pack        # prints the exact dsh-immune-system-<version>.tgz it wrote
 dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
 dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 ```
@@ -64,6 +64,47 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
 Start a new task afterwards; existing tasks keep the capability catalog they started with.
+
+### After installing: what you should see
+
+Run the self-check first; it is the same command support will ask you for:
+
+```bash
+immune doctor
+# ZCode, when the slash command is not wired yet:
+node "<plugin root>/dist/zcode/src/cli.js" doctor
+```
+
+Eight checks: Node ≥ 22.5, an FTS5 trigram probe (plus the two-character-CJK fallback), both databases readable, the marker file, the MCP script, the native-UI contract, and the counters. Non-zero exit means the next session will be missing something.
+
+Then, plainly, what is proven and what is not:
+
+* **Hooks** — verified against the real DSH event bus and the real ZCode hook lifecycle (`scripts/verify-live-host.mjs`, `scripts/verify-client-serve.mjs`).
+* **The ZCode settings tab** — mounted and serving `/plugins/<id>/client.js`; it has not been driven end-to-end in a browser here. If it does not appear, the data is still reachable through `immune list` and `immune ui`.
+* **External LLM distillation** — works against one real OpenAI-compatible endpoint (SenseNova). Other providers share the code path but are untested. Without `IMMUNE_LLM_BASE_URL` and `IMMUNE_LLM_MODEL` the deterministic rule path runs and the model counters stay at zero. `node scripts/verify-llm.mjs` is the one-command check when you have an endpoint.
+* **`IMMUNE_GUARD=warn` is ZCode-only.** On DSH a configured guard still **denies**: the host contract offers allow/deny/ask with no advisory mode. Keep `IMMUNE_GUARD=off` (the default) if you do not want denial.
+
+### Sharing what it learned
+
+```bash
+immune export 5                     # SKILL.md, only rules injected at least 5 times
+immune export 3 ./docs/pitfalls.md  # choose the path
+```
+
+```markdown
+---
+name: project-pitfalls
+description: Pitfalls this project already paid for once … 11 proven rules.
+---
+
+| 触发 / Trigger | 错误直觉 / Wrong instinct | 正确做法 / Do this instead | 命中 / Hits |
+| --- | --- | --- | --- |
+| Edit old_string-not-found 精确匹配 | old_string 与文件实际内容不一致 | Edit: 重新 Read 后精确复制待替换文本 | 234 |
+| EPERM mkdir 只读目录 模型测试 | 在只读目录建 .dsh 或文件报 EPERM | 换可写工作目录，或用 IMMUNE_DB_PATH 显式指定库路径 | 37 |
+| … | … | … | … |
+```
+
+The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules.
 
 ### Syncing into AGENTS.md / CLAUDE.md
 
@@ -85,8 +126,9 @@ To do that automatically after each turn's distillation:
 
 Every push runs the retrieval gate and unit suite on Node 22 and 24:
 
+* **Test suite** — `npm test` runs **138 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
 * **Recall** — fixed zh/en matrix with 8 paraphrased positives and 6 gram-clean negatives. Current: R@1 100%, R@3 100%, FP 0%. CI fails below R@3 7/8 or above FP 1/6.
-* **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 41 ms (0.14 ms/rule); 67 matches run at p50 0.37 ms, p95 0.66 ms.
+* **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 41 ms (0.14 ms/rule); 67 matches run at p50 0.38 ms, p95 0.75 ms.
 * **Hook latency** (`scripts/bench-tool-latency.mjs`) — the tool path never calls a model; distillation is paid at the turn boundary.
 * **Live LLM check** (`scripts/verify-llm.mjs`) — one command against a configured endpoint, when there is one.
 

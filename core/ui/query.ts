@@ -22,6 +22,12 @@ export interface DashboardStats {
   jobsTotal: number;
   /** Value metric: repeats the suppression window measurably prevented. */
   suppressedRepeats: number;
+  /**
+   * Deliveries followed by a relevant failure (anti-rot penalties). `hits` is
+   * how often the library was used; `hits - fails` is how often it held. The
+   * pair is what says the rules are being used, not merely accumulated.
+   */
+  fails: number;
   /** Model path: rules it produced, and times it degraded to the rule path. */
   llmDistilled: number;
   llmFallbacks: number;
@@ -53,6 +59,7 @@ export function dashboardStats(store: ImmuneStore): DashboardStats {
     active: all.filter((a) => a.status === 'active').length,
     retired: all.filter((a) => a.status === 'retired').length,
     hits: all.reduce((sum, a) => sum + a.hit_count, 0),
+    fails: all.reduce((sum, a) => sum + a.fail_count, 0),
     shared: store.sharedAntibodies(1000).length,
     pendingFailures: s.pendingFailures,
     sessions: s.sessions,

@@ -150,11 +150,20 @@ test('the dashboard exports and imports library snapshots behind the token', asy
 });
 
 test('the API exposes the value and model counters for the KPI row', async (t) => {
-  const { handle, token } = await boot(t);
+  const { handle, token, html, dbPath } = await boot(t);
+  assert.match(html, /注入后未失败/, 'the held-up card ships with the page');
+
+  const { DatabaseSync } = await import('node:sqlite');
+  const raw = new DatabaseSync(dbPath);
+  raw.prepare('UPDATE antibodies SET hit_count = 5, fail_count = 2').run();
+  raw.close();
+
   const state = await (await fetch(`${handle.url}api/list?t=${token}`)).json();
-  for (const key of ['suppressedRepeats', 'llmDistilled', 'llmFallbacks', 'dbBytes']) {
+  for (const key of ['suppressedRepeats', 'fails', 'llmDistilled', 'llmFallbacks', 'dbBytes']) {
     assert.equal(typeof state.stats[key], 'number', `${key} must be a number in the payload`);
   }
+  assert.equal(state.stats.hits, 10, 'two rules delivered five times each');
+  assert.equal(state.stats.fails, 4, 'two rules penalised twice each');
   assert.equal(state.stats.llmDistilled, 0, 'no model ran in a fresh library');
   assert.equal(state.stats.llmFallbacks, 0);
 });

@@ -494,6 +494,8 @@ window.__ModuleLoader__.load({
                     ' 会话 / sessions · ' +
                     stats.jobsTotal +
                     ' 任务 / jobs · ' +
+                    Math.max(0, (stats.hits || 0) - (stats.fails || 0)) +
+                    ' 未失败 / held · ' +
                     (stats.suppressedRepeats || 0) +
                     ' 拦截 / intercepted' +
                     (stats.llmDistilled || stats.llmFallbacks

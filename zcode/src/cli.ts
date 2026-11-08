@@ -76,6 +76,14 @@ function cmdStats(store: ImmuneStore): void {
   const active = all.filter((a) => a.status === 'active');
   const retired = all.length - active.length;
   const hits = active.reduce((sum, a) => sum + a.hit_count, 0);
+  // Delivery is not the same as value: `injections` counts how often the
+  // library was used, the penalties say how often it held. Printing both keeps
+  // a growing library from looking like a working one.
+  const fails = active.reduce((sum, a) => sum + a.fail_count, 0);
+  const heldLine =
+    hits > 0
+      ? `held up: ${Math.max(0, hits - fails)} of ${hits} injections (${Math.round((fails / hits) * 100)}% blamed for a later failure)\n`
+      : '';
   const s = store.stats();
   // The two counters an operator cannot infer from the rows themselves:
   // repeats the suppression window caught, and whether the configured model
@@ -87,6 +95,7 @@ function cmdStats(store: ImmuneStore): void {
   process.stdout.write(
     `antibodies: ${all.length} (active ${active.length}, retired ${retired})\n` +
       `injections: ${hits}\n` +
+      heldLine +
       `repeats suppressed: ${s.suppressedRepeats}\n` +
       `queued distill jobs: ${store.pendingJobCount()}\n` +
       model +
