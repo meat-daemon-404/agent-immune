@@ -23,6 +23,8 @@ import { selfMarkers } from './root-marker.js';
 export interface DrainResult {
   processed: number;
   learned: number;
+  /** Episodes distilled with the rule path because the budget could not cover a model call. */
+  deferred: number;
   remaining: number;
 }
 
@@ -58,6 +60,7 @@ function commit(
   store: ImmuneStore,
   job: DistillJob,
   result: Awaited<ReturnType<typeof distillEpisode>>,
+  skippedModelReason?: string,
 ): boolean {
   if (!result.ok) {
     store.finishJob(job.id, result.reason === 'skip' ? 'skipped' : 'failed', result.detail ?? '');
@@ -68,9 +71,9 @@ function commit(
   // LLM at all. The note carries the reason for `immune list --all` readers.
   if (result.source === 'llm') {
     store.bumpMeta(LLM_SUCCESS_KEY);
-  } else if (result.degradedReason) {
+  } else if (result.degradedReason || skippedModelReason) {
     store.bumpMeta(LLM_FALLBACK_KEY);
-    store.finishJobNote(job.id, `llm degraded: ${result.degradedReason}`);
+    store.finishJobNote(job.id, `llm degraded: ${result.degradedReason ?? skippedModelReason}`);
   }
   // A generic lesson is published to the shared library so the next project
   // starts already knowing it. The action diff rides along as provenance.
@@ -97,17 +100,25 @@ export async function drainJobs(
   const deadline = Date.now() + budgetMs;
   let processed = 0;
   let learned = 0;
+  let deferred = 0;
 
   // Recover jobs whose previous attempt died mid-flight.
   store.requeueStuckJobs();
 
   // A backfill passes llm: null to force the deterministic rule path —
   // hundreds of historical episodes must not turn into hundreds of API calls.
-  const llm = opts.llm !== undefined ? opts.llm : readLlmConfig();
+  const configured = opts.llm !== undefined ? opts.llm : readLlmConfig();
 
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
+
+    // A model call that cannot finish inside the remaining budget would burn
+    // the whole budget and then time out, on every turn, forever. Only hand
+    // the model work the budget can actually cover; otherwise distil with the
+    // rule path immediately (cheap, deterministic) and say why.
+    const llm = configured && remaining >= configured.timeoutMs ? configured : null;
+    const budgetShort = configured !== null && llm === null;
 
     // Batch only when a model is actually configured and there is a backlog;
     // otherwise the deterministic rule runs per episode as before.
@@ -118,6 +129,7 @@ export async function drainJobs(
       if (store.pendingJobCount() === 0) break;
       continue;
     }
+    if (budgetShort) deferred += claimed.length;
 
     if (claimed.length >= 2) {
       try {
@@ -138,7 +150,9 @@ export async function drainJobs(
             continue;
           }
           processed += 1;
-          if (commit(store, job, result)) learned += 1;
+          if (commit(store, job, result, budgetShort ? budgetNote(configured, budgetMs) : undefined)) {
+            learned += 1;
+          }
         }
       } catch (error) {
         const note = error instanceof Error ? error.message : String(error);
@@ -156,11 +170,18 @@ export async function drainJobs(
         humanHint: job.human_hint ?? '',
       });
       processed += 1;
-      if (commit(store, job, result)) learned += 1;
+      if (commit(store, job, result, budgetShort ? budgetNote(configured, budgetMs) : undefined)) {
+        learned += 1;
+      }
     } catch (error) {
       store.finishJob(job.id, 'failed', error instanceof Error ? error.message : String(error));
     }
   }
 
-  return { processed, learned, remaining: store.pendingJobCount() };
+  return { processed, learned, deferred, remaining: store.pendingJobCount() };
+}
+
+/** Why the model path was skipped this pass, for the job note and the counter. */
+function budgetNote(llm: LlmConfig | null, budgetMs: number): string {
+  return `budget ${budgetMs} ms < llm timeout ${llm?.timeoutMs ?? '?'} ms`;
 }

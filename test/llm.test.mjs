@@ -175,3 +175,49 @@ test('the distill result reports which path produced it', async () => {
   assert.equal(degraded.source, 'rule', 'the degradation is visible');
   assert.ok((degraded.degradedReason ?? '').length > 0, 'and carries a reason');
 });
+
+test('the drain only hands the model work the budget can cover', async (t) => {
+  const { drainJobs } = await import('../dsh-immune-system/dist/zcode/src/drain.js');
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const { readLlmConfig } = await import(mod);
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+
+  let calls = 0;
+  const server = await startServer((_req, res) => {
+    calls += 1;
+    respond(res, '{"trigger_pattern":"npm ERESOLVE","symptom":"peer conflict","prescription":"align peer versions"}');
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+  const llm = {
+    ...readLlmConfig({ IMMUNE_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`, IMMUNE_LLM_MODEL: 'm' }),
+    allowPrivate: true,
+    timeoutMs: 5_000,
+  };
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-drainbudget-'));
+  const store = new ImmuneStore({ dbPath: join(dir, 'immune.sqlite') });
+  // Close the database before deleting its directory: Windows holds the WAL.
+  t.after(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  store.enqueueJob('Bash', 'tool=Bash input={"command":"npm i"} error=ERESOLVE', 'tool=Bash result=ok', []);
+
+  // Budget smaller than the model's own timeout: do not start a call that
+  // cannot finish. Distil with the rule path, count the degradation.
+  const tight = await drainJobs(store, 1_000, { llm });
+  assert.equal(calls, 0, 'no doomed model call');
+  assert.equal(tight.processed, 1, 'the episode is still handled');
+  assert.equal(tight.deferred, 1, 'and reported as deferred');
+  assert.equal(store.stats().llmFallbacks, 1, 'the degradation is counted');
+
+  // Budget that covers the call: the model is used.
+  store.enqueueJob('Bash', 'tool=Bash input={"command":"npm i --legacy-peer-deps"} error=ERESOLVE two', 'tool=Bash result=ok', []);
+  await drainJobs(store, 8_000, { llm });
+  assert.equal(calls, 1, 'a covered budget reaches the model');
+  assert.equal(store.stats().llmDistilled, 1);
+});

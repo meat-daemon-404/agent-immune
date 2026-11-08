@@ -200,7 +200,7 @@ function llmBudgetRow(env: NodeJS.ProcessEnv = process.env): CheckResult {
     name: 'LLM budget',
     ok: !tight,
     detail: tight
-      ? `distill budget ${budget} ms < LLM timeout ${timeout} ms - each turn-end call will abort; raise IMMUNE_DISTILL_BUDGET_MS or use \`immune backfill\``
+      ? `budget ${budget} ms < LLM timeout ${timeout} ms - turn-end distillation uses the rule path; run \`immune backfill\` for model-quality rules or raise IMMUNE_DISTILL_BUDGET_MS`
       : `budget ${budget} ms covers the ${timeout} ms LLM timeout`,
   };
 }

@@ -70,9 +70,18 @@ function cmdStats(store) {
     const active = all.filter((a) => a.status === 'active');
     const retired = all.length - active.length;
     const hits = active.reduce((sum, a) => sum + a.hit_count, 0);
+    const s = store.stats();
+    // The two counters an operator cannot infer from the rows themselves:
+    // repeats the suppression window caught, and whether the configured model
+    // actually produced rules or kept falling back.
+    const model = s.llmDistilled > 0 || s.llmFallbacks > 0
+        ? `model distillation: ${s.llmDistilled} from the model, ${s.llmFallbacks} degraded to the rule path\n`
+        : '';
     process.stdout.write(`antibodies: ${all.length} (active ${active.length}, retired ${retired})\n` +
         `injections: ${hits}\n` +
+        `repeats suppressed: ${s.suppressedRepeats}\n` +
         `queued distill jobs: ${store.pendingJobCount()}\n` +
+        model +
         `database: ${store.dbPath}\n`);
 }
 function cmdExport(store, args) {
