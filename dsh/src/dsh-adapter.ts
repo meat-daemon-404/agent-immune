@@ -384,7 +384,7 @@ function hasStructuredPayload(value: unknown): boolean {
  *     status, since a successful command may legitimately print `Error:` or
  *     `command not found` in its own output (grep, test runners, docs).
  */
-function judgeOutcome(
+export function judgeOutcome(
   result: DshToolResult,
   resultText: string,
 ): { ok: boolean; errorText: string; sandboxDenied: boolean } {

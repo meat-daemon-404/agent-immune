@@ -239,6 +239,17 @@ identical-retry note).
     rule through the normal failure -> success loop, which is the only path
     that carries repair evidence.
 
+25. **Exit-code failure semantics have a quantified false-positive class, and
+    it is accepted.** Replaying 20,100 real host-labeled tool calls through
+    the judge (scripts/eval-judge.mjs): 97.54% agreement, ZERO false
+    negatives, and 495 false positives (2.46%) — every sample a probe or
+    check command where nonzero exit was the intended ANSWER (check runners,
+    endpoint surveys, guard asserts). The host labels those "completed"
+    because the call ran fine; exit semantics cannot read intent. The class
+    is contained downstream (probes rarely close an episode; anti-rot retires
+    the noise rules they do form). Accept the 2.46%; do not chase it with
+    output heuristics — that way lies the reverted "minimum 2 windows" gate.
+
 ## Verification
 
 ```bash
@@ -250,6 +261,7 @@ node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pin
 node scripts/bench-scale.mjs         # 300-rule library: index cost and match p50/p95; gates a pathological slowdown
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
 node scripts/verify-llm.mjs          # env-gated, SKIPs without LLM env; one command to live-verify external distillation
+node scripts/eval-judge.mjs          # machine-only: replays the host's labeled tool calls through the judge (needs the ZCode db)
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
 ```
 

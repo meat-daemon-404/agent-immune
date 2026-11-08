@@ -125,7 +125,7 @@ function hasStructuredPayload(value) {
  *     status, since a successful command may legitimately print `Error:` or
  *     `command not found` in its own output (grep, test runners, docs).
  */
-function judgeOutcome(result, resultText) {
+export function judgeOutcome(result, resultText) {
     if (result.isError) {
         const message = result.error.message;
         // A file tool that throws on a denied path surfaces the same marker as a
