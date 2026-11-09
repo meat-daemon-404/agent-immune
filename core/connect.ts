@@ -13,10 +13,84 @@
  * (only entries whose command matches our hook scripts are touched), and
  * must refuse to write a config it could not parse.
  */
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/**
+ * The vendored install: connect copies this package's dist into
+ * `~/.dsh-immune/` and points the host hooks there, so the commands survive
+ * an npx cache cleanup or an upgrade of the copy that ran `connect`. Without
+ * this, `npx dsh-immune-system@latest connect …` writes a _npx cache path
+ * into the host config and the hooks die silently on the next cache sweep.
+ */
+export function vendorRootOf(home: string): string {
+  return join(home, '.dsh-immune');
+}
+
+/** This module's compiled dist root (…/dist), wherever the package lives. */
+function ownDistRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), '..');
+}
+
+/** The running package's version, read from the package.json next to dist. */
+export function ownVersion(): string {
+  try {
+    const raw = readFileSync(join(ownDistRoot(), '..', 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+export interface VendorInfo {
+  dir: string;
+  distDir: string;
+  version: string;
+  /** True when the dist tree was (re)copied during this call. */
+  refreshed: boolean;
+}
+
+function readVendorVersion(vendorRoot: string): string | null {
+  try {
+    const raw = readFileSync(join(vendorRoot, 'version.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Copy the dist tree into the vendor root unless that version is already
+ * there. `force` re-copies (a dev checkout can change code without a version
+ * bump). The version marker records what is vendored and when.
+ */
+export function vendorDist(home: string, opts: { force?: boolean } = {}): VendorInfo {
+  const vendorRoot = vendorRootOf(home);
+  const distDir = join(vendorRoot, 'dist');
+  const version = ownVersion();
+  const existing = readVendorVersion(vendorRoot);
+  // The version marker alone is not enough: a half-deleted vendor tree (an
+  // interrupted cleanup, a paranoid antivirus) keeps its marker while the
+  // scripts are gone. A missing canary forces the re-copy too.
+  const canary = join(distDir, 'zcode', 'src', 'hooks', 'session-start.js');
+  const refreshed =
+    opts.force === true || existing === null || existing !== version || !existsSync(canary);
+  if (refreshed) {
+    rmSync(distDir, { recursive: true, force: true });
+    cpSync(ownDistRoot(), distDir, { recursive: true });
+    mkdirSync(vendorRoot, { recursive: true });
+    writeFileSync(
+      join(vendorRoot, 'version.json'),
+      `${JSON.stringify({ version, connectedAt: new Date().toISOString() }, null, 2)}\n`,
+      'utf8',
+    );
+  }
+  return { dir: vendorRoot, distDir, version, refreshed };
+}
 
 export type ConnectHostId = 'claude-code' | 'codex';
 
@@ -87,18 +161,20 @@ const HOOK_SPECS: Array<{ event: string; script: string; timeout: number; matche
 ];
 
 /**
- * Matches exactly the commands this module writes, across any install root
- * (repo checkout or `node_modules/dsh-immune-system/dsh-immune-system/…` —
- * decision #11's doubled prefix). `--remove` uninstalls every match so a dev
- * checkout and an npm copy never leave stragglers behind.
+ * Matches every command layout this module has ever written: the npm/repo
+ * layout (`dsh-immune-system/dist/zcode/src/hooks/…`) and the vendored one
+ * (`~/.dsh-immune/dist/zcode/src/hooks/…`). `--remove` uninstalls every
+ * match, so an upgrade never leaves stragglers behind.
  */
-const IMMUNE_COMMAND = /dsh-immune-system[\\/]dist[\\/]zcode[\\/]src[\\/]hooks[\\/]/;
+const IMMUNE_COMMAND = /(\.dsh-immune|dsh-immune-system)[\\/]dist[\\/]zcode[\\/]src[\\/]hooks[\\/]/;
 
 export interface ConnectOptions {
   /** Override the user's home directory (tests). */
   home?: string;
   /** Override the dist hooks directory (tests). */
   scriptDir?: string;
+  /** Re-copy the vendored dist even when the version matches (dev refresh). */
+  refresh?: boolean;
 }
 
 export interface ConnectReport {
@@ -110,9 +186,15 @@ export interface ConnectReport {
   eventsWired: string[];
   added: number;
   alreadyPresent: number;
+  /** Immune entries replaced because their command was stale. */
+  upgraded: number;
   removed: number;
   backupPath: string | null;
   notes: string[];
+  /** The vendored install, when connect (re)built it. */
+  vendorDir: string | null;
+  vendorVersion: string | null;
+  vendorRefreshed: boolean;
 }
 
 /** The compiled hooks directory that ships next to this module in dist/. */
@@ -197,14 +279,20 @@ function writeConfig(configPath: string, config: Record<string, unknown>, existe
   return null;
 }
 
-function resolveSetup(hostId: ConnectHostId, options?: ConnectOptions): {
-  host: HostDefinition;
-  configPath: string;
-  scriptDir: string;
-} {
+function resolveSetup(
+  hostId: ConnectHostId,
+  options?: ConnectOptions,
+): { host: HostDefinition; configPath: string; scriptDir: string; vendor: VendorInfo | null } {
   const host = HOSTS[hostId];
-  const scriptDir = options?.scriptDir ?? defaultScriptDir();
-  return { host, configPath: configPathOf(host, options?.home ?? homedir()), scriptDir };
+  const home = options?.home ?? homedir();
+  // Production: vendor the dist tree and point hooks at the FIXED copy, so an
+  // npx cache sweep cannot break them. Tests pass scriptDir explicitly and
+  // skip the vendor step.
+  if (options?.scriptDir) {
+    return { host, configPath: configPathOf(host, home), scriptDir: options.scriptDir, vendor: null };
+  }
+  const vendor = vendorDist(home, { force: options?.refresh === true });
+  return { host, configPath: configPathOf(host, home), scriptDir: join(vendor.distDir, 'zcode', 'src', 'hooks'), vendor };
 }
 
 function assertScriptsExist(host: HostDefinition, scriptDir: string): void {
@@ -216,21 +304,39 @@ function assertScriptsExist(host: HostDefinition, scriptDir: string): void {
   }
 }
 
-/** Add the immune hooks to the host's config. Idempotent. */
+/** Add the immune hooks to the host's config. Idempotent; upgrades stale paths. */
 export function connectHost(hostId: ConnectHostId, options?: ConnectOptions): ConnectReport {
-  const { host, configPath, scriptDir } = resolveSetup(hostId, options);
+  const { host, configPath, scriptDir, vendor } = resolveSetup(hostId, options);
   assertScriptsExist(host, scriptDir);
   const { existed, config } = readConfig(configPath);
   const table = eventTableOf(host, config);
 
   let added = 0;
   let alreadyPresent = 0;
+  let upgraded = 0;
   const eventsWired: string[] = [];
   const wanted = buildEventTable(host, scriptDir);
   for (const [event, groups] of Object.entries(wanted)) {
     const current = Array.isArray(table[event]) ? (table[event] as HookGroup[]) : [];
-    if (current.some(isImmuneGroup)) {
+    const wantedCommand = groups[0]?.hooks[0]?.command ?? '';
+    const stale = current.filter(
+      (group) => isImmuneGroup(group) && group.hooks[0]?.command !== wantedCommand,
+    );
+    const currentHasWanted = current.some(
+      (group) => isImmuneGroup(group) && group.hooks[0]?.command === wantedCommand,
+    );
+    // An immune entry whose command differs from what this connect would
+    // write is a stale install (an npx cache path, an old vendor root, a dev
+    // checkout): replace it, or the upgrade never reaches users who already
+    // connected with the broken layout.
+    const kept = current.filter((group) => !stale.includes(group));
+    if (currentHasWanted) {
       alreadyPresent += 1;
+      table[event] = kept.length > 0 ? kept : current;
+    } else if (stale.length > 0) {
+      // A stale install on this event is an upgrade, not a new wiring.
+      upgraded += stale.length;
+      table[event] = [...kept, ...groups];
     } else {
       table[event] = [...current, ...groups];
       added += 1;
@@ -238,7 +344,7 @@ export function connectHost(hostId: ConnectHostId, options?: ConnectOptions): Co
     eventsWired.push(event);
   }
 
-  const backupPath = added > 0 ? writeConfig(configPath, config, existed) : null;
+  const backupPath = added > 0 || upgraded > 0 ? writeConfig(configPath, config, existed) : null;
   return {
     host: host.id,
     label: host.label,
@@ -247,15 +353,91 @@ export function connectHost(hostId: ConnectHostId, options?: ConnectOptions): Co
     eventsWired,
     added,
     alreadyPresent,
+    upgraded,
     removed: 0,
     backupPath,
     notes: host.notes,
+    vendorDir: vendor?.dir ?? null,
+    vendorVersion: vendor?.version ?? null,
+    vendorRefreshed: vendor?.refreshed ?? false,
   };
+}
+
+/** Read-only look at the vendored install (never copies). */
+export function vendorInfoOf(home: string): { dir: string; version: string | null } {
+  const dir = vendorRootOf(home);
+  return { dir, version: readVendorVersion(dir) };
+}
+
+/** Immune command strings currently wired into a host's config. */
+export function listImmuneCommands(hostId: ConnectHostId, home?: string): string[] {
+  const host = HOSTS[hostId];
+  const configPath = configPathOf(host, home ?? homedir());
+  if (!existsSync(configPath)) return [];
+  try {
+    const table = eventTableOf(host, readConfig(configPath).config);
+    const commands: string[] = [];
+    for (const groups of Object.values(table)) {
+      if (!Array.isArray(groups)) continue;
+      for (const group of groups) {
+        if (!isImmuneGroup(group)) continue;
+        for (const hook of group.hooks) commands.push(hook.command);
+      }
+    }
+    return commands;
+  } catch {
+    return [];
+  }
+}
+
+export interface ConnectPathIssue {
+  host: string;
+  label: string;
+  /** Command strings whose quoted script file no longer exists. */
+  broken: string[];
+}
+
+/**
+ * The npx-cache failure mode, made visible: a connected host whose hook
+ * commands point at files that no longer exist. `immune doctor` reports it;
+ * the fix is one `connect <host>` re-run.
+ */
+export function verifyConnectedPaths(home?: string): ConnectPathIssue[] {
+  const issues: ConnectPathIssue[] = [];
+  for (const hostId of Object.keys(HOSTS) as ConnectHostId[]) {
+    if (connectStatus({ home }).find((row) => row.host === hostId)?.state !== 'connected') continue;
+    const host = HOSTS[hostId];
+    const broken = listImmuneCommands(hostId, home)
+      .map((command) => command.match(/"(.+)"/)?.[1] ?? '')
+      .filter((path) => path.length > 0 && !existsSync(path));
+    if (broken.length > 0) issues.push({ host: hostId, label: host.label, broken });
+  }
+  return issues;
+}
+
+/**
+ * Delete the vendored install once NO host config carries immune entries any
+ * more. Only ever removes the directory this module created (its version
+ * marker is the proof of ownership).
+ */
+function maybeCleanupVendor(home: string): boolean {
+  const vendorRoot = vendorRootOf(home);
+  if (!existsSync(join(vendorRoot, 'version.json'))) return false;
+  const stillConnected = connectStatus({ home }).some((row) => row.state === 'connected');
+  if (stillConnected) return false;
+  rmSync(vendorRoot, { recursive: true, force: true });
+  return true;
 }
 
 /** Remove every immune hook entry from the host's config. */
 export function disconnectHost(hostId: ConnectHostId, options?: ConnectOptions): ConnectReport {
-  const { host, configPath, scriptDir } = resolveSetup(hostId, options);
+  const home = options?.home ?? homedir();
+  const vendor = vendorInfoOf(home);
+  // Disconnect must not CREATE a vendored install; it only reports where the
+  // scripts would live (the vendor copy when present, else the package dist).
+  const host = HOSTS[hostId];
+  const configPath = configPathOf(host, home);
+  const scriptDir = options?.scriptDir ?? join(vendorRootOf(home), 'dist', 'zcode', 'src', 'hooks');
   if (!existsSync(configPath)) {
     return {
       host: host.id,
@@ -265,9 +447,13 @@ export function disconnectHost(hostId: ConnectHostId, options?: ConnectOptions):
       eventsWired: [],
       added: 0,
       alreadyPresent: 0,
+      upgraded: 0,
       removed: 0,
       backupPath: null,
       notes: host.notes,
+      vendorDir: null,
+      vendorVersion: null,
+      vendorRefreshed: false,
     };
   }
   const { existed, config } = readConfig(configPath);
@@ -288,6 +474,7 @@ export function disconnectHost(hostId: ConnectHostId, options?: ConnectOptions):
     else delete table[event];
   }
   const backupPath = removed > 0 ? writeConfig(configPath, config, existed) : null;
+  const vendorRemoved = removed > 0 ? maybeCleanupVendor(home) : false;
   return {
     host: host.id,
     label: host.label,
@@ -296,9 +483,13 @@ export function disconnectHost(hostId: ConnectHostId, options?: ConnectOptions):
     eventsWired: [],
     added: 0,
     alreadyPresent: 0,
+    upgraded: 0,
     removed,
     backupPath,
     notes: host.notes,
+    vendorDir: vendorRemoved ? vendor.dir : null,
+    vendorVersion: null,
+    vendorRefreshed: false,
   };
 }
 

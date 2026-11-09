@@ -10,7 +10,10 @@ import {
   connectStatus,
   disconnectHost,
   defaultScriptDir,
+  ownVersion,
+  verifyConnectedPaths,
 } from '../dsh-immune-system/dist/core/connect.js';
+import { rmSync } from 'node:fs';
 
 function home() {
   return mkdtempSync(join(tmpdir(), 'immune-connect-'));
@@ -149,4 +152,81 @@ test('remove on a host with no immune hooks reports zero and writes nothing', ()
   assert.equal(report.removed, 0);
   assert.equal(report.backupPath, null, 'no change, no backup');
   assert.equal(readFileSync(settingsPath, 'utf8'), before);
+});
+
+test('connect vendors the dist tree and points hooks at the fixed copy', () => {
+  const h = home();
+  const report = connectHost('claude-code', { home: h });
+  assert.ok(report.vendorDir?.endsWith('.dsh-immune'), 'vendor root is ~/.dsh-immune');
+  assert.equal(report.vendorRefreshed, true, 'first connect copies the dist');
+
+  const marker = JSON.parse(readFileSync(join(h, '.dsh-immune', 'version.json'), 'utf8'));
+  assert.equal(marker.version, ownVersion(), 'version marker records the package version');
+
+  const settings = JSON.parse(readFileSync(join(h, '.claude', 'settings.json'), 'utf8'));
+  const command = settings.hooks.SessionStart[0].hooks[0].command;
+  assert.match(command, /\.dsh-immune[\\\/]dist[\\\/]zcode[\\\/]src[\\\/]hooks[\\\/]/, 'commands target the vendored copy');
+  assert.ok(existsSync(command.match(/"(.+)"/)?.[1]), 'the vendored script exists');
+
+  // A second connect is cheap: no re-copy, no path churn.
+  const again = connectHost('claude-code', { home: h });
+  assert.equal(again.vendorRefreshed, false, 'same version is not re-copied');
+  assert.equal(again.upgraded, 0);
+});
+
+test('a stale connect path is upgraded, not left behind', () => {
+  const h = home();
+  const settingsPath = join(h, '.claude', 'settings.json');
+  mkdirSync(dirname(settingsPath), { recursive: true });
+  writeFileSync(
+    settingsPath,
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: 'node "C:/npm/_npx/old/dsh-immune-system/dist/zcode/src/hooks/session-start.js"',
+                timeout: 20,
+              },
+            ],
+          },
+        ],
+      },
+    }),
+    'utf8',
+  );
+  const report = connectHost('claude-code', { home: h });
+  assert.equal(report.upgraded, 1, 'the npx-cache entry counts as stale and is replaced');
+  assert.equal(report.added, 5, 'the other five events are new');
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8'));
+  const groups = settings.hooks.SessionStart;
+  assert.equal(groups.length, 1, 'the stale group is gone');
+  assert.match(groups[0].hooks[0].command, /\.dsh-immune/, 'the new entry targets the vendor root');
+});
+
+test('removing the last connected host deletes the vendored install', () => {
+  const h = home();
+  connectHost('claude-code', { home: h });
+  connectHost('codex', { home: h });
+  assert.ok(existsSync(join(h, '.dsh-immune', 'version.json')), 'vendor exists while hosts are connected');
+
+  disconnectHost('claude-code', { home: h });
+  assert.ok(existsSync(join(h, '.dsh-immune', 'version.json')), 'codex still connected, vendor stays');
+
+  const last = disconnectHost('codex', { home: h });
+  assert.ok(last.vendorDir?.endsWith('.dsh-immune'), 'the report names the removed vendor dir');
+  assert.equal(existsSync(join(h, '.dsh-immune')), false, 'vendor deleted once no host remains');
+});
+
+test('verifyConnectedPaths flags a host whose scripts vanished', () => {
+  const h = home();
+  connectHost('claude-code', { home: h });
+  assert.deepEqual(verifyConnectedPaths(h), [], 'a fresh connect has no broken paths');
+  rmSync(join(h, '.dsh-immune', 'dist'), { recursive: true, force: true });
+  const issues = verifyConnectedPaths(h);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].host, 'claude-code');
+  assert.equal(issues[0].broken.length, 6, 'every command is broken once the vendor tree is gone');
 });

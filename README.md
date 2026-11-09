@@ -15,6 +15,12 @@
     <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
   </p>
 
+  <p>
+    <b>97.54%</b> agreement replaying <b>20,100 real tool calls</b> · <b>0</b> false negatives · <b>zero</b> runtime dependencies
+    <br>
+    <sub><a href="#benchmarks-and-ci">measured, not asserted — how the number was produced</a></sub>
+  </p>
+
   <p><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
 </div>
 
@@ -77,14 +83,18 @@ npx dsh-immune-system@latest connect claude-code   # writes ~/.claude/settings.j
 npx dsh-immune-system@latest connect codex         # writes ~/.codex/hooks.json
 ```
 
-What it does: merges six hook entries (five on Codex, which has no
-`PostToolUseFailure` event) into the host's own config, leaving every other
-setting alone; keeps a one-time `.bak-immune` backup of the file before the
-first write; re-running is a no-op; `connect <host> --remove` takes only the
-immune entries back out. Bare `connect` surveys both hosts read-only. The
-commands point at the npm-installed dist scripts, and the hook payload contract
-is the one the ZCode adapter already speaks (same `hookSpecificOutput`
-injection shape), so no adapter code ships per host.
+What it does: copies the engine into a fixed `~/.dsh-immune/` install (so the
+hooks survive npx-cache cleanups and package upgrades), merges six hook
+entries (five on Codex, which has no `PostToolUseFailure` event) into the
+host's own config pointing **there**, leaving every other setting alone;
+keeps a one-time `.bak-immune` backup before the first write; re-running is a
+no-op (`--refresh` forces a re-copy); a stale install — an npx cache path from
+an older connect — is upgraded in place; `connect <host> --remove` takes only
+the immune entries back out and deletes `~/.dsh-immune/` when no host remains.
+Bare `connect` surveys both hosts read-only. `immune doctor` reports broken
+hook paths with the exact reconnect command. The hook payload contract is the
+one the ZCode adapter already speaks (same `hookSpecificOutput` injection
+shape), so no adapter code ships per host.
 
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.
@@ -217,7 +227,8 @@ To do that automatically after each turn's distillation:
 
 Every push runs the retrieval gate and unit suite on Node 22 and 24:
 
-* **Test suite** — `npm test` runs **138 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
+* **Failure judging** (`scripts/eval-judge.mjs`) — replaying **20,100 real host-labeled tool calls** through the judge: **97.54% agreement**, **0 false negatives**, 495 false positives (2.46%) — every one a probe or check command where a nonzero exit was the intended *answer*, a class the host itself labels "completed". Quantified and accepted in AGENTS.md decision #25.
+* **Test suite** — `npm test` runs **170 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
 * **Recall** — fixed zh/en matrix with 8 paraphrased positives and 6 gram-clean negatives. Current: R@1 100%, R@3 100%, FP 0%. CI fails below R@3 7/8 or above FP 1/6.
 * **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 41 ms (0.14 ms/rule); 67 matches run at p50 0.38 ms, p95 0.75 ms.
 * **Hook latency** (`scripts/bench-tool-latency.mjs`) — the tool path never calls a model; distillation is paid at the turn boundary.

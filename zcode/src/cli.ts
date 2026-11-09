@@ -256,14 +256,21 @@ function main(argv: string[]): number {
             ? `removed ${report.removed} immune hook(s) from ${report.configPath}\n`
             : `no immune hooks found in ${report.configPath}\n`,
         );
+        if (report.vendorDir) process.stdout.write(`  vendored install removed: ${report.vendorDir}\n`);
         return 0;
       }
-      const report = connectHost(definition.id);
+      const report = connectHost(definition.id, { refresh: args.includes('--refresh') });
       process.stdout.write(`connected ${report.label} -> ${report.configPath}\n`);
       const counts: string[] = [];
       if (report.added > 0) counts.push(`${report.added} event(s) wired`);
+      if (report.upgraded > 0) counts.push(`${report.upgraded} stale entry(ies) upgraded`);
       if (report.alreadyPresent > 0) counts.push(`${report.alreadyPresent} already present`);
       process.stdout.write(`  ${counts.join(' · ')}: ${report.eventsWired.join(', ')}\n`);
+      if (report.vendorDir) {
+        process.stdout.write(
+          `  vendored: ${report.vendorDir} (v${report.vendorVersion ?? '?'}${report.vendorRefreshed ? ', refreshed' : ''})\n`,
+        );
+      }
       process.stdout.write(`  scripts: ${report.scriptDir}\n`);
       if (report.backupPath) process.stdout.write(`  backup: ${report.backupPath}\n`);
       for (const note of report.notes) process.stdout.write(`  note: ${note}\n`);

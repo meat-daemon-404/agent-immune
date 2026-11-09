@@ -15,6 +15,12 @@
     <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="已收录于 DSH 插件市场"></a>
   </p>
 
+  <p>
+    回放 <b>20,100 次真实工具调用</b>，判定一致率 <b>97.54%</b> · <b>0</b> 假阴性 · <b>零</b>运行时依赖
+    <br>
+    <sub><a href="#跑分和-ci">数字是测出来的，不是喊出来的——看它怎么来的</a></sub>
+  </p>
+
   <p><a href="README.md">English</a> | <b>简体中文</b></p>
 </div>
 
@@ -74,7 +80,7 @@ npx dsh-immune-system@latest connect claude-code   # 写 ~/.claude/settings.json
 npx dsh-immune-system@latest connect codex         # 写 ~/.codex/hooks.json
 ```
 
-它做的事：往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个），用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作；`connect <host> --remove` 只摘走 immune 的条目；裸 `connect` 只读显示两个宿主的接入状态。命令指向 npm 安装目录里的 dist 脚本，而 hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码。
+它做的事：把引擎复制到固定的 `~/.dsh-immune/` 安装位（这样钩子不随 npx 缓存清理或包升级而失效），往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个）并指向该固定副本，用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作（`--refresh` 强制重灌）；旧版 connect 留下的 npx 缓存路径会被原地升级；`connect <host> --remove` 只摘走 immune 的条目，最后一个宿主卸载时顺带删除 `~/.dsh-immune/`。裸 `connect` 只读显示两个宿主的接入状态；`immune doctor` 会对失效的钩子路径报警并给出修复命令。hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码。
 
 两个提醒：接完重启宿主会话才生效；**Codex 需要先在 Codex 里跑一次 `/hooks` 信任这些命令**，否则不会执行。
 
@@ -195,7 +201,8 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 
 每次 push 都在 Node 22 和 24 上跑一遍召回闸和单测：
 
-* **单测**：`npm test` 是 **138 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
+* **失败判定**（`scripts/eval-judge.mjs`）：把 **20,100 次带宿主标注的真实工具调用**回放给判定器——与宿主标注**一致率 97.54%**，**0 假阴性**，495 个假阳性（2.46%）——全部是探针/检查类命令，非零退出本来就是想要的"答案"，宿主因此标注为"完成"。该类别已量化并在 AGENTS.md 决策 #25 接受。
+* **单测**：`npm test` 是 **170 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
 * **召回**：固定的中英场景矩阵，8 条改述正例、6 条 gram 干净的负例。现在是 R@1 100%、R@3 100%、误报 0%。低于 R@3 7/8 或高于误报 1/6 就红。
 * **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 41 ms（每条 0.14 ms）；67 次匹配 p50 0.38 ms、p95 0.75 ms。
 * **hook 开销**（`scripts/bench-tool-latency.mjs`）：工具执行路径永远不碰模型，蒸馏的钱花在回合边界上。

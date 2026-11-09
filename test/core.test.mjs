@@ -728,6 +728,18 @@ test('doctor surfaces rule hygiene without failing on historical LLM fallbacks',
   s.close();
 });
 
+test('doctor runs the marker check in a real project layout (ESM require crash)', async () => {
+  const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
+  const s = store();
+  // No pluginRoot override: markerChecks takes its real path. In a dev
+  // checkout the project marker exists, which is exactly the shape that used
+  // to crash on require('node:fs') inside an ES module.
+  const rows = runDoctor(s);
+  assert.ok(rows.some((row) => row.name === 'plugin marker (.dsh/immune-root.txt)'));
+  assert.ok(rows.some((row) => row.name === 'connect hooks'), 'the connect-path check ships');
+  s.close();
+});
+
 test('a retried invocation stays a learnable episode', async () => {
   const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
 

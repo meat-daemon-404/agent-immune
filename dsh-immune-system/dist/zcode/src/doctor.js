@@ -15,6 +15,7 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { GlobalStore, globalDbPathFor } from '../../core/store/global.js';
 import { resolveDbPath } from '../../core/store/path.js';
 import { findConsolidationCandidates, findLessonGroups } from '../../core/consolidate.js';
+import { verifyConnectedPaths } from '../../core/connect.js';
 import { dshDirOf, ROOT_MARKER } from './root-marker.js';
 function nodeVersionOk() {
     const [major = '0'] = process.versions.node.split('.');
@@ -76,7 +77,6 @@ function markerChecks() {
         });
         return results;
     }
-    const { readFileSync } = require('node:fs');
     const lines = readFileSync(marker, 'utf8').split('\n');
     const root = lines[0]?.trim() ?? '';
     const db = lines[1]?.trim() ?? '';
@@ -209,12 +209,31 @@ function llmBudgetRow(env = process.env) {
             : `budget ${budget} ms covers the ${timeout} ms LLM timeout`,
     };
 }
+/**
+ * `immune connect` writes fixed paths into the host configs; an npx cache
+ * sweep or an uninstall can leave them pointing at files that no longer
+ * exist, the host then runs hooks that fail silently. This check names the
+ * concrete fix instead of letting the breakage fester.
+ */
+function connectPathsCheck() {
+    const issues = verifyConnectedPaths();
+    if (issues.length === 0) {
+        return { name: 'connect hooks', ok: true, detail: 'no broken hook paths' };
+    }
+    const parts = issues.map((issue) => `${issue.host}: ${issue.broken.length} hook command(s) point at missing files`);
+    return {
+        name: 'connect hooks',
+        ok: false,
+        detail: `${parts.join(' · ')} — re-run: npx dsh-immune-system@latest connect <host>`,
+    };
+}
 export function runDoctor(store, options = {}) {
     const results = [nodeVersionOk(), ftsProbe()];
     results.push(...databaseChecks(store));
     if (!options.pluginRoot)
         results.push(...markerChecks());
     results.push(mcpCheck(), nativeUiCheck());
+    results.push(connectPathsCheck());
     results.push({
         name: 'counts',
         ok: true,
