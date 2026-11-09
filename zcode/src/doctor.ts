@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { ImmuneStore } from '../../core/store/index.js';
 import { GlobalStore, globalDbPathFor } from '../../core/store/global.js';
 import { resolveDbPath } from '../../core/store/path.js';
+import { findConsolidationCandidates, findLessonGroups } from '../../core/consolidate.js';
 import { dshDirOf, ROOT_MARKER } from './root-marker.js';
 
 export interface CheckResult {
@@ -184,6 +185,30 @@ function storageRow(store: ImmuneStore): CheckResult {
 }
 
 /**
+ * Library hygiene, reported where an operator already looks.
+ *
+ * Two rules with one symptom and different prescriptions are usually a stale
+ * generic symptom, not a merge candidate: on this machine #47 and #48 share a
+ * sentence and score 44%. Silence about that is worse than a line saying
+ * "look at it", but it must not turn doctor red — the library still works.
+ */
+function ruleHygieneRow(store: ImmuneStore): CheckResult {
+  const mergeable = findConsolidationCandidates(store).length;
+  const groups = findLessonGroups(store).filter((group) => group.maxSimilarity < 0.7);
+  if (mergeable === 0 && groups.length === 0) {
+    return { name: 'rule hygiene', ok: true, detail: 'no duplicate or same-symptom groups' };
+  }
+  const parts: string[] = [];
+  if (mergeable > 0) parts.push(`${mergeable} mergeable duplicate pair(s)`);
+  if (groups.length > 0) parts.push(`${groups.length} same-symptom group(s) below the merge bar`);
+  return {
+    name: 'rule hygiene',
+    ok: true,
+    detail: `${parts.join(' · ')} - review with \`immune consolidate --dry-run\``,
+  };
+}
+
+/**
  * A reasoning-model channel can take 30-120 s per call, but the turn-end drain
  * aborts at the budget. Without a warning the LLM path silently falls back to
  * the rule distiller on every turn and the operator never learns why.
@@ -216,15 +241,19 @@ export function runDoctor(store: ImmuneStore, options: DoctorOptions = {}): Chec
     detail: `${store.listAll(false).length} active / ${store.listAll(true).length - store.listAll(false).length} retired / ${store.pendingJobCount()} queued jobs / ${store.stats().suppressedRepeats} repeats suppressed`,
   });
   results.push(storageRow(store));
+  results.push(ruleHygieneRow(store));
   results.push(llmBudgetRow());
   const s = store.stats();
   if (s.llmDistilled > 0 || s.llmFallbacks > 0) {
+    // Advisory, not a health gate. The counters are cumulative: one degraded
+    // backfill months ago would keep `immune doctor` red forever, which trains
+    // people to ignore the exit code. The note still names the reason.
     results.push({
       name: 'LLM runtime',
-      ok: s.llmFallbacks === 0,
+      ok: true,
       detail:
         `${s.llmDistilled} rule(s) from the model · ${s.llmFallbacks} degraded to the rule path` +
-        (s.llmFallbacks > 0 ? ' (see distill_jobs.note for the reason)' : ''),
+        (s.llmFallbacks > 0 ? ' (historical; distill_jobs.note says why)' : ''),
     });
   }
   return results;

@@ -75,7 +75,7 @@ immune doctor
 node "<plugin root>/dist/zcode/src/cli.js" doctor
 ```
 
-Eight checks: Node ≥ 22.5, an FTS5 trigram probe (plus the two-character-CJK fallback), both databases readable, the marker file, the MCP script, the native-UI contract, and the counters. Non-zero exit means the next session will be missing something.
+The checks cover Node ≥ 22.5, an FTS5 trigram probe (plus the two-character-CJK fallback), both databases, the marker file, the MCP script, the native-UI contract, the counters, and rule hygiene (duplicate or same-symptom groups, with the command to review them). Non-zero exit means the next session will be missing something; advisory rows never turn it red, so a historical LLM fallback cannot train you to ignore the exit code.
 
 Then, plainly, what is proven and what is not:
 

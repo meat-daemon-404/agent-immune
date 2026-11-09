@@ -554,6 +554,52 @@ test('an unreported model is labelled unknown, never guessed', (t) => {
   s.close();
 });
 
+test('deleting a rule takes its attribution with it', (t) => {
+  const previous = process.env.IMMUNE_MODEL_NAME;
+  process.env.IMMUNE_MODEL_NAME = 'glm-5.3-flash';
+  t.after(() => {
+    if (previous === undefined) delete process.env.IMMUNE_MODEL_NAME;
+    else process.env.IMMUNE_MODEL_NAME = previous;
+  });
+
+  const s = store();
+  const id = s.insert({
+    trigger_pattern: 'gamma test',
+    symptom: 'tests fail',
+    prescription: 'run the tests from the package root',
+  });
+  assert.ok(id);
+  s.match('gamma test', { sessionId: 'sess-del' });
+  assert.equal(s.modelBreakdown()[0].hits, 1);
+
+  assert.equal(s.remove(id), true);
+  // Otherwise the per-model totals keep counting a rule that no longer exists
+  // and drift upward for the life of the database.
+  assert.deepEqual(s.modelBreakdown(), [], 'no attribution survives the delete');
+  assert.equal(s.crossModelRules(), 0);
+  s.close();
+});
+
+test('doctor surfaces rule hygiene without failing on historical LLM fallbacks', async () => {
+  const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
+  const s = store();
+  s.bumpMeta('llm_fallbacks', 4);
+  s.insert({ trigger_pattern: 'alpha x', symptom: 'same sentence', prescription: 'use the editor' });
+  s.insert({ trigger_pattern: 'beta x', symptom: 'same sentence', prescription: 'change the directory' });
+
+  const rows = runDoctor(s, { pluginRoot: 'D:/Project/dsh-plugin-immune/dsh-immune-system' });
+  const hygiene = rows.find((row) => row.name === 'rule hygiene');
+  assert.ok(hygiene, 'the row is always present');
+  assert.equal(hygiene.ok, true, 'hygiene is advisory');
+  assert.match(hygiene.detail, /same-symptom/, 'it names what to review');
+
+  const llm = rows.find((row) => row.name === 'LLM runtime');
+  assert.ok(llm);
+  assert.equal(llm.ok, true, 'cumulative degradation must not gate install health');
+  assert.match(llm.detail, /historical/);
+  s.close();
+});
+
 test('a retried invocation stays a learnable episode', async () => {
   const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
 

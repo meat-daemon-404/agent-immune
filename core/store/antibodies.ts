@@ -302,8 +302,20 @@ export function listAntibodies(db: DatabaseSync, includeRetired = true): Antibod
 }
 
 export function removeAntibody(db: DatabaseSync, id: number): boolean {
-  const info = db.prepare('DELETE FROM antibodies WHERE id = ?').run(id);
-  return Number(info.changes) > 0;
+  // Attribution is keyed by rule id. Leaving it behind makes the per-model
+  // totals count deliveries of a rule that no longer exists, and the numbers
+  // only ever drift upward. Delete both in one transaction.
+  let removed = false;
+  db.exec('BEGIN');
+  try {
+    db.prepare('DELETE FROM model_hits WHERE rule_id = ?').run(id);
+    removed = Number(db.prepare('DELETE FROM antibodies WHERE id = ?').run(id).changes) > 0;
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+  return removed;
 }
 
 export function setAntibodyStatus(db: DatabaseSync, id: number, status: AntibodyStatus): boolean {

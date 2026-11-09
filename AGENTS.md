@@ -305,6 +305,19 @@ identical-retry note).
     writes one consistent file. Any future export/restore feature inherits this
     rule; a "backup" that restores empty is worse than no backup.
 
+31. **Deleting a rule must delete what points at it; lifetime counters must not
+    gate health.** `removeAntibody` used to delete only the antibody row, so
+    `model_hits` kept counting deliveries of rules that no longer existed and
+    the per-model totals drifted upward for the life of the database. It now
+    removes attribution in the same transaction, and `pruneZombieAntibodies`
+    inherits that because it calls it. The same mistake in reverse: `doctor`
+    turned red when the cumulative `llm_fallbacks` counter was non-zero, which
+    meant one degraded backfill months ago would keep the health check failing
+    forever — a red row caused by history trains people to ignore the exit
+    code. LLM runtime is advisory now; only things a fix can change may fail.
+    Rule hygiene is reported there too, so nobody has to remember
+    `immune consolidate --dry-run` exists.
+
 ## Verification
 
 ```bash

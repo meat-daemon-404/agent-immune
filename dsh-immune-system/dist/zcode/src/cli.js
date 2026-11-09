@@ -73,11 +73,14 @@ function cmdStats(store) {
     const all = store.listAll(true);
     const active = all.filter((a) => a.status === 'active');
     const retired = all.length - active.length;
-    const hits = active.reduce((sum, a) => sum + a.hit_count, 0);
+    // Lifetime delivery, retired rules included: their injections happened, and
+    // computing this from `active` made the total shrink whenever anti-rot
+    // retired a rule. Same definition as the dashboard.
+    const hits = all.reduce((sum, a) => sum + a.hit_count, 0);
     // Delivery is not the same as value: `injections` counts how often the
     // library was used, the penalties say how often it held. Printing both keeps
     // a growing library from looking like a working one.
-    const fails = active.reduce((sum, a) => sum + a.fail_count, 0);
+    const fails = all.reduce((sum, a) => sum + a.fail_count, 0);
     const heldLine = hits > 0
         ? `held up: ${Math.max(0, hits - fails)} of ${hits} injections (${Math.round((fails / hits) * 100)}% blamed for a later failure)\n`
         : '';
