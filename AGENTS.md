@@ -338,6 +338,18 @@ identical-retry note).
     owns (`modified`, `writing`) over words every error shares (`file`, `read`) —
     a trigger is a recall key, not a keyword dump.
 
+34. **Publish from a clean export, never from the working tree.** `npm pack`
+    and `npm publish` run `prepare`, which compiles whatever is on disk. This
+    workspace hosts more than one session: an unfinished `core/connect.ts` and
+    its `cli.ts` wiring were compiled into 1.0.36, and 1.0.37 shipped a
+    `cli.js` that imported a `connect.js` the tarball did not contain — both
+    deprecated. The release procedure is now: `git archive HEAD | tar -x -C
+    <tmp>`, `npm publish --ignore-scripts` from that export, then unpack the
+    tarball and run the CLI once before tagging. If the working tree is dirty
+    for any reason, stop and read `git status` before packaging. `git add -A`
+    is how those files entered the commit in the first place; stage explicit
+    paths.
+
 ## Verification
 
 ```bash
@@ -372,6 +384,7 @@ silently broke the canonical episode shape.
 | Native web tab | `dsh-immune-system/client/client.js` (hand-written, no bundler) | `test/dsh-ui.test.mjs` |
 | Dashboard page | `core/ui/page.ts` | `test/ui.test.mjs` |
 | MCP tools | `zcode/src/mcp-server.ts` | `test/mcp.test.mjs` (real stdio spawn) |
+| Host connect installer | `core/connect.ts` | `test/connect.test.mjs` |
 
 ## Known limits (do not file these as bugs)
 
