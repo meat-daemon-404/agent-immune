@@ -318,6 +318,26 @@ identical-retry note).
     Rule hygiene is reported there too, so nobody has to remember
     `immune consolidate --dry-run` exists.
 
+32. **"Covered" means a rule that plausibly applies, not an FTS hit.** The first
+    `immune coverage` counted any retrieval result as coverage and reported 99%
+    for an eight-rule library. `findMatches` ORs tokens, so one shared word is
+    enough to return something — that is not coverage. It now takes the top
+    three `peek`s and requires `isRelated`, the same test anti-rot uses before
+    blaming a rule, and excludes user-cancelled / policy / connection-reset
+    failures as noise (the distiller skips them too). The honest number on this
+    machine was 21%, and the two biggest clusters were real lessons the library
+    had missed. A coverage percentage that cannot fall is worthless; keep the
+    denominator to failures a rule could exist for.
+
+33. **Relevance signals must ignore stopwords.** `signals()` accepted any token
+    of three characters or more, so `not` was a signal: a rule about
+    "old_string not found" counted as related to "operation not permitted".
+    That polluted both the coverage metric and the anti-rot penalty, which can
+    retire a good rule for an unrelated failure. English function words are
+    filtered now. When adding tokens to a trigger, prefer words the target error
+    owns (`modified`, `writing`) over words every error shares (`file`, `read`) —
+    a trigger is a recall key, not a keyword dump.
+
 ## Verification
 
 ```bash

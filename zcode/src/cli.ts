@@ -7,7 +7,7 @@
  * the logic testable and out of the prompt.
  *
  * Usage: node dist/zcode/src/cli.js
- *   <list|stats|export|prune|forget|search|rewrite|consolidate|backup|backfill|sync-doc|ui|doctor|demo> [...]
+ *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|backfill|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +19,7 @@ import { syncDoc } from '../../core/sync-doc.js';
 import { backfill } from '../../core/backfill.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
+import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
 import {
   CONSOLIDATE_SIMILARITY,
@@ -217,6 +218,42 @@ function main(argv: string[]): number {
       case 'stats':
         cmdStats(store);
         return 0;
+      case 'coverage': {
+        // What the library does NOT cover. `stats` can look healthy while every
+        // failure that actually happens is one no rule matches.
+        const daysArg = args.indexOf('--days');
+        const topArg = args.indexOf('--top');
+        const dbArg = args.indexOf('--db');
+        const report = coverage(store, {
+          days: daysArg >= 0 ? Number(args[daysArg + 1] ?? '30') : 30,
+          top: topArg >= 0 ? Number(args[topArg + 1] ?? '10') : 10,
+          ...(dbArg >= 0 ? { sourceDb: resolve(args[dbArg + 1] ?? '') } : {}),
+        });
+        if (report.failures === 0) {
+          process.stdout.write(
+            'no host errors found - set IMMUNE_HOST_DB if this host keeps them elsewhere\n',
+          );
+          return 0;
+        }
+        const judged = report.failures - report.noise;
+        const pct = judged > 0 ? Math.round((report.covered / judged) * 100) : 0;
+        process.stdout.write(
+          `coverage: last ${report.days} days · ${judged} judgeable failure(s) · ` +
+            `${report.covered} covered (${pct}%) · ${report.uncovered} uncovered` +
+            (report.noise > 0 ? ` · ${report.noise} ignored as noise` : '') +
+            '\n',
+        );
+        if (report.clusters.length > 0) {
+          process.stdout.write('top uncovered signatures:\n');
+          for (const cluster of report.clusters) {
+            process.stdout.write(
+              `  ${cluster.count}× ${cluster.tool}  ${cluster.signature} ` +
+                `(${cluster.sessions} session(s))\n`,
+            );
+          }
+        }
+        return 0;
+      }
       case 'export':
         cmdExport(store, args);
         return 0;

@@ -580,6 +580,72 @@ test('deleting a rule takes its attribution with it', (t) => {
   s.close();
 });
 
+test('relevance ignores function words that every error shares', async () => {
+  const { signals } = await import('../dsh-immune-system/dist/core/relevance.js');
+  const s = signals('operation not permitted: file has been read before');
+  assert.equal(s.has('not'), false, '"not" is not a topic');
+  assert.equal(s.has('been'), false);
+  assert.equal(s.has('before'), false);
+  assert.equal(s.has('permitted'), true);
+  assert.equal(s.has('operation'), true);
+});
+
+test('coverage counts a rule only when it plausibly applies, and ignores noise', async (t) => {
+  const { coverage, normaliseFailure } = await import(
+    '../dsh-immune-system/dist/core/coverage.js'
+  );
+  const { rmSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'immune-cov-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  // Instance-specific text collapses to one signature; the shape survives.
+  assert.equal(
+    normaliseFailure("EPERM: operation not permitted, mkdir 'C:\\a\\b'"),
+    normaliseFailure("EPERM: operation not permitted, mkdir 'D:\\x\\y'"),
+  );
+  assert.match(normaliseFailure('HTTP 404 for /v1/models'), /#/);
+
+  const host = join(dir, 'host.sqlite');
+  const db = new DatabaseSync(host);
+  db.exec(`CREATE TABLE tool_usage (
+    session_id TEXT NOT NULL, tool_name TEXT NOT NULL, status TEXT NOT NULL,
+    error_message TEXT NOT NULL, started_at INTEGER NOT NULL
+  )`);
+  const insert = db.prepare('INSERT INTO tool_usage VALUES (?, ?, ?, ?, ?)');
+  const now = Date.now();
+  insert.run('s1', 'Edit', 'error', "EPERM: operation not permitted, mkdir 'C:\\a'", now);
+  insert.run('s2', 'Edit', 'error', "EPERM: operation not permitted, mkdir 'D:\\b'", now);
+  insert.run('s1', 'Bash', 'error', 'Bash was cancelled and the child process was asked to stop', now);
+  insert.run('s2', 'Edit', 'error', 'old_string not found in src/a.ts', now);
+  db.close();
+
+  const s = store();
+  s.insert({
+    trigger_pattern: 'old_string not found exact match',
+    symptom: 'edit did not match',
+    prescription: 're-read the file and copy the exact text',
+  });
+  const before = s.listAll(false)[0].hit_count;
+
+  const report = coverage(s, { days: 30, sourceDb: host, env: { IMMUNE_HOST_DB: host } });
+  assert.equal(report.failures, 4);
+  assert.equal(report.noise, 1, 'a cancelled call is not a lesson');
+  assert.equal(report.covered, 1);
+  assert.equal(report.uncovered, 2);
+  assert.equal(report.clusters.length, 1, 'two paths are one signature');
+  assert.equal(report.clusters[0].count, 2);
+  assert.equal(report.clusters[0].sessions, 2);
+  assert.equal(s.listAll(false)[0].hit_count, before, 'coverage must not count as delivery');
+  s.close();
+});
+
+test('coverage handles a missing host database without inventing data', async () => {
+  const { coverage } = await import('../dsh-immune-system/dist/core/coverage.js');
+  const missing = join(tmpdir(), 'immune-no-host.sqlite');
+  const report = coverage(store(), { sourceDb: missing, env: { IMMUNE_HOST_DB: missing } });
+  assert.deepEqual(report, { days: 30, failures: 0, noise: 0, covered: 0, uncovered: 0, clusters: [] });
+});
+
 test('doctor surfaces rule hygiene without failing on historical LLM fallbacks', async () => {
   const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
   const s = store();

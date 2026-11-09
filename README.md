@@ -129,6 +129,16 @@ immune consolidate             # keep the most proven wording, retire the rest
 
 The keeper keeps its wording and absorbs the other's trigger tokens, hit and fail counts, repair actions and per-model attribution; duplicates are retired, not deleted. Groups that share only a symptom are printed for manual review and never merged automatically — in this project's own library five rules taught one lesson in five wordings, and the best pairwise score was 65%.
 
+### Where the library is blind
+
+`immune stats` describes what happened to the rules; it says nothing about the failures no rule matched. `immune coverage` replays the host's error rows over a window, asks the read-only retrieval path whether a rule plausibly applies (the same relevance test anti-rot uses), and groups the misses:
+
+```bash
+immune coverage --days 30 --top 8
+```
+
+The first version of this counted any FTS hit as coverage and reported 99% for an eight-rule library — obviously false, so it now requires a shared, meaningful token. On this machine the honest number was **21%** of 494 judgeable failures (79 cancelled/policy/network failures are ignored as noise), with two dominant blind spots: 80× `file has not been read yet` (no rule existed) and 54× `file has been modified since read` (the rule existed, its trigger just never matched that wording). Widening that trigger and seeding the missing precondition lesson took it to **52%** without inventing anything. The remaining clusters are environment-specific blocks with no single lesson, which is what the report should show rather than hide.
+
 ### Backups
 
 ```bash

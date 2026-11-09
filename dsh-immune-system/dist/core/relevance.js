@@ -7,6 +7,20 @@
  */
 import { tokenize } from './store/tokenize.js';
 const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+/**
+ * Words that carry no topic. Without this list "not" alone made a rule about
+ * `old_string not found` look related to `operation not permitted`, so the
+ * anti-rot guard could blame (and eventually retire) an unrelated rule — and
+ * the coverage report counted such failures as covered.
+ */
+const STOPWORDS = new Set([
+    'the', 'and', 'for', 'with', 'from', 'this', 'that', 'these', 'those',
+    'you', 'your', 'are', 'was', 'were', 'has', 'have', 'had', 'but', 'not',
+    'can', 'cannot', 'could', 'would', 'should', 'does', 'did', 'its', 'any',
+    'all', 'use', 'using', 'into', 'when', 'then', 'than', 'too', 'also', 'via',
+    'out', 'off', 'per', 'yet', 'one', 'two', 'been', 'being', 'since', 'before',
+    'after', 'during', 'while', 'about', 'over', 'under',
+]);
 /** Overlapping 3-character windows, so Chinese phrases can be compared. */
 function cjkGrams(token, size = 3) {
     const chars = [...token];
@@ -26,7 +40,7 @@ export function signals(text) {
     const out = new Set();
     for (const token of tokenize(text, 32)) {
         const lower = token.toLowerCase();
-        if (lower.length >= 3)
+        if (lower.length >= 3 && !STOPWORDS.has(lower))
             out.add(lower);
         if (CJK.test(token))
             for (const gram of cjkGrams(token))
