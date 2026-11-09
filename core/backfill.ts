@@ -39,7 +39,8 @@ export interface BackfillReport {
   skippedSelf: number;
 }
 
-interface CallRow {
+/** One tool call as the pairing loop sees it. */
+export interface CallRow {
   session_id: string;
   tool_call_id: string;
   tool_name: string;
@@ -52,7 +53,8 @@ function defaultSourceDb(): string {
   return `${homedir()}/.zcode/cli/db/db.sqlite`.replace(/\\/g, '/');
 }
 
-function loadCalls(db: DatabaseSync, since: number, sessionId?: string): CallRow[] {
+/** ZCode session db loader — shared with core/audit.ts. */
+export function loadCalls(db: DatabaseSync, since: number, sessionId?: string): CallRow[] {
   const filter = sessionId ? 'AND session_id = ?' : '';
   const params: Array<string | number> = [since];
   if (sessionId) params.push(sessionId);
@@ -67,7 +69,7 @@ function loadCalls(db: DatabaseSync, since: number, sessionId?: string): CallRow
 }
 
 /** Tools whose episodes can produce a meaningful rule; protocol tools are excluded. */
-const BACKFILL_TOOLS = new Set([
+export const BACKFILL_TOOLS = new Set([
   'Bash', 'bash', 'Edit', 'Write', 'MultiEdit', 'Read', 'Grep', 'Glob', 'NotebookEdit',
 ]);
 
@@ -78,7 +80,8 @@ const BACKFILL_TOOLS = new Set([
  * exhausts memory on a real library (observed as a V8 OOM crash). Sessions are
  * fetched in bounded chunks with bound parameters.
  */
-function loadParts(
+/** Full input/output per callID, shared with core/audit.ts. */
+export function loadParts(
   db: DatabaseSync,
   sessionIds: string[],
 ): Map<string, { input: unknown; output: string }> {
@@ -116,7 +119,7 @@ function loadParts(
 }
 
 /** Replay the live pairing loop over one session's ordered calls. */
-function pairSession(
+export function pairSession(
   calls: CallRow[],
   parts: Map<string, { input: unknown; output: string }>,
   emit: (fail: CallRow, success: CallRow, repairs: string[]) => void,

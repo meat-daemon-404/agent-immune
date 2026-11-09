@@ -7,7 +7,7 @@
  * the logic testable and out of the prompt.
  *
  * Usage: node dist/zcode/src/cli.js
- *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|connect|backfill|sync-doc|ui|doctor|demo> [...]
+ *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|connect|backfill|audit|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -21,6 +21,7 @@ import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
 import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
+import { auditHistory } from '../../core/audit.js';
 import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
 import { HOSTS, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
 import { startUiServer } from '../../core/ui/server.js';
@@ -137,6 +138,40 @@ function cmdExport(store, args) {
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, renderSkillMarkdown(rows, { minHits: threshold }), 'utf8');
     process.stdout.write(`${strings().exported} ${rows.length} -> ${outPath}\n`);
+}
+function printAuditReport(report, days, dryRun) {
+    process.stdout.write(`immune audit — last ${days} day(s)\n`);
+    for (const source of report.sources) {
+        if (!source.present) {
+            process.stdout.write(`[${source.source}] absent · ${source.note ?? 'no data'}\n`);
+            continue;
+        }
+        process.stdout.write(`[${source.source}] scanned ${source.scanned} · ${source.failures} failures · ` +
+            `${source.paired} paired (${source.superseded} superseded) · ` +
+            `${source.enqueued} enqueued (${source.skippedSelf} self-noise skipped)` +
+            (source.note ? ` · ${source.note}` : '') +
+            '\n');
+        const tools = source.byTool.slice(0, 4);
+        if (tools.length > 0) {
+            process.stdout.write(`  by tool: ${tools.map((stat) => `${stat.tool} ${stat.failures}f/${stat.scanned}`).join(' · ')}\n`);
+        }
+        if (source.topFailures.length > 0) {
+            process.stdout.write('  repeat offenders:\n');
+            for (const family of source.topFailures) {
+                process.stdout.write(`    ${family.count}× [${family.tool}] ${family.error}\n`);
+            }
+        }
+        if (source.medianRequestTokens !== null && source.paired > 0) {
+            const waste = source.paired * source.medianRequestTokens * ROUND_TRIPS_PER_REPEAT;
+            process.stdout.write(`  tokens: median request ${formatTokens(source.medianRequestTokens)} ` +
+                `(${source.medianSamples} samples) — ${source.paired} episodes ≈ ${formatTokens(waste)} tokens\n`);
+        }
+    }
+    process.stdout.write(`scan total: ${report.totals.scanned} calls · ${report.totals.failures} failures · ` +
+        `${report.totals.paired} failed-then-fixed episodes\n`);
+    if (dryRun) {
+        process.stdout.write('dry run: nothing enqueued, nothing distilled — drop --dry-run to apply\n');
+    }
 }
 function main(argv) {
     const [command = 'list', ...args] = argv;
@@ -325,6 +360,66 @@ function main(argv) {
                 })
                     .catch((error) => {
                     process.stderr.write(`backfill drain failed: ${error instanceof Error ? error.message : String(error)}\n`);
+                    process.exitCode = 1;
+                })
+                    .finally(() => {
+                    clearInterval(keepAlive);
+                    store.close();
+                });
+                return 0;
+            }
+            case 'audit': {
+                // The cold-start command: replay the pairing loop over every host's
+                // history on this machine, print a shareable summary, then distil.
+                deferStoreClose = true;
+                const daysArg = args.indexOf('--days');
+                const sourceArg = args.indexOf('--source');
+                const maxArg = args.indexOf('--max');
+                const budgetArg = args.indexOf('--budget-ms');
+                const dryRun = args.includes('--dry-run');
+                const source = sourceArg >= 0 ? (args[sourceArg + 1] ?? 'auto') : 'auto';
+                if (!['auto', 'zcode', 'codex', 'claude-code'].includes(source)) {
+                    process.stderr.write(`audit: unknown source "${source}"\n`);
+                    store.close();
+                    return 2;
+                }
+                const report = auditHistory(store, {
+                    days: daysArg >= 0 ? Number(args[daysArg + 1] ?? '30') : 30,
+                    source: source,
+                    ...(maxArg >= 0 ? { max: Number(args[maxArg + 1] ?? '0') } : {}),
+                    dryRun,
+                    selfMarkers: selfMarkers(),
+                });
+                printAuditReport(report, Number.isFinite(Number(args[daysArg + 1])) && daysArg >= 0 ? Number(args[daysArg + 1] ?? '30') : 30, dryRun);
+                if (dryRun) {
+                    store.close();
+                    return 0;
+                }
+                // Same drain contract as backfill: LLM when configured, rule path
+                // otherwise; the budget caps how long the user's turn waits.
+                const noLlm = args.includes('--no-llm');
+                const llm = noLlm ? null : readLlmConfig();
+                const budget = budgetArg >= 0 ? Number(args[budgetArg + 1] ?? '60000') : 60_000;
+                const keepAlive = setInterval(() => { }, 60_000);
+                let drained = 0;
+                const drainLoop = (async () => {
+                    for (;;) {
+                        const r = await drainJobs(store, Number.isFinite(budget) ? budget : 60_000, { llm });
+                        drained += r.processed;
+                        if (store.pendingJobCount() === 0 || r.processed === 0)
+                            break;
+                    }
+                })();
+                drainLoop
+                    .then(() => {
+                    const s = store.stats();
+                    const path = llm === null
+                        ? 'deterministic rule path'
+                        : `${s.llmDistilled} by the model · ${s.llmFallbacks} degraded`;
+                    process.stdout.write(`distilled ${drained} episode(s) — ${path} · ${store.pendingJobCount()} left queued\n`);
+                })
+                    .catch((error) => {
+                    process.stderr.write(`audit drain failed: ${error instanceof Error ? error.message : String(error)}\n`);
                     process.exitCode = 1;
                 })
                     .finally(() => {

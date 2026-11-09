@@ -17,7 +17,8 @@ import { REPAIR_TOOLS } from './repair-tools.js';
 function defaultSourceDb() {
     return `${homedir()}/.zcode/cli/db/db.sqlite`.replace(/\\/g, '/');
 }
-function loadCalls(db, since, sessionId) {
+/** ZCode session db loader — shared with core/audit.ts. */
+export function loadCalls(db, since, sessionId) {
     const filter = sessionId ? 'AND session_id = ?' : '';
     const params = [since];
     if (sessionId)
@@ -30,7 +31,7 @@ function loadCalls(db, since, sessionId) {
         .all(...params);
 }
 /** Tools whose episodes can produce a meaningful rule; protocol tools are excluded. */
-const BACKFILL_TOOLS = new Set([
+export const BACKFILL_TOOLS = new Set([
     'Bash', 'bash', 'Edit', 'Write', 'MultiEdit', 'Read', 'Grep', 'Glob', 'NotebookEdit',
 ]);
 /**
@@ -40,7 +41,8 @@ const BACKFILL_TOOLS = new Set([
  * exhausts memory on a real library (observed as a V8 OOM crash). Sessions are
  * fetched in bounded chunks with bound parameters.
  */
-function loadParts(db, sessionIds) {
+/** Full input/output per callID, shared with core/audit.ts. */
+export function loadParts(db, sessionIds) {
     const map = new Map();
     const CHUNK = 200;
     for (let i = 0; i < sessionIds.length; i += CHUNK) {
@@ -70,7 +72,7 @@ function loadParts(db, sessionIds) {
     return map;
 }
 /** Replay the live pairing loop over one session's ordered calls. */
-function pairSession(calls, parts, emit) {
+export function pairSession(calls, parts, emit) {
     const signatureOf = (c) => targetSignature(c.tool_name, parts.get(c.tool_call_id)?.input ?? null);
     // Pending failures keyed by program family + tool, mirroring the live
     // pending_failures table's (session, tool) key.
