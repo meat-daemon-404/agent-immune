@@ -20,7 +20,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     status          TEXT    NOT NULL DEFAULT 'active',
     tool_name       TEXT,
     created_at      INTEGER NOT NULL,
-    updated_at      INTEGER NOT NULL
+    updated_at      INTEGER NOT NULL,
+    prescription_source TEXT NOT NULL DEFAULT ''
   )`,
   `CREATE VIRTUAL TABLE IF NOT EXISTS antibodies_fts USING fts5(
     trigger_pattern,

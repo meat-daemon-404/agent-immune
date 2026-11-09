@@ -30,6 +30,12 @@ export interface Antibody {
    * the lesson was learned. Empty for seeded and older rules.
    */
   repair_path: string[];
+  /**
+   * Optional. Who wrote the current prescription: '' (older or captured),
+   * 'rule', 'llm' or 'human'. `immune rewrite` replaces command dumps and
+   * records 'llm', so an operator can tell rewritten wording from evidence.
+   */
+  prescription_source?: string;
   created_at: number;
   updated_at: number;
 }

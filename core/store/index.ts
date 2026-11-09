@@ -36,6 +36,7 @@ import {
   penalizeAntibodies,
   removeAntibody,
   setAntibodyStatus,
+  setPrescription as setAntibodyPrescription,
   newestActiveId,
   pruneZombieAntibodies,
   retireZombieAntibodies,
@@ -390,6 +391,11 @@ export class ImmuneStore {
 
   setStatus(id: number, status: AntibodyStatus): boolean {
     return setAntibodyStatus(this.db, id, status);
+  }
+
+  /** Replace a prescription's wording, keeping the rule and its counters. */
+  setPrescription(id: number, prescription: string, source: 'rule' | 'llm' | 'human'): boolean {
+    return setAntibodyPrescription(this.db, id, prescription, source);
   }
 
   recordFailure(

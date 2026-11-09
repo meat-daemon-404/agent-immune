@@ -274,6 +274,18 @@ identical-retry note).
     read) and `crossModelRuleCount()` is the only honest claim about a rule
     surviving a model switch. Do not "optimise" the TTL back up.
 
+28. **Rewriting a prescription is model-only, and it records its source.**
+    `immune rewrite` exists because the deterministic path cannot write advice:
+    with only "the command that worked" as evidence, its prescription IS that
+    command. Refuse to fake it without a model — a second deterministic pass
+    reproduces the same dump. The rewrite keeps trigger, symptom and counters
+    and sets `prescription_source='llm'`, so captured evidence stays
+    distinguishable from generated wording. Two traps, both hit in production:
+    the symptom can be stale (five rules carried the same generic sentence), so
+    the prompt says the command wins and an untellable purpose is skipped; and
+    rewriting is not merging — five rules for one lesson still need to be
+    consolidated by hand (that pass took the maintainer's library 13 → 9).
+
 ## Verification
 
 ```bash

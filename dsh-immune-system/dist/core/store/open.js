@@ -41,6 +41,10 @@ const COLUMNS = [
     // problem, kept on the rule so exports and UI can show HOW it was learned.
     { table: 'distill_jobs', column: 'repair_path', ddl: "TEXT NOT NULL DEFAULT '[]'" },
     { table: 'antibodies', column: 'repair_path', ddl: "TEXT NOT NULL DEFAULT '[]'" },
+    // Where the prescription came from ('', 'rule', 'llm', 'rewritten'): an
+    // operator needs to see that a rule's wording is model-written rather than
+    // captured evidence.
+    { table: 'antibodies', column: 'prescription_source', ddl: "TEXT NOT NULL DEFAULT ''" },
 ];
 function migrate(db) {
     for (const { table, column, ddl } of COLUMNS) {

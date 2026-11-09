@@ -290,6 +290,18 @@ export function exportableAntibodies(db, minHits) {
         .all(minHits);
     return raw.map(rowToAntibody);
 }
+/**
+ * Replace one rule's prescription in place, keeping trigger, symptom and the
+ * counters. Only `immune rewrite` calls this: the wording becomes advice while
+ * the evidence that made the rule worth keeping stays intact.
+ */
+export function setPrescription(db, id, prescription, source) {
+    const info = db
+        .prepare(`UPDATE antibodies SET prescription = ?, prescription_source = ?, updated_at = ?
+        WHERE id = ?`)
+        .run(prescription.trim().slice(0, 200), source, Date.now(), id);
+    return Number(info.changes) > 0;
+}
 /** Id of the newest still-active antibody, or null when there is none. */
 export function newestActiveId(db) {
     const row = db

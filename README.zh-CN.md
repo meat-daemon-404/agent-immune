@@ -82,6 +82,18 @@ node "<插件根目录>/dist/zcode/src/cli.js" doctor
 * **外部 LLM 蒸馏** —— 在一条真实的 OpenAI 兼容端点上跑通过（商汤 Token Plan）。别的厂商走同一份代码，但没实测。不配 `IMMUNE_LLM_BASE_URL` 和 `IMMUNE_LLM_MODEL` 就走确定性规则路径，模型计数保持为 0。有端点时用 `node scripts/verify-llm.mjs` 一条命令验。
 * **`IMMUNE_GUARD=warn` 只有 ZCode 支持。** DSH 侧配了 guard 照样**会拦**：宿主契约只给 allow / deny / ask，没有「仅提醒」这一档。不想被拦就保持默认的 `IMMUNE_GUARD=off`。
 
+### 规则写成了命令怎么办
+
+确定性路径写不出建议：只有一条"跑通了的命令"当证据，处方就只能是那条命令本身。维护者自己的库里，13 条规则有 6 条是 100–200 字符的 shell，占了全部投递的一半。`immune rewrite` 把它们交给配置好的模型，原地换掉措辞，触发词、症状和计数都不动：
+
+```bash
+immune rewrite --dry-run     # 只列候选，一个字不改
+immune rewrite --max 3       # 改三条
+immune rewrite --id 49,50    # 重做指定的几条
+```
+
+被重写的规则会带 `prescription_source = 'llm'`，所以"抓到的证据"和"模型写的措辞"在库里分得清。模型有时会顺着过期的 symptom 编而不是看命令——生产库里好几条规则共用一个泛化 symptom——所以 prompt 明说以命令为准，说不清用途的直接 skip，不许猜。这个功能必须有模型：确定性路径再来一遍，只会得到同样一条命令。
+
 ### 把学到的东西分享出去
 
 ```bash

@@ -6,7 +6,8 @@
  * database themselves. They ask the model to run this CLI instead, which keeps
  * the logic testable and out of the prompt.
  *
- * Usage: node dist/zcode/src/cli.js <list|stats|export|prune|forget> [...]
+ * Usage: node dist/zcode/src/cli.js
+ *   <list|stats|export|prune|forget|search|rewrite|backfill|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -18,6 +19,7 @@ import { syncDoc } from '../../core/sync-doc.js';
 import { backfill } from '../../core/backfill.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
+import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -234,6 +236,56 @@ function main(argv) {
                 })
                     .catch((error) => {
                     process.stderr.write(`backfill drain failed: ${error instanceof Error ? error.message : String(error)}\n`);
+                    process.exitCode = 1;
+                })
+                    .finally(() => {
+                    clearInterval(keepAlive);
+                    store.close();
+                });
+                return 0;
+            }
+            case 'rewrite': {
+                // The rule path can only echo the command that worked. This is the one
+                // operation that turns an existing echo rule into advice, and it can
+                // only run with a model: rewriting deterministically would reproduce
+                // the same dump.
+                const maxArg = args.indexOf('--max');
+                const max = maxArg >= 0 ? Number(args[maxArg + 1] ?? '0') : 0;
+                const idArg = args.indexOf('--id');
+                const ids = idArg >= 0
+                    ? (args[idArg + 1] ?? '')
+                        .split(',')
+                        .map(Number)
+                        .filter((n) => Number.isInteger(n) && n > 0)
+                    : [];
+                const dryRun = args.includes('--dry-run');
+                const llm = readLlmConfig();
+                if (!llm) {
+                    const candidates = echoCandidates(store);
+                    process.stdout.write(`no model configured (IMMUNE_LLM_BASE_URL / IMMUNE_LLM_MODEL); ` +
+                        `${candidates.length} echo-grade rule(s) would be rewritten:\n` +
+                        candidates
+                            .map((a) => `  #${a.id} h${a.hit_count} ${a.prescription.slice(0, 70)}\n`)
+                            .join(''));
+                    return 0;
+                }
+                deferStoreClose = true;
+                const keepAlive = setInterval(() => { }, 60_000);
+                rewriteEchoes(store, { llm, max, dryRun, ids })
+                    .then((report) => {
+                    process.stdout.write(`rewrite: ${report.candidates} candidate(s) · ${report.rewritten} rewritten · ` +
+                        `${report.skipped} skipped · ${report.failed} failed${report.dryRun ? ' (dry run)' : ''}\n`);
+                    for (const item of report.items) {
+                        const tail = item.to
+                            ? ` -> ${item.to}`
+                            : item.detail
+                                ? ` (${item.detail})`
+                                : '';
+                        process.stdout.write(`  #${item.id} ${item.status}${tail}\n`);
+                    }
+                })
+                    .catch((error) => {
+                    process.stderr.write(`rewrite failed: ${error instanceof Error ? error.message : String(error)}\n`);
                     process.exitCode = 1;
                 })
                     .finally(() => {

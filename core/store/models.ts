@@ -22,6 +22,17 @@ import { join } from 'node:path';
 export const UNKNOWN_MODEL = 'unknown';
 
 /**
+ * Some hosts record `auto` when the provider picked the model for them. It is
+ * a routing label, not a model: two deliveries under "auto" say nothing about
+ * cross-model generality, and a rule that only ever saw "auto" must not look
+ * like it survived a switch.
+ */
+export function isInformativeModel(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  return m !== '' && m !== UNKNOWN_MODEL && m !== 'auto';
+}
+
+/**
  * Attribution is per delivery, not per session.
  *
  * Measured on the maintainer's own database: one session used
@@ -168,7 +179,7 @@ export function crossModelRuleCount(db: DatabaseSync): number {
     .prepare(
       `SELECT COUNT(*) AS c FROM (
          SELECT rule_id FROM model_hits
-          WHERE model <> ?
+          WHERE model <> ? AND lower(model) <> 'auto'
           GROUP BY rule_id HAVING COUNT(DISTINCT model) > 1
        )`,
     )

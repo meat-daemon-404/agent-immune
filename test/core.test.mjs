@@ -236,6 +236,66 @@ test('the "tokens not spent" estimate is measured and refuses to guess', async (
   assert.equal(estimate.avoidedTokens, 4 * 16000 * ROUND_TRIPS_PER_REPEAT);
 });
 
+test('rewrite turns command dumps into advice and refuses to guess', async () => {
+  const { looksEchoPrescription, parseRewrite, rewriteEchoes } = await import(
+    '../dsh-immune-system/dist/core/rewrite.js'
+  );
+
+  // What counts as a dump: a trace prefix, a long Bash command, an oversized
+  // blob. What does not: a short command with no better phrasing, or "Edit: …"
+  // advice that merely starts with a tool name.
+  assert.equal(looksEchoPrescription('tool=Bash input={"command":"x"}'), true);
+  assert.equal(looksEchoPrescription('Bash: timeout 90 gh api -H "Accept: x" "repos/a/b"'), true);
+  assert.equal(looksEchoPrescription('Bash: npm test'), false);
+  assert.equal(looksEchoPrescription('Edit: 重新 Read 后精确复制待替换文本'), false);
+  assert.equal(looksEchoPrescription('x'.repeat(200)), true);
+  assert.equal(looksEchoPrescription('   '), true);
+
+  assert.deepEqual(parseRewrite('{"prescription":"改用本地二进制构建"}'), {
+    ok: true,
+    prescription: '改用本地二进制构建',
+  });
+  assert.equal(parseRewrite('```json\n{"prescription":"用本地二进制"}\n```').ok, true);
+  assert.equal(parseRewrite('{"skip":true}').ok, false, 'skip is not a rewrite');
+  assert.equal(parseRewrite('not json').ok, false);
+  assert.equal(parseRewrite('{"prescription":"Bash: npm i"}').ok, false, 'another dump is refused');
+  assert.equal(parseRewrite(JSON.stringify({ prescription: 'x'.repeat(200) })).ok, false);
+
+  const s = store();
+  const id = s.insert({
+    trigger_pattern: 'alpha build vite',
+    symptom: 'build fails',
+    prescription: 'Bash: npx vite build --mode production',
+  });
+  s.insert({ trigger_pattern: 'beta lint', symptom: 'lint', prescription: 'tool=Bash input={}' });
+
+  // Dry run reports the candidates and changes nothing.
+  const dry = await rewriteEchoes(s, { llm: { baseUrl: 'http://x', model: 'm', apiKey: 'k', timeoutMs: 1000 }, dryRun: true });
+  assert.equal(dry.candidates, 2);
+  assert.equal(dry.rewritten, 0);
+  assert.equal(
+    s.listAll(false).find((a) => a.id === id).prescription,
+    'Bash: npx vite build --mode production',
+  );
+
+  // A model answer replaces the wording, keeps the rule, and records where the
+  // words came from.
+  const llm = { baseUrl: 'http://x', model: 'm', apiKey: 'k', timeoutMs: 1000 };
+  const real = await rewriteEchoes(s, { llm }, {
+    chat: async () => '{"prescription":"用项目内的 vite 构建，别调全局"}',
+  });
+  assert.equal(real.rewritten, 2);
+  const row = s.listAll(false).find((a) => a.id === id);
+  assert.equal(row.prescription, '用项目内的 vite 构建，别调全局');
+  assert.equal(row.prescription_source, 'llm');
+  assert.equal(row.hit_count, 0, 'rewriting does not touch the counters');
+
+  // Nothing echo-shaped is left, so a second pass has no candidates.
+  const again = await rewriteEchoes(s, { llm }, { chat: async () => '{"skip":true}' });
+  assert.equal(again.candidates, 0);
+  s.close();
+});
+
 test('the distill parser accepts fenced JSON, skips, and rejects junk', async () => {
   const { parseDistillOutput } = await import('../dsh-immune-system/dist/core/prompts.js');
 

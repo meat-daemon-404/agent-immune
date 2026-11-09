@@ -11,7 +11,7 @@ export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
 export const LLM_SUCCESS_KEY = 'llm_distilled';
 export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
-import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
@@ -273,6 +273,10 @@ export class ImmuneStore {
     }
     setStatus(id, status) {
         return setAntibodyStatus(this.db, id, status);
+    }
+    /** Replace a prescription's wording, keeping the rule and its counters. */
+    setPrescription(id, prescription, source) {
+        return setAntibodyPrescription(this.db, id, prescription, source);
     }
     recordFailure(sessionId, toolName, trace, targetSignature = '') {
         return recordFailure(this.db, sessionId, toolName, trace, targetSignature);

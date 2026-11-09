@@ -106,6 +106,18 @@ description: Pitfalls this project already paid for once … 11 proven rules.
 
 The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules.
 
+### When a rule reads like a command dump
+
+The deterministic path cannot write advice: with no repair evidence beyond the command that worked, its prescription IS that command. Six of the thirteen rules in the maintainer's own library were 100–200 characters of shell, and they accounted for half of all deliveries. `immune rewrite` hands each one to the configured model and replaces the wording in place, keeping the trigger, the symptom and the counters:
+
+```bash
+immune rewrite --dry-run     # list candidates, change nothing
+immune rewrite --max 3       # rewrite three of them
+immune rewrite --id 49,50    # re-do specific rules
+```
+
+Rewritten rules carry `prescription_source = 'llm'`, so captured evidence and model-written wording stay distinguishable in the database. A model will sometimes follow a stale symptom instead of the command — several production rules shared one generic symptom — so the prompt says the command wins, and a rule whose purpose cannot be told from its input is skipped rather than guessed. Rewriting needs a model by design; there is nothing deterministic to say that the original pass did not already say.
+
 ### Syncing into AGENTS.md / CLAUDE.md
 
 Agents that do not run these hooks still read the project docs, so learned rules can be exported into them:
