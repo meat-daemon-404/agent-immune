@@ -5,7 +5,7 @@
  * rather than module memory. Low-level work is split into `antibodies.ts`
  * (rules) and `episodes.ts` (failure/success pairing).
  */
-import type { DatabaseSync } from 'node:sqlite';
+import { backup, type DatabaseSync } from 'node:sqlite';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Antibody, AntibodyStatus, FailureSnapshot, NewAntibody } from '../types.js';
@@ -37,6 +37,7 @@ import {
   removeAntibody,
   setAntibodyStatus,
   setPrescription as setAntibodyPrescription,
+  consolidateAntibodies,
   newestActiveId,
   pruneZombieAntibodies,
   retireZombieAntibodies,
@@ -391,6 +392,19 @@ export class ImmuneStore {
 
   setStatus(id: number, status: AntibodyStatus): boolean {
     return setAntibodyStatus(this.db, id, status);
+  }
+
+  /** Write a consistent snapshot; a plain copy of a WAL db can be empty. */
+  async backupTo(path: string): Promise<void> {
+    await backup(this.db, path);
+  }
+
+  /** Merge proven duplicate lessons, retaining evidence and attribution. */
+  consolidateInto(
+    keepId: number,
+    input: { trigger: string; hitCount: number; failCount: number; repairs: string[]; retireIds: number[] },
+  ): void {
+    consolidateAntibodies(this.db, keepId, input);
   }
 
   /** Replace a prescription's wording, keeping the rule and its counters. */

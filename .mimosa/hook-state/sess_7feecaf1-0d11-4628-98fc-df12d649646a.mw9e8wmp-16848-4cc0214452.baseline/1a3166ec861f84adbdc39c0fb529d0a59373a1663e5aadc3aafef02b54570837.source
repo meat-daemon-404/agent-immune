@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dsh-immune-system": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/zcode/src/mcp-server.js"],
+      "enabled": true,
+      "timeoutMs": 30000
+    }
+  }
+}

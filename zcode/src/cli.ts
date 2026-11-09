@@ -7,7 +7,7 @@
  * the logic testable and out of the prompt.
  *
  * Usage: node dist/zcode/src/cli.js
- *   <list|stats|export|prune|forget|search|rewrite|backfill|sync-doc|ui|doctor|demo> [...]
+ *   <list|stats|export|prune|forget|search|rewrite|consolidate|backup|backfill|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -20,6 +20,12 @@ import { backfill } from '../../core/backfill.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
+import {
+  CONSOLIDATE_SIMILARITY,
+  consolidateRules,
+  findConsolidationCandidates,
+  findLessonGroups,
+} from '../../core/consolidate.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -328,6 +334,71 @@ function main(argv: string[]): number {
             clearInterval(keepAlive);
             store.close();
           });
+        return 0;
+      }
+      case 'backup': {
+        // The database is WAL; `cp immune.sqlite x` can produce an empty file
+        // (measured during release work). node:sqlite's backup API reads
+        // through the log and writes one consistent snapshot.
+        deferStoreClose = true;
+        const target = args[0]
+          ? resolve(args[0])
+          : `${store.dbPath}.${new Date().toISOString().slice(0, 10)}.bak.sqlite`;
+        const keepAlive = setInterval(() => {}, 60_000);
+        store
+          .backupTo(target)
+          .then(() => process.stdout.write(`backup -> ${target}\n`))
+          .catch((error: unknown) => {
+            process.stderr.write(
+              `backup failed: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+            process.exitCode = 1;
+          })
+          .finally(() => {
+            clearInterval(keepAlive);
+            store.close();
+          });
+        return 0;
+      }
+      case 'consolidate': {
+        // Deliberately separate from rewrite: merging two useful wordings is a
+        // deterministic data operation, not a request to invent new advice.
+        const candidates = findConsolidationCandidates(store);
+        // Same-symptom groups that did NOT clear the merge bar: the tool will
+        // not touch them, but staying silent about a five-rule lesson taught in
+        // five different wordings is worse than showing it.
+        const near = findLessonGroups(store).filter(
+          (group) => group.maxSimilarity < 0.7 && !candidates.some((c) => group.rules.some((r) => r.id === c.keepId)),
+        );
+        if (candidates.length === 0) {
+          process.stdout.write('No duplicate lessons found.\n');
+          if (near.length > 0) {
+            process.stdout.write('Same symptom, different wording (manual review, not merged):\n');
+            for (const group of near) {
+              process.stdout.write(
+                `  ${group.symptom.slice(0, 50)} · ` +
+                  group.rules.map((r) => `#${r.id}(h${r.hits})`).join(' ') +
+                  ` · max ${Math.round(group.maxSimilarity * 100)}%\n`,
+              );
+            }
+          }
+          return 0;
+        }
+        process.stdout.write(`Duplicate lesson pair(s): ${candidates.length}\n`);
+        for (const c of candidates) {
+          process.stdout.write(
+            `  keep #${c.keepId} (h${c.keepHits}) <- retire #${c.retireId} (h${c.retireHits}) ` +
+              `[${Math.round(c.similarity * 100)}%] ${c.keepPrescription}\n`,
+          );
+        }
+        if (args.includes('--dry-run')) {
+          process.stdout.write('Dry run: no rules changed. Run without --dry-run to apply.\n');
+          return 0;
+        }
+        const result = consolidateRules(store, candidates);
+        process.stdout.write(
+          `Consolidated ${result.retired} duplicate rule(s); retired rows remain recoverable.\n`,
+        );
         return 0;
       }
       case 'sync-doc': {

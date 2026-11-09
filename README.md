@@ -118,6 +118,25 @@ immune rewrite --id 49,50    # re-do specific rules
 
 Rewritten rules carry `prescription_source = 'llm'`, so captured evidence and model-written wording stay distinguishable in the database. A model will sometimes follow a stale symptom instead of the command — several production rules shared one generic symptom — so the prompt says the command wins, and a rule whose purpose cannot be told from its input is skipped rather than guessed. Rewriting needs a model by design; there is nothing deterministic to say that the original pass did not already say.
 
+### When the same lesson exists twice
+
+Near-identical rules are merged on insert, but a rewrite or a model switch can leave two wordings of one lesson apart. `immune consolidate` finds pairs that share a normalized symptom, a tool and a trigger token and whose prescriptions are ≥70% similar; it previews before touching anything:
+
+```bash
+immune consolidate --dry-run   # pairs, plus same-symptom groups it will NOT merge
+immune consolidate             # keep the most proven wording, retire the rest
+```
+
+The keeper keeps its wording and absorbs the other's trigger tokens, hit and fail counts, repair actions and per-model attribution; duplicates are retired, not deleted. Groups that share only a symptom are printed for manual review and never merged automatically — in this project's own library five rules taught one lesson in five wordings, and the best pairwise score was 65%.
+
+### Backups
+
+```bash
+immune backup [path]   # default: <db>.<date>.bak.sqlite
+```
+
+The database runs in WAL mode, so `cp immune.sqlite backup` can copy a file that opens empty — it did, during this project's own release work. The command uses node:sqlite's backup API, which reads through the log and writes one consistent snapshot.
+
 ### Syncing into AGENTS.md / CLAUDE.md
 
 Agents that do not run these hooks still read the project docs, so learned rules can be exported into them:

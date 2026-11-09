@@ -302,6 +302,41 @@ export function setPrescription(db, id, prescription, source) {
         .run(prescription.trim().slice(0, 200), source, Date.now(), id);
     return Number(info.changes) > 0;
 }
+/**
+ * Consolidate duplicate rows into one proven rule in a single transaction.
+ * The trigger union and all evidence survive; duplicates are retired so the
+ * operation can be reviewed or restored from the dashboard later.
+ */
+export function consolidateAntibodies(db, keepId, input) {
+    const tx = db.prepare('BEGIN');
+    try {
+        tx.run();
+        db.prepare(`UPDATE antibodies SET trigger_pattern = ?, hit_count = ?, fail_count = ?,
+        repair_path = ?, updated_at = ? WHERE id = ? AND status = 'active'`).run(input.trigger.slice(0, 200), input.hitCount, input.failCount, toRepairJson(input.repairs), Date.now(), keepId);
+        if (input.retireIds.length > 0) {
+            const placeholders = input.retireIds.map(() => '?').join(',');
+            db.prepare(`UPDATE antibodies SET status = 'retired', updated_at = ?
+          WHERE id IN (${placeholders}) AND status = 'active'`).run(Date.now(), ...input.retireIds);
+            // Attribution belongs to the surviving rule; otherwise a model switch
+            // would make a consolidated lesson appear to have no history.
+            const move = db.prepare(`INSERT INTO model_hits (rule_id, model, hits, fails, updated_at)
+          SELECT ?, model, SUM(hits), SUM(fails), MAX(updated_at) FROM model_hits
+           WHERE rule_id IN (${placeholders}) GROUP BY model
+          ON CONFLICT(rule_id, model) DO UPDATE SET
+            hits = hits + excluded.hits, fails = fails + excluded.fails,
+            updated_at = MAX(updated_at, excluded.updated_at)`);
+            move.run(keepId, ...input.retireIds);
+            // The rows were copied into the keeper above. Leaving them behind makes
+            // one delivery count twice in every per-model total.
+            db.prepare(`DELETE FROM model_hits WHERE rule_id IN (${placeholders})`).run(...input.retireIds);
+        }
+        db.prepare('COMMIT').run();
+    }
+    catch (error) {
+        db.prepare('ROLLBACK').run();
+        throw error;
+    }
+}
 /** Id of the newest still-active antibody, or null when there is none. */
 export function newestActiveId(db) {
     const row = db

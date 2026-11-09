@@ -296,6 +296,104 @@ test('rewrite turns command dumps into advice and refuses to guess', async () =>
   s.close();
 });
 
+test('consolidation previews, merges evidence and is idempotent', async (t) => {
+  const { findConsolidationCandidates, consolidateRules } = await import(
+    '../dsh-immune-system/dist/core/consolidate.js'
+  );
+  const { recordModelHits } = await import('../dsh-immune-system/dist/core/store/models.js');
+  const s = store();
+  const a = s.insert({
+    trigger_pattern: 'Bash cp render.py',
+    symptom: '用 Bash cp 直接写源码文件',
+    prescription: '改用 Write/Edit 工具修改源码文件',
+    repair_path: ['Edit a.ts'],
+  });
+  assert.ok(a);
+  // A historical duplicate: the old pass wrote a different but equivalent
+  // prescription, so insertion did not collapse it. Seed that exact state.
+  s['db'].prepare(
+    `INSERT INTO antibodies
+      (trigger_pattern, symptom, prescription, tool_name, repair_path, hit_count, fail_count, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    'Bash cp tools.js',
+    '用 Bash cp 直接写源码文件',
+    '改用 Write/Edit 工具写入源码文件',
+    null,
+    JSON.stringify(['Write b.ts']),
+    0,
+    0,
+    'active',
+    Date.now(),
+    Date.now(),
+  );
+  const b = s.listAll(false).find((rule) => rule.trigger_pattern === 'Bash cp tools.js').id;
+  assert.ok(a && b);
+  // Bypass insert merging to represent the legacy duplicates already in a DB.
+  s['db'].prepare('UPDATE antibodies SET hit_count = 8 WHERE id = ?').run(a);
+  s['db'].prepare('UPDATE antibodies SET hit_count = 3 WHERE id = ?').run(b);
+  recordModelHits(s['db'], 'glm-5.3-flash', [a]);
+  recordModelHits(s['db'], 'auto/deepseek-v4.1-flash', [b]);
+
+  const candidates = findConsolidationCandidates(s);
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0].keepId, a);
+  assert.equal(candidates[0].retireId, b);
+  assert.equal(s.listAll(false).length, 2, 'preview never mutates');
+
+  const result = consolidateRules(s, candidates);
+  assert.equal(result.retired, 1);
+  const keeper = s.listAll(true).find((r) => r.id === a);
+  const retired = s.listAll(true).find((r) => r.id === b);
+  assert.equal(keeper.hit_count, 11, 'the evidence is added, not discarded');
+  assert.equal(keeper.repair_path.length, 2, 'both repair actions survive');
+  assert.match(keeper.trigger_pattern, /tools\.js/);
+  assert.equal(retired.status, 'retired');
+  assert.deepEqual(
+    s.modelBreakdown().map((row) => [row.model, row.hits, row.fails]),
+    [
+      ['auto/deepseek-v4.1-flash', 1, 0],
+      ['glm-5.3-flash', 1, 0],
+    ],
+    'both models remain attributed, and the moved rows are not double-counted',
+  );
+  assert.equal(findConsolidationCandidates(s).length, 0, 'second pass is a no-op');
+  s.close();
+});
+
+test('backup writes a complete snapshot while the live db is in WAL mode', async (t) => {
+  const { rmSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'immune-bak-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  const live = join(dir, 'live.sqlite');
+  const s = new ImmuneStore({ dbPath: live });
+  s.insert({ trigger_pattern: 'alpha snapshot', symptom: 's', prescription: 'p' });
+  const copyPath = join(dir, 'copy.sqlite');
+  await s.backupTo(copyPath);
+  s.close();
+
+  const copy = new DatabaseSync(copyPath, { readOnly: true });
+  const rows = copy.prepare('SELECT COUNT(*) AS n FROM antibodies').get().n;
+  assert.equal(rows, 1, 'the committed row is in the snapshot');
+  // A plain cp of a WAL database can yield an empty file; the API must not.
+  assert.ok(rows > 0);
+  copy.close();
+});
+
+test('consolidation does not merge different symptoms or unrelated triggers', async () => {
+  const { findConsolidationCandidates } = await import('../dsh-immune-system/dist/core/consolidate.js');
+  const s = store();
+  s.insert({ trigger_pattern: 'Bash cp one.ts', symptom: 'source write', prescription: 'use the editor' });
+  s.insert({ trigger_pattern: 'Bash cp two.ts', symptom: 'source write', prescription: 'use the editor' });
+  s.insert({ trigger_pattern: 'Bash cp three.ts', symptom: 'different failure', prescription: 'use the editor' });
+  s.insert({ trigger_pattern: 'Bash cp four.ts', symptom: 'source write', prescription: 'change the working directory' });
+  // The first two are exact duplicates, so insert collapses them; the other
+  // two remain because the symptom or the action differs.
+  assert.equal(findConsolidationCandidates(s).length, 0);
+  s.close();
+});
+
 test('the distill parser accepts fenced JSON, skips, and rejects junk', async () => {
   const { parseDistillOutput } = await import('../dsh-immune-system/dist/core/prompts.js');
 

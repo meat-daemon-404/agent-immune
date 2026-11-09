@@ -1,3 +1,11 @@
+/**
+ * Facade over the immune database.
+ *
+ * Each hook is a separate process, so all cross-event state lives in SQLite
+ * rather than module memory. Low-level work is split into `antibodies.ts`
+ * (rules) and `episodes.ts` (failure/success pairing).
+ */
+import { backup } from 'node:sqlite';
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { resolveDbPath } from './path.js';
@@ -11,7 +19,7 @@ export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
 export const LLM_SUCCESS_KEY = 'llm_distilled';
 export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
-import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, consolidateAntibodies, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
@@ -273,6 +281,14 @@ export class ImmuneStore {
     }
     setStatus(id, status) {
         return setAntibodyStatus(this.db, id, status);
+    }
+    /** Write a consistent snapshot; a plain copy of a WAL db can be empty. */
+    async backupTo(path) {
+        await backup(this.db, path);
+    }
+    /** Merge proven duplicate lessons, retaining evidence and attribution. */
+    consolidateInto(keepId, input) {
+        consolidateAntibodies(this.db, keepId, input);
     }
     /** Replace a prescription's wording, keeping the rule and its counters. */
     setPrescription(id, prescription, source) {

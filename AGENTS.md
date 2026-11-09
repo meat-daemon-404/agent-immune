@@ -286,6 +286,25 @@ identical-retry note).
     rewriting is not merging — five rules for one lesson still need to be
     consolidated by hand (that pass took the maintainer's library 13 → 9).
 
+29. **Consolidation merges only what it can prove, and reports the rest.**
+    `immune consolidate` requires the same normalized symptom, the same tool, a
+    shared trigger token AND ≥0.70 prescription similarity. The symptom alone
+    is never enough: one generic sentence ("Bash writes source directly") was
+    shared by five unrelated captures. Real data set the expectation — in the
+    maintainer's library the five same-lesson rules scored 65% pairwise, so the
+    tool correctly merged none of them and printed the group for manual review.
+    When you merge, the keeper absorbs triggers, counters, repair actions and
+    model attribution; duplicates are retired (recoverable). The attribution
+    move must DELETE the source rows after summing, or one delivery counts
+    twice in every per-model total (caught by the test, not in production).
+
+30. **Never back up a WAL database with `cp`.** The main file can hold none of
+    the recent commits: a copy taken during this project's release work opened
+    with zero rows, while the live database had thirteen active rules. Use
+    `immune backup` (node:sqlite's backup API), which reads through the log and
+    writes one consistent file. Any future export/restore feature inherits this
+    rule; a "backup" that restores empty is worse than no backup.
+
 ## Verification
 
 ```bash
