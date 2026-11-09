@@ -20,7 +20,7 @@ import { backfill } from '../../core/backfill.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
-import { consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
+import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -324,7 +324,8 @@ function main(argv) {
                 // Same-symptom groups that did NOT clear the merge bar: the tool will
                 // not touch them, but staying silent about a five-rule lesson taught in
                 // five different wordings is worse than showing it.
-                const near = findLessonGroups(store).filter((group) => group.maxSimilarity < 0.7 && !candidates.some((c) => group.rules.some((r) => r.id === c.keepId)));
+                const near = findLessonGroups(store).filter((group) => group.maxSimilarity < CONSOLIDATE_SIMILARITY &&
+                    !candidates.some((c) => group.rules.some((r) => r.id === c.keepId)));
                 if (candidates.length === 0) {
                     process.stdout.write('No duplicate lessons found.\n');
                     if (near.length > 0) {

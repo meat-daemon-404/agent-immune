@@ -368,7 +368,9 @@ function main(argv: string[]): number {
         // not touch them, but staying silent about a five-rule lesson taught in
         // five different wordings is worse than showing it.
         const near = findLessonGroups(store).filter(
-          (group) => group.maxSimilarity < 0.7 && !candidates.some((c) => group.rules.some((r) => r.id === c.keepId)),
+          (group) =>
+            group.maxSimilarity < CONSOLIDATE_SIMILARITY &&
+            !candidates.some((c) => group.rules.some((r) => r.id === c.keepId)),
         );
         if (candidates.length === 0) {
           process.stdout.write('No duplicate lessons found.\n');
