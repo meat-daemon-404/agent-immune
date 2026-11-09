@@ -680,6 +680,34 @@ test('coverage handles a missing host database without inventing data', async ()
   });
 });
 
+test('a rule is retired for being noisy, not for three unlucky deliveries', async () => {
+  const { shouldRetire, RETIRE_FAILURE_RATE } = await import(
+    '../dsh-immune-system/dist/core/store/antibodies.js'
+  );
+  assert.equal(RETIRE_FAILURE_RATE, 0.25);
+  assert.equal(shouldRetire(2, 2), false, 'the count floor still applies');
+  assert.equal(shouldRetire(3, 3), true, 'small and wrong retires');
+  assert.equal(shouldRetire(12, 3), true, 'exactly 25% retires');
+  assert.equal(shouldRetire(13, 3), false, '19% survives');
+  assert.equal(shouldRetire(516, 3), false, 'the production case: 0.6% is a working rule');
+});
+
+test('penalize keeps a high-hit rule and retires a small noisy one', () => {
+  const s = store();
+  const good = s.insert({ trigger_pattern: 'alpha build', symptom: 's', prescription: 'p' });
+  const noisy = s.insert({ trigger_pattern: 'beta lint', symptom: 's', prescription: 'q' });
+  assert.ok(good && noisy);
+  s['db'].prepare('UPDATE antibodies SET hit_count = 100, fail_count = 2 WHERE id = ?').run(good);
+  s['db'].prepare('UPDATE antibodies SET hit_count = 3, fail_count = 2 WHERE id = ?').run(noisy);
+
+  s.penalize([good], { failureText: 'alpha build failed', toolName: 'Bash' });
+  s.penalize([noisy], { failureText: 'beta lint failed', toolName: 'Bash' });
+  const rows = s.listAll(true);
+  assert.equal(rows.find((r) => r.id === good).status, 'active', '100 hits / 3 fails stays');
+  assert.equal(rows.find((r) => r.id === noisy).status, 'retired', '3 hits / 3 fails retires');
+  s.close();
+});
+
 test('doctor surfaces rule hygiene without failing on historical LLM fallbacks', async () => {
   const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
   const s = store();

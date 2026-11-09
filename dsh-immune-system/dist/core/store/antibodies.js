@@ -4,6 +4,23 @@ import { prescriptionSimilarity } from '../similarity.js';
 import { tokenize } from './tokenize.js';
 /** An antibody is retired after this many injected-but-still-failed episodes. */
 export const RETIRE_AFTER_FAILURES = 3;
+/**
+ * …and only if that many failures is a real share of its deliveries.
+ *
+ * The count alone retired the best rules in production: #44 was injected 516
+ * times and blamed 3 times (0.6%) and still lost its place, which is why 276
+ * recent failures matched "known but not injected" rules. Three failures out of
+ * five hundred is a rule working, not a rule rotting. A quarter of deliveries
+ * is the bar; the junk rules that motivated anti-rot sat at 50%.
+ */
+export const RETIRE_FAILURE_RATE = 0.25;
+/** True when the evidence says this rule is noise rather than occasionally unlucky. */
+export function shouldRetire(hitCount, failCount) {
+    if (failCount < RETIRE_AFTER_FAILURES)
+        return false;
+    const deliveries = Math.max(hitCount, failCount);
+    return failCount >= deliveries * RETIRE_FAILURE_RATE;
+}
 /** Prescriptions at or above this similarity are the same rule. */
 export const MERGE_THRESHOLD = 0.7;
 /** Escape a token for a bound LIKE value (the pattern part is constant). */
@@ -287,7 +304,9 @@ export function penalizeAntibodies(db, ids, ctx) {
             continue;
         bump.run(now, id);
         penalized.push(id);
-        if (before.fail_count + 1 < RETIRE_AFTER_FAILURES)
+        // The rate guard uses the counters as they will be after this penalty: a
+        // rule is not retired for being unlucky three times in a thousand.
+        if (!shouldRetire(before.hit_count, before.fail_count + 1))
             continue;
         setAntibodyStatus(db, id, 'retired');
         retired.push({ ...before, status: 'retired', fail_count: before.fail_count + 1 });

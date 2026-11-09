@@ -362,6 +362,15 @@ identical-retry note).
     needs restoring. Retirement still wins for injection: an advisory rule the
     model ignores is a bad delivery, and coverage does not overrule anti-rot.
 
+36. **Retirement needs a failure RATE, not just a count.** `shouldRetire()` is
+    `fails >= 3 && fails >= 25% of deliveries`. The count alone mis-retired the
+    best rules in production: #44 reached 516 hits / 3 fails (0.6%) and was
+    retired, which is why coverage then reported 276 failures matching "known
+    but not injected" rules. The junk that motivated anti-rot sat at 50%, so a
+    quarter separates cleanly on real data. When you change a threshold, look at
+    the distribution of every candidate in the live library first — the count
+    looked reasonable in isolation and was wrong at scale.
+
 ## Verification
 
 ```bash
@@ -397,6 +406,7 @@ silently broke the canonical episode shape.
 | Dashboard page | `core/ui/page.ts` | `test/ui.test.mjs` |
 | MCP tools | `zcode/src/mcp-server.ts` | `test/mcp.test.mjs` (real stdio spawn) |
 | Host connect installer | `core/connect.ts` | `test/connect.test.mjs` |
+| History audit | `core/audit.ts` | `test/audit.test.mjs` |
 
 ## Known limits (do not file these as bugs)
 

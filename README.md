@@ -87,6 +87,25 @@ injection shape), so no adapter code ships per host.
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.
 
+### Auditing the history you already have
+
+A fresh install has an empty library. `immune audit` replays the same
+failed-then-fixed pairing over the session history already on this machine —
+the ZCode session db, Codex rollout files (`~/.codex/sessions`), and Claude
+Code transcripts (`~/.claude/projects`) — prints a shareable summary (per-tool
+failure counts, top repeat offenders, the avoidable token cost when the source
+records usage), and distils your own first rules from it:
+
+```bash
+npx dsh-immune-system@latest audit --dry-run   # the report, nothing stored
+npx dsh-immune-system@latest audit             # + distil (LLM when configured)
+```
+
+Absence is reported, not hidden: a source with no history on this machine
+prints its own line. The Codex rollout format and the ZCode db were verified
+against real files; the Claude Code transcript parser is fixture-tested only
+until it has met a real install — the report says so on every run.
+
 ### After installing: what you should see
 
 Run the self-check first; it is the same command support will ask you for:
@@ -219,7 +238,7 @@ Different jobs, mostly: deja-vu indexes everything you did and searches it; this
 
 **Pairing.** A failure only pairs with a success that is the same kind of work: same file for file tools, same program family for commands (`npm`, `npx`, `pnpm` are one family; `npm …` then `git …` is not). Read-only probes — `ls`, `cat`, `git status`, `git diff`, `which` — never close an episode, because they cannot have fixed anything.
 
-**Merging and decay.** Prescriptions are compared with character-3-gram Jaccard (blended with a character-set score for short CJK sentences, where one inserted character shifts every trigram). At ≥0.70 the rule merges into the existing row, and its trigger tokens are unioned so each rewording widens recall. An injected rule that still fails three times is retired; the penalty is relevance-guarded so a `Bash …` rule is not blamed for an unrelated Bash failure.
+**Merging and decay.** Prescriptions are compared with character-3-gram Jaccard (blended with a character-set score for short CJK sentences, where one inserted character shifts every trigram). At ≥0.70 the rule merges into the existing row, and its trigger tokens are unioned so each rewording widens recall. An injected rule that still fails three times is retired — but only when those failures are at least a quarter of its deliveries. The absolute count alone was retiring the best rules in production: one had 516 hits and 3 misses (0.6%) and lost its place. A high-hit rule that occasionally misses is a rule working, not a rule rotting; the junk rules that motivated anti-rot sat at 50%. The penalty is also relevance-guarded so a `Bash …` rule is not blamed for an unrelated Bash failure.
 
 **Retrieval.** FTS5 trigram for 3+ characters, plus a bound LIKE pass for two-character Chinese words that trigram cannot index. Candidates are re-ranked with ×1.5 for a path the prompt mentions, ×0.85 for shared-library rules, and a `1 / (1 + 0.02 × days)` decay.
 
