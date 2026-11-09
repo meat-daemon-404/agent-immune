@@ -17,3 +17,6 @@ node_modules/
 # scratch files used while committing
 .git-commit-msg.txt
 .hub-issue.md
+
+# local agent tooling state (contains per-session snapshots of source files)
+.mimosa/
