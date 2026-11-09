@@ -24,6 +24,8 @@ One `core/` engine: **DSH** and **ZCode** install natively (plugin bundles, chec
 
 <div align="center">
   <img src="docs/hero.svg" alt="immune demo: distill, recall, inject" width="720">
+  <img src="docs/dashboard.png" alt="the immune dashboard: KPI row, by-model attribution, rule table" width="720">
+  <p><sub>The dashboard as any install sees it — the capture uses demo rules, not a private library.</sub></p>
 </div>
 
 ### Quick demo
@@ -34,7 +36,7 @@ Runs the whole pipeline in memory, installs nothing, writes nothing:
 npx dsh-immune-system@latest demo
 ```
 
-It distills a failure→success episode, recalls it from a paraphrased prompt, and prints the `<immune_memory>` block the hooks inject.
+It distills a failure→success episode, recalls it from a paraphrased prompt, and prints the `<immune_memory>` block the hooks inject. Already have history on this machine? `npx dsh-immune-system@latest audit --dry-run` reads it and shows what would be learned.
 
 ### Install
 

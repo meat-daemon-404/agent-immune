@@ -24,6 +24,8 @@
 
 <div align="center">
   <img src="docs/hero.svg" alt="免疫系统：蒸馏、召回、注入" width="720">
+  <img src="docs/dashboard.png" alt="免疫仪表盘：KPI 行、按模型归因、规则表" width="720">
+  <p><sub>任何安装都会看到这样的仪表盘——截图用的是演示规则，不是私人库。</sub></p>
 </div>
 
 ### 先跑三十秒
@@ -34,7 +36,7 @@
 npx dsh-immune-system@latest demo
 ```
 
-它会真的蒸馏一条失败→成功的记录，用一句换了说法的提问去召回，然后把 hook 实际会注入的 `<immune_memory>` 打印出来。
+它会真的蒸馏一条失败→成功的记录，用一句换了说法的提问去召回，然后把 hook 实际会注入的 `<immune_memory>` 打印出来。这台机器上已经有历史？`npx dsh-immune-system@latest audit --dry-run` 会读它，并展示能学到什么。
 
 ### 装
 
