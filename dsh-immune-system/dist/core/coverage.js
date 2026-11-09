@@ -46,6 +46,7 @@ export function coverage(store, opts = {}) {
         failures: 0,
         noise: 0,
         covered: 0,
+        deliverable: 0,
         uncovered: 0,
         clusters: [],
     };
@@ -59,6 +60,17 @@ export function coverage(store, opts = {}) {
           WHERE started_at >= ? AND status = 'error' AND length(error_message) > 0
           ORDER BY started_at DESC LIMIT ?`)
             .all(since, 20_000);
+        // "Covered" must mean "a rule that plausibly applies", not "the FTS index
+        // returned something": with one shared word, a 573-failure replay reported
+        // 99% coverage for an eight-rule library. This is the same relevance test
+        // anti-rot uses before blaming a rule.
+        //
+        // Both statuses count as knowledge. A retired rule was still learned from a
+        // real failure; anti-rot stopped injecting it because it did not prevent
+        // repeats, which is a delivery problem, not a blind spot. Reporting the two
+        // numbers apart keeps "we know this" from collapsing into "we have no idea"
+        // the moment a rule retires.
+        const rules = store.listAll(true);
         const groups = new Map();
         for (const row of rows) {
             report.failures += 1;
@@ -66,18 +78,16 @@ export function coverage(store, opts = {}) {
                 report.noise += 1;
                 continue;
             }
-            // "Recalled" must mean "a rule that plausibly applies", not "the FTS
-            // index returned something": with one shared word, a 573-failure replay
-            // reported 99% coverage for an eight-rule library, which is obviously
-            // false. This is the same relevance test anti-rot uses before blaming a
-            // rule, and the tool name is excluded inside it.
-            // peek, not match: asking "would this have been recalled" must not count
-            // as a delivery, or the coverage probe itself would inflate the library.
-            const recalled = store
-                .peek(`${row.tool_name} ${row.error_message}`, 3)
-                .some((rule) => isRelated(rule.trigger_pattern, row.error_message, row.tool_name));
-            if (recalled) {
+            const related = rules.filter((rule) => {
+                // A rule is written for one tool (or for no tool at all). An Edit
+                // failure is not covered by a Bash rule that happens to share a word.
+                const sameTool = !rule.tool_name || rule.tool_name.toLowerCase() === row.tool_name.toLowerCase();
+                return sameTool && isRelated(rule.trigger_pattern, row.error_message, row.tool_name);
+            });
+            if (related.length > 0) {
                 report.covered += 1;
+                if (related.some((rule) => rule.status === 'active'))
+                    report.deliverable += 1;
                 continue;
             }
             report.uncovered += 1;

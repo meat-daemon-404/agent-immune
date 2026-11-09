@@ -617,6 +617,8 @@ test('coverage counts a rule only when it plausibly applies, and ignores noise',
   insert.run('s2', 'Edit', 'error', "EPERM: operation not permitted, mkdir 'D:\\b'", now);
   insert.run('s1', 'Bash', 'error', 'Bash was cancelled and the child process was asked to stop', now);
   insert.run('s2', 'Edit', 'error', 'old_string not found in src/a.ts', now);
+  // Same words as a Bash rule, different tool: not coverage.
+  insert.run('s3', 'Edit', 'error', 'token expired while writing', now);
   db.close();
 
   const s = store();
@@ -625,17 +627,41 @@ test('coverage counts a rule only when it plausibly applies, and ignores noise',
     symptom: 'edit did not match',
     prescription: 're-read the file and copy the exact text',
   });
+  // A Bash rule that shares the failing Edit error's words. Without the tool
+  // check this would count as coverage; with it, it must not.
+  s.insert({
+    trigger_pattern: 'token expired bash',
+    symptom: 'token expired',
+    prescription: 'refresh the token',
+    tool_name: 'Bash',
+  });
   const before = s.listAll(false)[0].hit_count;
 
   const report = coverage(s, { days: 30, sourceDb: host, env: { IMMUNE_HOST_DB: host } });
-  assert.equal(report.failures, 4);
+  assert.equal(report.failures, 5);
   assert.equal(report.noise, 1, 'a cancelled call is not a lesson');
-  assert.equal(report.covered, 1);
-  assert.equal(report.uncovered, 2);
-  assert.equal(report.clusters.length, 1, 'two paths are one signature');
-  assert.equal(report.clusters[0].count, 2);
-  assert.equal(report.clusters[0].sessions, 2);
+  assert.equal(report.covered, 1, 'only the Edit rule covers an Edit failure');
+  assert.equal(report.deliverable, 1);
+  assert.equal(report.uncovered, 3);
+  assert.equal(report.clusters.length, 2, 'two paths are one signature');
+  const eperm = report.clusters.find((c) => c.signature.includes('eperm'));
+  assert.equal(eperm.count, 2);
+  assert.equal(eperm.sessions, 2);
+  assert.ok(
+    report.clusters.some((c) => c.signature.includes('token expired')),
+    'the cross-tool miss is reported, not hidden',
+  );
   assert.equal(s.listAll(false)[0].hit_count, before, 'coverage must not count as delivery');
+
+  // Knowledge and delivery are separate: retiring a rule stops the warning but
+  // does not unlearn the lesson, and the report must say which one is missing.
+  const editRule = s.listAll(false).find((r) => r.tool_name === null && r.symptom === 'edit did not match');
+  assert.ok(editRule);
+  s.setStatus(editRule.id, 'retired');
+  const after = coverage(s, { days: 30, sourceDb: host, env: { IMMUNE_HOST_DB: host } });
+  assert.equal(after.covered, 1, 'the lesson is still known');
+  assert.equal(after.deliverable, 0, 'but nothing is injected for it any more');
+  assert.equal(after.uncovered, 3);
   s.close();
 });
 
@@ -643,7 +669,15 @@ test('coverage handles a missing host database without inventing data', async ()
   const { coverage } = await import('../dsh-immune-system/dist/core/coverage.js');
   const missing = join(tmpdir(), 'immune-no-host.sqlite');
   const report = coverage(store(), { sourceDb: missing, env: { IMMUNE_HOST_DB: missing } });
-  assert.deepEqual(report, { days: 30, failures: 0, noise: 0, covered: 0, uncovered: 0, clusters: [] });
+  assert.deepEqual(report, {
+    days: 30,
+    failures: 0,
+    noise: 0,
+    covered: 0,
+    deliverable: 0,
+    uncovered: 0,
+    clusters: [],
+  });
 });
 
 test('doctor surfaces rule hygiene without failing on historical LLM fallbacks', async () => {

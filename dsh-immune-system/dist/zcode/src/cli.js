@@ -255,9 +255,14 @@ function main(argv) {
                 const judged = report.failures - report.noise;
                 const pct = judged > 0 ? Math.round((report.covered / judged) * 100) : 0;
                 process.stdout.write(`coverage: last ${report.days} days · ${judged} judgeable failure(s) · ` +
-                    `${report.covered} covered (${pct}%) · ${report.uncovered} uncovered` +
+                    `${report.covered} known (${pct}%) · ${report.deliverable} still injected · ` +
+                    `${report.uncovered} uncovered` +
                     (report.noise > 0 ? ` · ${report.noise} ignored as noise` : '') +
                     '\n');
+                if (report.covered > report.deliverable) {
+                    process.stdout.write(`  ${report.covered - report.deliverable} failure(s) match a retired rule: ` +
+                        'the advice exists but is not injected (see `immune list --all`)\n');
+                }
                 if (report.clusters.length > 0) {
                     process.stdout.write('top uncovered signatures:\n');
                     for (const cluster of report.clusters) {

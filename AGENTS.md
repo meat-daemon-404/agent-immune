@@ -350,6 +350,18 @@ identical-retry note).
     is how those files entered the commit in the first place; stage explicit
     paths.
 
+35. **Coverage separates knowledge from delivery, and respects the tool.** A
+    rule can only cover failures of its own tool (or of no tool): retrieval
+    ignores tool names when judging relevance, so a Bash rule that shared a
+    word with an Edit error used to count as coverage. More importantly, retired
+    rules count as knowledge but not as delivery. The read-before-edit rule
+    that coverage motivated was injected 3×, missed 3×, and anti-rot retired it
+    — after which coverage reported the same lesson as a blind spot, which is
+    both false and unactionable. `known` / `still injected` / `uncovered` are
+    three different answers; printing only the middle one hides the rule that
+    needs restoring. Retirement still wins for injection: an advisory rule the
+    model ignores is a bad delivery, and coverage does not overrule anti-rot.
+
 ## Verification
 
 ```bash

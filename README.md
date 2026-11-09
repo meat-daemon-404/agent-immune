@@ -159,7 +159,14 @@ The keeper keeps its wording and absorbs the other's trigger tokens, hit and fai
 immune coverage --days 30 --top 8
 ```
 
-The first version of this counted any FTS hit as coverage and reported 99% for an eight-rule library — obviously false, so it now requires a shared, meaningful token. On this machine the honest number was **21%** of 494 judgeable failures (79 cancelled/policy/network failures are ignored as noise), with two dominant blind spots: 80× `file has not been read yet` (no rule existed) and 54× `file has been modified since read` (the rule existed, its trigger just never matched that wording). Widening that trigger and seeding the missing precondition lesson took it to **52%** without inventing anything. The remaining clusters are environment-specific blocks with no single lesson, which is what the report should show rather than hide.
+The first version counted any FTS hit as coverage and reported 99% for an eight-rule library — obviously false, so a rule now has to share a meaningful token, be for the same tool, and actually relate. It reports three numbers, because they answer three different questions:
+
+```
+coverage: last 30 days · 505 judgeable failure(s) · 381 known (75%) · 105 still injected · 124 uncovered · 79 ignored as noise
+  276 failure(s) match a retired rule: the advice exists but is not injected
+```
+
+`known` is "a rule mentions this" (any status, a loose upper bound), `still injected` is "the agent will actually be warned", and `uncovered` is the real blind spot. The gap matters: the read-before-edit rule this report motivated was injected three times, missed three times, and anti-rot retired it. Coverage then showed the lesson as a blind spot again — not true, and not actionable. Seeing "known but not injected" points at the rule to restore instead. The remaining uncovered clusters are environment-specific blocks with no single lesson, which is what the report should show rather than hide.
 
 ### Backups
 

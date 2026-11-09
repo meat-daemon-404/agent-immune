@@ -126,7 +126,14 @@ immune consolidate             # 保留命中更多的那条措辞，其余退�
 immune coverage --days 30 --top 8
 ```
 
-第一版把所有 FTS 命中都算覆盖，八条规则的库报出 99%——明显是假的，所以现在要求共享一个有意义的词才算了。这台机器上的真实数字是 **21%**（494 次可判断失败；另有 79 次「被取消/策略拒绝/连接重置」作为噪声排除），两个大头盲区：80 次 `file has not been read yet`（库里根本没有规则）、54 次 `file has been modified since read`（规则存在，但触发词从来没匹配上这个说法）。把那条触发词补上、再把缺的前置条件补成规则，覆盖率到 **52%**，没有凭空造任何东西。剩下的是 Mimosa 拦截这类每次原因不同的环境失败，报告如实列出来比藏起来有用。
+第一版把所有 FTS 命中都算覆盖，八条规则的库报出 99%——明显是假的。现在一条规则必须共享有意义的词、属于同一个工具、而且真的相关，才算覆盖。报告给三个数字，因为它们回答三个不同问题：
+
+```
+coverage: last 30 days · 505 judgeable failure(s) · 381 known (75%) · 105 still injected · 124 uncovered · 79 ignored as noise
+  276 failure(s) match a retired rule: the advice exists but is not injected
+```
+
+`known` 是「库里有规则提到这件事」（任何状态，宽松上界），`still injected` 是「模型真的会收到警告」，`uncovered` 才是真盲区。三者的差很重要：这份报告促成的「先 Read 再 Edit」规则，注入 3 次、失败 3 次，被反腐蚀退役了——覆盖率随即又把这条教训报成盲区，既不真实也不可行动。看到「知道但没注入」，才知道该恢复哪条规则。剩下的未覆盖簇是 Mimosa 拦截这类每次原因不同的环境失败，报告如实列出来比藏起来有用。
 
 ### 备份
 
