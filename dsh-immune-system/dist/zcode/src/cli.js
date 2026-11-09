@@ -7,7 +7,7 @@
  * the logic testable and out of the prompt.
  *
  * Usage: node dist/zcode/src/cli.js
- *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|backfill|sync-doc|ui|doctor|demo> [...]
+ *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|connect|backfill|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -22,6 +22,7 @@ import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../cor
 import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
 import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
+import { HOSTS, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -155,6 +156,54 @@ function main(argv) {
         })
             .finally(() => clearInterval(keepAlive));
         return 0;
+    }
+    // `connect` only edits other hosts' hook config files — it never opens the
+    // store, so it is handled before the short-lived store below, like `demo`.
+    if (command === 'connect') {
+        const hostArg = args.find((arg) => !arg.startsWith('--'));
+        const remove = args.includes('--remove');
+        if (!hostArg) {
+            // Bare `connect` (and `connect --status`): read-only survey of the hosts
+            // this machine knows about.
+            const rows = connectStatus();
+            process.stdout.write('Hosts immune can hook (connect <host> [--remove]):\n');
+            for (const row of rows) {
+                process.stdout.write(`  ${row.label.padEnd(12)} ${row.state.padEnd(14)} ${row.configPath}\n`);
+            }
+            return 0;
+        }
+        const definition = HOSTS[hostArg];
+        if (!definition) {
+            process.stderr.write(`connect: unknown host "${hostArg}". Supported: ${Object.keys(HOSTS).join(', ')}\n`);
+            return 2;
+        }
+        try {
+            if (remove) {
+                const report = disconnectHost(definition.id);
+                process.stdout.write(report.removed > 0
+                    ? `removed ${report.removed} immune hook(s) from ${report.configPath}\n`
+                    : `no immune hooks found in ${report.configPath}\n`);
+                return 0;
+            }
+            const report = connectHost(definition.id);
+            process.stdout.write(`connected ${report.label} -> ${report.configPath}\n`);
+            const counts = [];
+            if (report.added > 0)
+                counts.push(`${report.added} event(s) wired`);
+            if (report.alreadyPresent > 0)
+                counts.push(`${report.alreadyPresent} already present`);
+            process.stdout.write(`  ${counts.join(' · ')}: ${report.eventsWired.join(', ')}\n`);
+            process.stdout.write(`  scripts: ${report.scriptDir}\n`);
+            if (report.backupPath)
+                process.stdout.write(`  backup: ${report.backupPath}\n`);
+            for (const note of report.notes)
+                process.stdout.write(`  note: ${note}\n`);
+            return 0;
+        }
+        catch (error) {
+            process.stderr.write(`connect failed: ${error instanceof Error ? error.message : String(error)}\n`);
+            return 1;
+        }
     }
     // `ui` owns its own store (it lives for the whole server lifetime), so it is
     // handled before the short-lived store below is opened.

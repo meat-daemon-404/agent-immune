@@ -20,7 +20,7 @@
 
 工具调用报错、下一次调用修好，这两条会被存成一条规则。之后遇到类似场景，匹配上的规则先一步进入上下文，agent 就不会在同一个地方摔第二遍。
 
-只有一个 `core/`，同时给两个宿主用：**DSH**（DeepSeek Harness，按真实宿主契约验证过）和 **ZCode**（按它的 hook 生命周期验证过）。同一个 npm 包。
+只有一个 `core/`：**DSH** 和 **ZCode** 以插件形式原生安装（按真实宿主契约验证过），`immune connect` 还能把同一个引擎以普通 hook 的方式接进 **Claude Code** 和 **Codex CLI**——不依赖任何插件系统。
 
 <div align="center">
   <img src="docs/hero.svg" alt="免疫系统：蒸馏、召回、注入" width="720">
@@ -62,6 +62,19 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
 装完开新任务；老任务还拿着它启动时的能力清单。
+
+### 接入 Claude Code 和 Codex
+
+原生插件安装只覆盖 DSH 和 ZCode。Claude Code 和 Codex CLI 走的是普通 hook——同一个引擎，不依赖插件系统：
+
+```bash
+npx dsh-immune-system@latest connect claude-code   # 写 ~/.claude/settings.json
+npx dsh-immune-system@latest connect codex         # 写 ~/.codex/hooks.json
+```
+
+它做的事：往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个），用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作；`connect <host> --remove` 只摘走 immune 的条目；裸 `connect` 只读显示两个宿主的接入状态。命令指向 npm 安装目录里的 dist 脚本，而 hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码。
+
+两个提醒：接完重启宿主会话才生效；**Codex 需要先在 Codex 里跑一次 `/hooks` 信任这些命令**，否则不会执行。
 
 ### 装完先自检：该看到什么，没看到查什么
 
@@ -175,7 +188,7 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 | 存什么 | 失败→成功的配对，蒸馏成规则 | 完整会话记录 | 对话里的事实 | 编译好的 skill 文件 |
 | 怎么用上 | 靠 hook，在重蹈之前注入 | 需要时搜索（MCP / TUI） | SDK 层召回 | 模型得主动去读 |
 | 依赖 | 无（`node:sqlite` FTS5） | 一个 Go 二进制 | Python + 向量库 | Node |
-| 宿主 | DSH、ZCode | Claude Code、Codex、Cursor 等 36+ | 走 SDK 都行 | Claude Code |
+| 宿主 | DSH、ZCode 原生；Claude Code 与 Codex 走 `connect` | Claude Code、Codex、Cursor 等 36+ | 走 SDK 都行 | Claude Code |
 
 其实是两件不同的事：deja-vu 把你做过的全量索引起来供搜索，这里只留教训，然后不请自来地塞进上下文。
 

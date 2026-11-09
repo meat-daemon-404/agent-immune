@@ -20,7 +20,7 @@
 
 When a tool call fails and the next attempt fixes it, the plugin saves that pair as a rule. Rules that match the current work get injected into context on later runs, before the agent repeats the same mistake.
 
-One `core/` engine, two hosts, one npm package: **DSH** (DeepSeek Harness, checked against the real host contract) and **ZCode** (checked against its hook lifecycle).
+One `core/` engine: **DSH** and **ZCode** install natively (plugin bundles, checked against the real host contracts), and `immune connect` wires the same engine into **Claude Code** and **Codex CLI** as plain hooks — no plugin system required.
 
 <div align="center">
   <img src="docs/hero.svg" alt="immune demo: distill, recall, inject" width="720">
@@ -64,6 +64,28 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
 Start a new task afterwards; existing tasks keep the capability catalog they started with.
+
+### Hooking Claude Code & Codex
+
+Native plugin installs are for DSH and ZCode. For Claude Code and Codex CLI the
+same engine installs as plain hooks — no plugin system required:
+
+```bash
+npx dsh-immune-system@latest connect claude-code   # writes ~/.claude/settings.json
+npx dsh-immune-system@latest connect codex         # writes ~/.codex/hooks.json
+```
+
+What it does: merges six hook entries (five on Codex, which has no
+`PostToolUseFailure` event) into the host's own config, leaving every other
+setting alone; keeps a one-time `.bak-immune` backup of the file before the
+first write; re-running is a no-op; `connect <host> --remove` takes only the
+immune entries back out. Bare `connect` surveys both hosts read-only. The
+commands point at the npm-installed dist scripts, and the hook payload contract
+is the one the ZCode adapter already speaks (same `hookSpecificOutput`
+injection shape), so no adapter code ships per host.
+
+Two notes: restart the host session after connecting, and **Codex requires
+running `/hooks` inside Codex once to trust the commands** before they fire.
 
 ### After installing: what you should see
 
@@ -180,7 +202,7 @@ Every push runs the retrieval gate and unit suite on Node 22 and 24:
 | Keeps | failure→success pairs distilled into rules | full session transcripts | conversation facts | compiled skill files |
 | Delivery | injected before the repeat, via hooks | search on demand (MCP/TUI) | SDK-level recall | skill file, read by the model |
 | Dependencies | none (`node:sqlite` FTS5) | one Go binary | Python + store | Node |
-| Hosts | DSH, ZCode | Claude Code, Codex, Cursor, 36+ | any via SDK | Claude Code |
+| Hosts | DSH, ZCode native; Claude Code & Codex via `connect` | Claude Code, Codex, Cursor, 36+ | any via SDK | Claude Code |
 
 Different jobs, mostly: deja-vu indexes everything you did and searches it; this keeps the lessons and pushes them in unasked.
 
