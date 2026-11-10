@@ -248,9 +248,9 @@ To do that automatically after each turn's distillation:
 Every push runs the retrieval gate and unit suite on Node 22 and 24:
 
 * **Failure judging** (`scripts/eval-judge.mjs`) — replaying **20,100 real host-labeled tool calls** through the judge: **97.54% agreement**, **0 false negatives**, 495 false positives (2.46%) — every one a probe or check command where a nonzero exit was the intended *answer*, a class the host itself labels "completed". Quantified and accepted in AGENTS.md decision #25.
-* **Test suite** — `npm test` runs **170 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
+* **Test suite** — `npm test` runs **176 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
 * **Recall** — fixed zh/en matrix with 8 paraphrased positives and 6 gram-clean negatives. Current: R@1 100%, R@3 100%, FP 0%. CI fails below R@3 7/8 or above FP 1/6.
-* **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 41 ms (0.14 ms/rule); 67 matches run at p50 0.38 ms, p95 0.75 ms.
+* **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 39 ms (0.13 ms/rule); 67 matches run at p50 0.44 ms, p95 0.75 ms.
 * **Hook latency** (`scripts/bench-tool-latency.mjs`) — the tool path never calls a model; distillation is paid at the turn boundary.
 * **Live LLM check** (`scripts/verify-llm.mjs`) — one command against a configured endpoint, when there is one.
 

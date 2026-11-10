@@ -214,9 +214,9 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 每次 push 都在 Node 22 和 24 上跑一遍召回闸和单测：
 
 * **失败判定**（`scripts/eval-judge.mjs`）：把 **20,100 次带宿主标注的真实工具调用**回放给判定器——与宿主标注**一致率 97.54%**，**0 假阴性**，495 个假阳性（2.46%）——全部是探针/检查类命令，非零退出本来就是想要的"答案"，宿主因此标注为"完成"。该类别已量化并在 AGENTS.md 决策 #25 接受。
-* **单测**：`npm test` 是 **170 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
+* **单测**：`npm test` 是 **176 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
 * **召回**：固定的中英场景矩阵，8 条改述正例、6 条 gram 干净的负例。现在是 R@1 100%、R@3 100%、误报 0%。低于 R@3 7/8 或高于误报 1/6 就红。
-* **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 41 ms（每条 0.14 ms）；67 次匹配 p50 0.38 ms、p95 0.75 ms。
+* **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 39 ms（每条 0.13 ms）；67 次匹配 p50 0.44 ms、p95 0.75 ms。
 * **hook 开销**（`scripts/bench-tool-latency.mjs`）：工具执行路径永远不碰模型，蒸馏的钱花在回合边界上。
 * **真机验证 LLM**（`scripts/verify-llm.mjs`）：配了端点就一条命令走通全链路。
 
