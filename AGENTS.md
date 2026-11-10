@@ -481,6 +481,7 @@ silently broke the canonical episode shape.
 | Host connect installer | `core/connect.ts` | `test/connect.test.mjs` |
 | History audit | `core/audit.ts` | `test/audit.test.mjs` |
 | Seed packs | `core/packs.ts`, `core/store/seeds.ts` | `test/seed.test.mjs` |
+| Distill commit path | `core/commit.ts` (both adapters call this) | `test/dsh.test.mjs`, hooks tests |
 | Share gate / CI gate | `core/share-guard.ts` | `test/share-guard.test.mjs` |
 | Stack pre-warm | `core/prewarm.ts` | hooks tests ("4.2 …") |
 | Stuck state | `core/store/stuck.ts` | hooks tests ("1.5 …") |

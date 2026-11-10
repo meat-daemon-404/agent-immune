@@ -53,7 +53,13 @@ export function claimJobs(db, count) {
     }
     return out;
 }
-export function finishJob(db, id, status, note = '') {
+export function finishJob(db, id, status, note) {
+    if (note === undefined) {
+        // No note argument = leave the note alone: finishJobNote may have just
+        // recorded a degradation reason the terminal status must not wipe.
+        db.prepare('UPDATE distill_jobs SET status = ?, updated_at = ? WHERE id = ?').run(status, Date.now(), id);
+        return;
+    }
     db.prepare('UPDATE distill_jobs SET status = ?, note = ?, updated_at = ? WHERE id = ?').run(status, note.slice(0, 400), Date.now(), id);
 }
 /** Newest jobs for telemetry (ROADMAP 3.3); read-only. */

@@ -100,8 +100,18 @@ export function finishJob(
   db: DatabaseSync,
   id: number,
   status: 'done' | 'failed' | 'skipped',
-  note = '',
+  note?: string,
 ): void {
+  if (note === undefined) {
+    // No note argument = leave the note alone: finishJobNote may have just
+    // recorded a degradation reason the terminal status must not wipe.
+    db.prepare('UPDATE distill_jobs SET status = ?, updated_at = ? WHERE id = ?').run(
+      status,
+      Date.now(),
+      id,
+    );
+    return;
+  }
   db.prepare('UPDATE distill_jobs SET status = ?, note = ?, updated_at = ? WHERE id = ?').run(
     status,
     note.slice(0, 400),

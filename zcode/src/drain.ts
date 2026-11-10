@@ -12,13 +12,11 @@
  * the difference between draining a backlog within the turn and not.
  */
 import type { ImmuneStore, DistillJob } from '../../core/store/index.js';
-import { LLM_FALLBACK_KEY, LLM_SUCCESS_KEY } from '../../core/store/index.js';
 import type { LlmConfig } from '../../core/llm.js';
 import { distillBatch, distillEpisode } from '../../core/distiller.js';
 import { readLlmConfig } from '../../core/llm.js';
-import { matchGenericLesson } from '../../core/lessons.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
-import { isRelated } from '../../core/relevance.js';
+import { applyDistillResult } from '../../core/commit.js';
 import { currentFingerprint } from '../../core/env-fingerprint.js';
 import { selfMarkers } from './root-marker.js';
 
@@ -57,78 +55,17 @@ function takeUsable(store: ImmuneStore, jobs: DistillJob[]): DistillJob[] {
   return usable;
 }
 
-/** Persist one distillation result for its job. */
+/** Persist one distillation result for its job — the shared core path. */
 function commit(
   store: ImmuneStore,
   job: DistillJob,
   result: Awaited<ReturnType<typeof distillEpisode>>,
   skippedModelReason?: string,
 ): boolean {
-  if (!result.ok) {
-    store.finishJob(job.id, result.reason === 'skip' ? 'skipped' : 'failed', result.detail ?? '');
-    return false;
-  }
-  // Which path produced the rule is runtime truth an operator cannot see
-  // otherwise: a configured LLM that keeps degrading looks identical to no
-  // LLM at all. The note carries the reason for `immune list --all` readers.
-  if (result.source === 'llm') {
-    store.bumpMeta(LLM_SUCCESS_KEY);
-  } else if (result.degradedReason || skippedModelReason) {
-    store.bumpMeta(LLM_FALLBACK_KEY);
-    store.finishJobNote(job.id, `llm degraded: ${result.degradedReason ?? skippedModelReason}`);
-  }
-  // A generic lesson is published to the shared library so the next project
-  // starts already knowing it. The action diff, the teaching origin and the
-  // workspace fingerprint ride along as provenance.
-  store.insertShared(
-    {
-      ...result.antibody,
-      repair_path: job.repair_path ?? [],
-      origin: job.origin ?? '',
-      env_fingerprint: currentFingerprint().key,
-    },
-    {
-      generic: matchGenericLesson(result.antibody.symptom) !== null,
-      humanHint: Boolean(job.human_hint),
-    },
-  );
-  // ROADMAP 2.2: a rule that was in context and still failed gets refined once
-  // the fix arrives with repair evidence. The distilled rule's trigger tokens
-  // are the refinement source; the prescription is never rewritten here (#28).
-  mutateInjectedRules(store, job, result);
-  store.finishJob(job.id, 'done');
-  return true;
-}
-
-/**
- * Post-injection mutation (ROADMAP 2.2). Only rules that were injected into
- * the failing turn AND related to the failure (the same bar anti-rot uses
- * before blaming a rule) mutate; the refinement source is the distilled
- * trigger, the prescription stays captured evidence.
- */
-function mutateInjectedRules(
-  store: ImmuneStore,
-  job: DistillJob,
-  result: Awaited<ReturnType<typeof distillEpisode>>,
-): void {
-  if (!result.ok) return;
-  let ids: number[] = [];
-  try {
-    const parsed: unknown = JSON.parse(job.injected_ids ?? '[]');
-    if (Array.isArray(parsed)) ids = parsed.filter((v): v is number => typeof v === 'number');
-  } catch {
-    return;
-  }
-  if (ids.length === 0) return;
-  for (const id of ids) {
-    const rule = store.byId(id);
-    if (!rule || rule.status !== 'active') continue;
-    if (!isRelated(rule.trigger_pattern, job.failure_trace, job.tool_name)) continue;
-    store.mutateRule(id, result.antibody.trigger_pattern, {
-      repairPath: job.repair_path ?? [],
-      humanHint: job.human_hint ?? '',
-    });
-  }
+  return applyDistillResult(store, job, result, {
+    fingerprint: currentFingerprint().key,
+    ...(skippedModelReason ? { extraFallbackReason: skippedModelReason } : {}),
+  });
 }
 
 /**

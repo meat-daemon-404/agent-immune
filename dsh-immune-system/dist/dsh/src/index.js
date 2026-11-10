@@ -19,7 +19,8 @@ import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
-import { matchGenericLesson } from '../../core/lessons.js';
+import { applyDistillResult } from '../../core/commit.js';
+import { currentFingerprint } from '../../core/env-fingerprint.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
 import { targetSignature } from '../../core/pairing.js';
@@ -245,16 +246,12 @@ async function drain(store, budgetMs = drainBudgetMs()) {
             const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
                 signal: AbortSignal.timeout(Math.max(1000, remaining)),
                 humanHint: job.human_hint ?? '',
+                repairs: job.repair_path ?? [],
             });
-            if (result.ok) {
-                store.insertShared({ ...result.antibody, repair_path: job.repair_path ?? [] }, {
-                    generic: matchGenericLesson(result.antibody.symptom) !== null,
-                });
-                store.finishJob(job.id, 'done');
-            }
-            else {
-                store.finishJob(job.id, result.reason === 'skip' ? 'skipped' : 'failed', result.detail ?? '');
-            }
+            // The ONE commit path shared with the ZCode drain (core/commit.ts):
+            // origin, repair chain, environment fingerprint and the post-injection
+            // mutation now behave identically on this host.
+            applyDistillResult(store, job, result, { fingerprint: currentFingerprint().key });
         }
         catch (error) {
             store.finishJob(job.id, 'failed', error instanceof Error ? error.message : String(error));

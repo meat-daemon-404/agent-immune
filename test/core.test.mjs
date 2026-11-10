@@ -784,6 +784,44 @@ test('doctor surfaces rule hygiene without failing on historical LLM fallbacks',
   s.close();
 });
 
+test('doctor reports the new lifecycle subsystems without turning red', async () => {
+  const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
+  const { mkdtempSync: mkd, writeFileSync: wr, rmSync } = await import('node:fs');
+  const dir = mkd(join(tmpdir(), 'immune-doc-lc-'));
+  try {
+    wr(join(dir, 'package-lock.json'), '{"lockfileVersion":3,"name":"x"}', 'utf8');
+    const fp = (await import('../dsh-immune-system/dist/core/env-fingerprint.js')).computeFingerprint(dir).key;
+    const s = store();
+    const id = s.insert({
+      trigger_pattern: 'legacy kw',
+      symptom: 'old env lesson',
+      prescription: 'old fix',
+      env_fingerprint: fp,
+    });
+    s.runEnvMetabolism(dir); // fingerprint matches → no probation; empty report
+    const db = s['db'];
+    db.prepare('UPDATE antibodies SET env_fingerprint = ? WHERE id = ?').run('stale-fp', id);
+    s.runEnvMetabolism(dir); // now stale → probation
+    s.recordDetour('sess-lc', 'Bash:cat:x', 5);
+
+    const rows = runDoctor(s, { pluginRoot: join(import.meta.dirname, '..', 'dsh-immune-system') });
+    const lifecycle = rows.find((row) => row.name === 'lifecycle');
+    assert.ok(lifecycle, 'the lifecycle row is always present');
+    assert.equal(lifecycle.ok, true, 'advisory, never red (#31)');
+    assert.match(lifecycle.detail, /probation/, 'probation surfaces');
+    assert.match(lifecycle.detail, /detour/, 'detour telemetry surfaces');
+
+    // An empty library reads as the plain nothing-to-report line.
+    const empty = store();
+    const bare = runDoctor(empty, { pluginRoot: join(import.meta.dirname, '..', 'dsh-immune-system') });
+    assert.match(bare.find((row) => row.name === 'lifecycle').detail, /no probation/);
+    empty.close();
+    s.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('doctor runs the marker check in a real project layout (ESM require crash)', async () => {
   const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
   const s = store();

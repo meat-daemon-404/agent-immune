@@ -16,6 +16,7 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { GlobalStore, globalDbPathFor } from '../../core/store/global.js';
 import { resolveDbPath } from '../../core/store/path.js';
 import { findConsolidationCandidates, findLessonGroups } from '../../core/consolidate.js';
+import { sleepReviewGroupsOf } from '../../core/sleep-consolidate.js';
 import { vendorInfoOf, verifyConnectedPaths } from '../../core/connect.js';
 import { dshDirOf, ROOT_MARKER } from './root-marker.js';
 
@@ -261,6 +262,30 @@ function connectPathsCheck(): CheckResult {
   };
 }
 
+/**
+ * ROADMAP 3.1/2.4b/2.3b lifecycle, reported where an operator already looks.
+ * Advisory and never red (#31): probation clears itself on re-validation, the
+ * sleep-review clusters are a pointer to `immune consolidate`, detours are
+ * telemetry — nothing here is a fixable failure.
+ */
+function lifecycleRow(store: ImmuneStore): CheckResult {
+  const all = store.listAll(true);
+  const probation = all.filter((rule) => (rule.probation_at ?? 0) > 0 && rule.status === 'active').length;
+  const superseded = all.filter((rule) => rule.retire_reason === 'superseded_by_env_upgrade').length;
+  const reviewGroups = sleepReviewGroupsOf(store);
+  const detours = store.detourCount();
+  const parts: string[] = [];
+  if (probation > 0) parts.push(`${probation} rule(s) on env probation`);
+  if (superseded > 0) parts.push(`${superseded} superseded by env upgrades`);
+  if (reviewGroups > 0) parts.push(`${reviewGroups} sleep-review cluster(s)`);
+  if (detours > 0) parts.push(`${detours} detour row(s) — \`immune detours\``);
+  return {
+    name: 'lifecycle',
+    ok: true,
+    detail: parts.length > 0 ? parts.join(' · ') : 'no probation, review queues or detour telemetry',
+  };
+}
+
 export function runDoctor(store: ImmuneStore, options: DoctorOptions = {}): CheckResult[] {
   const results: CheckResult[] = [nodeVersionOk(), ftsProbe()];
   results.push(...databaseChecks(store));
@@ -274,6 +299,7 @@ export function runDoctor(store: ImmuneStore, options: DoctorOptions = {}): Chec
   });
   results.push(storageRow(store));
   results.push(ruleHygieneRow(store));
+  results.push(lifecycleRow(store));
   results.push(llmBudgetRow());
   const s = store.stats();
   if (s.llmDistilled > 0 || s.llmFallbacks > 0) {
