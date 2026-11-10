@@ -24,6 +24,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Decision #34's machine guard: 1.0.37 shipped a cli.js importing a
+      # connect.js that was not in the tarball. Resolve every relative
+      # dist import, check source↔dist 1:1, and prove the detector itself
+      # catches a dead import before any release can be cut.
+      - name: Dist integrity (dead imports, stale artifacts)
+        run: |
+          node scripts/verify-dist-integrity.mjs --self-test
+          node scripts/verify-dist-integrity.mjs
+
       - name: Version manifests agree
         run: node scripts/check-versions.mjs
 

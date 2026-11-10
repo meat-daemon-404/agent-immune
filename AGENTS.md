@@ -352,7 +352,11 @@ identical-retry note).
     confirm with `npm view dsh-immune-system version`. If the working tree is
     dirty for any reason, stop and read `git status` before packaging. `git add -A`
     is how those files entered the commit in the first place; stage explicit
-    paths.
+    paths. The graph half is now a machine gate, not a memory:
+    `scripts/verify-dist-integrity.mjs` resolves every relative dist import,
+    checks source↔dist 1:1, and has a `--self-test` that injects a dead
+    import in memory to prove the detector fires. It runs in CI right after
+    the build — the human procedure stays for the publish step itself.
 
 35. **Coverage separates knowledge from delivery, and respects the tool.** A
     rule can only cover failures of its own tool (or of no tool): retrieval
@@ -386,6 +390,7 @@ node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pin
 node scripts/bench-scale.mjs         # 300-rule library: index cost and match p50/p95; gates a pathological slowdown
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
 node scripts/verify-connected-runtime.mjs # 23 — the connect'd (vendored) hooks driven end-to-end with NO host env vars; also pinned in CI on Linux
+node scripts/verify-dist-integrity.mjs   # 5  — every relative dist import resolves, source↔dist 1:1; --self-test proves the dead-import detector; pinned in CI
 node scripts/verify-llm.mjs          # env-gated, SKIPs without LLM env; one command to live-verify external distillation
 node scripts/eval-judge.mjs          # machine-only: replays the host's labeled tool calls through the judge (needs the ZCode db)
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
