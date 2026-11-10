@@ -78,6 +78,14 @@ export function vendorDist(home: string, opts: { force?: boolean } = {}): Vendor
     rmSync(distDir, { recursive: true, force: true });
     cpSync(ownDistRoot(), distDir, { recursive: true });
     mkdirSync(vendorRoot, { recursive: true });
+    // The package fingerprint is what core/selfnoise.ts walks up to: without
+    // it, a host connected through the vendor copy would learn "episodes"
+    // from failures on the immune install itself (maintenance, not pitfalls).
+    writeFileSync(
+      join(vendorRoot, 'package.json'),
+      `${JSON.stringify({ name: 'dsh-immune-system', version, private: true }, null, 2)}\n`,
+      'utf8',
+    );
     writeFileSync(
       join(vendorRoot, 'version.json'),
       `${JSON.stringify({ version, connectedAt: new Date().toISOString() }, null, 2)}\n`,

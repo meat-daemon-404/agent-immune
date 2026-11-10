@@ -14,6 +14,7 @@ import {
   verifyConnectedPaths,
 } from '../dsh-immune-system/dist/core/connect.js';
 import { rmSync } from 'node:fs';
+import { isSelfEpisode } from '../dsh-immune-system/dist/core/selfnoise.js';
 
 function home() {
   return mkdtempSync(join(tmpdir(), 'immune-connect-'));
@@ -154,7 +155,7 @@ test('remove on a host with no immune hooks reports zero and writes nothing', ()
   assert.equal(readFileSync(settingsPath, 'utf8'), before);
 });
 
-test('connect vendors the dist tree and points hooks at the fixed copy', () => {
+test('connect vendors the dist tree and points hooks at the fixed copy', async () => {
   const h = home();
   const report = connectHost('claude-code', { home: h });
   assert.ok(report.vendorDir?.endsWith('.dsh-immune'), 'vendor root is ~/.dsh-immune');
@@ -167,6 +168,26 @@ test('connect vendors the dist tree and points hooks at the fixed copy', () => {
   const command = settings.hooks.SessionStart[0].hooks[0].command;
   assert.match(command, /\.dsh-immune[\\\/]dist[\\\/]zcode[\\\/]src[\\\/]hooks[\\\/]/, 'commands target the vendored copy');
   assert.ok(existsSync(command.match(/"(.+)"/)?.[1]), 'the vendored script exists');
+
+  // The package fingerprint at the vendor root is what self-noise detection
+  // walks up to; without it, vendor-layout self episodes are learnable.
+  const pkg = JSON.parse(readFileSync(join(h, '.dsh-immune', 'package.json'), 'utf8'));
+  assert.equal(pkg.name, 'dsh-immune-system');
+  const vendoredFile = join(h, '.dsh-immune', 'dist', 'x.js').replace(/\\/g, '/');
+  assert.equal(
+    isSelfEpisode(`tool=Edit input={"file_path":"${vendoredFile}","old_string":"a"}`),
+    true,
+    'a file-tool failure inside the vendor tree is maintenance, not a pitfall',
+  );
+  // In the real connect'd runtime the module itself runs FROM the vendor copy,
+  // so moduleRoot() is the vendor root and catches even command-shaped traces.
+  const { pathToFileURL } = await import('node:url');
+  const vendorSelfnoise = await import(`${pathToFileURL(join(h, '.dsh-immune', 'dist', 'core', 'selfnoise.js')).href}`);
+  assert.equal(
+    vendorSelfnoise.isSelfEpisode(`tool=Bash input={"command":"node ${join(h, '.dsh-immune', 'dist', 'zcode', 'src', 'cli.js').replace(/\\/g, '/')} list"}`),
+    true,
+    'the vendored module recognises its own install from any trace shape',
+  );
 
   // A second connect is cheap: no re-copy, no path churn.
   const again = connectHost('claude-code', { home: h });

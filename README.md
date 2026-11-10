@@ -94,7 +94,12 @@ the immune entries back out and deletes `~/.dsh-immune/` when no host remains.
 Bare `connect` surveys both hosts read-only. `immune doctor` reports broken
 hook paths with the exact reconnect command. The hook payload contract is the
 one the ZCode adapter already speaks (same `hookSpecificOutput` injection
-shape), so no adapter code ships per host.
+shape), so no adapter code ships per host — and the vendored runtime is
+verified end-to-end without any host environment variables
+(`scripts/verify-connected-runtime.mjs`): the db lands through the fallback
+chain, an episode distils at turn end, and a fresh session receives the
+injection. What is still not covered: dispatch by the real host CLIs
+themselves.
 
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.
