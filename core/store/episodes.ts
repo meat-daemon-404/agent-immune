@@ -250,16 +250,22 @@ function readRepairActions(db: DatabaseSync, sessionId: string): string[] {
 
 /**
  * Claim a pending failure for `toolName`, deleting it so one failure is only
- * ever paired once. Returns null when there is nothing to pair.
- */
-/**
- * Claim a pending failure for `toolName`, deleting it so one failure is only
  * ever paired once.
  *
  * `incoming` is the successful call that might close the episode. When it is
  * a read-only probe, or aimed at a different target, the failure is LEFT
  * PENDING — a `git status` between an error and its real fix must not consume
  * the episode, and the same tool called on another file must not either.
+ *
+ * Cross-session closing: when THIS session has no pending failure, the
+ * newest still-standing failure of the same tool from ANOTHER session in the
+ * same project database may be closed (pruneStale already removed rows older
+ * than PENDING_TTL_MS, so the 30-minute window holds by construction). The
+ * repair actions are read from the FAILING session's buffer — the common
+ * shape is "session A failed, session A edited the fix, a fresh session B
+ * re-ran the command and it worked". A repair made in session B is not
+ * attributed (B's buffer only fills when B itself holds a pending failure);
+ * the episode still distils from its failure/success traces.
  */
 export function claimFailure(
   db: DatabaseSync,
@@ -268,32 +274,40 @@ export function claimFailure(
   incoming?: { signature: string; probeOnly: boolean },
 ): FailureSnapshot | null {
   pruneStale(db);
-  const row = db
+  type PendingRow = {
+    session_id: string;
+    tool_name: string;
+    trace: string;
+    injected_ids: string;
+    human_hint?: string;
+    target_signature?: string;
+    created_at: number;
+  };
+  let row = db
     .prepare('SELECT * FROM pending_failures WHERE session_id = ? AND tool_name = ?')
-    .get(sessionId, toolName) as
-    | {
-        session_id: string;
-        tool_name: string;
-        trace: string;
-        injected_ids: string;
-        human_hint?: string;
-        target_signature?: string;
-        created_at: number;
-      }
-    | undefined;
+    .get(sessionId, toolName) as PendingRow | undefined;
+  if (!row) {
+    row = db
+      .prepare(
+        `SELECT * FROM pending_failures
+          WHERE tool_name = ? AND session_id != ?
+          ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get(toolName, sessionId) as PendingRow | undefined;
+  }
   if (!row) return null;
 
   const failedSignature = typeof row.target_signature === 'string' ? row.target_signature : '';
   if (incoming && !canCloseEpisode(failedSignature, incoming)) return null;
 
   db.prepare('DELETE FROM pending_failures WHERE session_id = ? AND tool_name = ?').run(
-    sessionId,
-    toolName,
+    row.session_id,
+    row.tool_name,
   );
   // The action-diff belongs to this episode wherever it closes: read and clear
   // the buffer even when the closing tool differs from the failing one.
-  const repairPath = readRepairActions(db, sessionId);
-  db.prepare('DELETE FROM repair_actions WHERE session_id = ?').run(sessionId);
+  const repairPath = readRepairActions(db, row.session_id);
+  db.prepare('DELETE FROM repair_actions WHERE session_id = ?').run(row.session_id);
 
   return {
     session_id: row.session_id,

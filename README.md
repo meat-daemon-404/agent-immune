@@ -101,9 +101,11 @@ chain, an episode distils at turn end, and a fresh session receives the
 injection — including a Codex-native sequence using the host's real
 `shell_command` / `apply_patch` tool names (the hooks map them to the engine's
 Bash/Edit vocabulary), all six hook events, human-hint attachment, injection
-delimiter isolation against forged closing tags, and the guard's deny path
-(`scripts/verify-connected-runtime.mjs`, 23 assertions). What is still not
-covered: dispatch by the real host CLIs themselves.
+delimiter isolation against forged closing tags, the guard's deny path, and
+a failure from one session being closed by a fresh session within the
+project's 30-minute window (`scripts/verify-connected-runtime.mjs`,
+25 assertions). What is still not covered: dispatch by the real host CLIs
+themselves.
 
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.

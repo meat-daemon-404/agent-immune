@@ -116,6 +116,51 @@ test('pairs a failure with the next success on the same tool only once', () => {
   s.close();
 });
 
+test('closes a pending failure from ANOTHER session within the project TTL window', () => {
+  const s = store();
+  s.recordFailure('sess-a', 'Bash', 'npm install -> ERESOLVE', 'Bash:npm:install');
+  // The repair happened in the FAILING session; a fresh session re-ran the command.
+  s.recordRepairAction('sess-a', 'Edit package.json');
+  const claimed = s.claimFailure('sess-b', 'Bash', { signature: 'Bash:npm:install', probeOnly: false });
+  assert.ok(claimed, 'a new session closes the old session\u2019s failure');
+  assert.equal(claimed.session_id, 'sess-a', 'the snapshot belongs to the failing session');
+  assert.deepEqual(claimed.repair_path, ['Edit package.json'], "the failing session's repair buffer rides along");
+  assert.equal(s.claimFailure('sess-b', 'Bash'), null, 'the pending row is gone after one close');
+  s.close();
+});
+
+test('a cross-session failure past the TTL window is not closed', () => {
+  const s = store();
+  s.recordFailure('sess-old', 'Bash', 'vitest failed', 'Bash:vitest:run');
+  s['db']
+    .prepare('UPDATE pending_failures SET created_at = ? WHERE session_id = ?')
+    .run(Date.now() - 31 * 60 * 1000, 'sess-old');
+  const claimed = s.claimFailure('sess-new', 'Bash', { signature: 'Bash:vitest:run', probeOnly: false });
+  assert.equal(claimed, null, 'pruneStale removes the expired row before the cross-session lookup');
+  s.close();
+});
+
+test('the same session\u2019s own pending failure wins over another session\u2019s', () => {
+  const s = store();
+  s.recordFailure('sess-a', 'Bash', 'old session failure', 'Bash:npm:install');
+  s.recordFailure('sess-b', 'Bash', 'this session failure', 'Bash:npm:install');
+  const claimed = s.claimFailure('sess-b', 'Bash', { signature: 'Bash:npm:install', probeOnly: false });
+  assert.equal(claimed.session_id, 'sess-b', 'same-session pending is claimed first');
+  assert.match(claimed.trace, /this session failure/);
+  // sess-a's pending is still standing for its own closer.
+  const later = s.claimFailure('sess-c', 'Bash', { signature: 'Bash:npm:install', probeOnly: false });
+  assert.equal(later.session_id, 'sess-a');
+  s.close();
+});
+
+test('a cross-session probe success does not consume another session\u2019s failure', () => {
+  const s = store();
+  s.recordFailure('sess-a', 'Bash', 'npm install failed', 'Bash:npm:install');
+  const claimed = s.claimFailure('sess-b', 'Bash', { signature: 'Bash:npm:status', probeOnly: true });
+  assert.equal(claimed, null, 'a probe never closes an episode, across sessions or within one');
+  s.close();
+});
+
 test('records which antibodies were injected so they can be blamed', () => {
   const s = store();
   const id = s.insert({

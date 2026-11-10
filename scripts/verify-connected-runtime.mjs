@@ -206,6 +206,44 @@ try {
   check('codex connect did not clobber the claude-code config', existsSync(join(home, '.claude', 'settings.json')));
   void reportCodex;
 
+  // --- cross-session closing: fail in one session, fix+verify in another --
+  const jobsBefore = (() => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const n = db.prepare('SELECT COUNT(*) AS n FROM distill_jobs').get().n;
+    db.close();
+    return n;
+  })();
+  runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: 'conn-rt-xa',
+    tool_name: 'Bash',
+    tool_input: { command: 'pnpm install' },
+    tool_response: { exitCode: 1, stderr: 'ERR_PNPM_PEER_DEPS' },
+  });
+  runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: 'conn-rt-xa',
+    tool_name: 'Edit',
+    tool_input: { file_path: join(project, 'package.json') },
+    tool_response: { ok: true },
+  });
+  const xClose = runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: 'conn-rt-xb', // a FRESH session re-runs the same command
+    tool_name: 'Bash',
+    tool_input: { command: 'pnpm install' },
+    tool_response: { exitCode: 0, stdout: 'done' },
+  });
+  check('a fresh session closes another session\u2019s pending failure', xClose.status === 0, xClose.stderr.slice(0, 200));
+  runHook('stop.js', { hook_event_name: 'Stop', session_id: 'conn-rt-xb' });
+  const jobsAfter = (() => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const n = db.prepare('SELECT COUNT(*) AS n FROM distill_jobs').get().n;
+    db.close();
+    return n;
+  })();
+  check('the cross-session episode was enqueued and distilled', jobsAfter > jobsBefore, `jobs ${jobsBefore} -> ${jobsAfter}`);
+
   // --- the remaining three events + isolation + deny ----------------------
   // UserPromptSubmit: a substantive human hint must attach to the pending
   // failure, and the prompt-time match must inject through the strict schema.

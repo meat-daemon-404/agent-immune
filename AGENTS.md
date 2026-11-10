@@ -391,6 +391,19 @@ identical-retry note).
     (renaming the last one breaks updates for every installed copy). Do not
     re-propose dual publishing without new evidence.
 
+38. **A pending failure closes across sessions, within the same project TTL.**
+    `claimFailure` first looks in the calling session (unchanged); when that
+    session holds nothing, it closes the NEWEST same-tool pending failure of
+    any other session in the same project database. The 30-minute window is
+    not a new knob: `pruneStale` has already deleted older rows, so the
+    cross-session lookup is bounded by the existing `PENDING_TTL_MS`. Repair
+    actions are read from the FAILING session's buffer — the measured shape
+    is "session A failed, session A edited the fix, fresh session B re-ran
+    the command"; a repair made in B is not attributed (B's buffer only fills
+    when B holds its own pending). The anti-rot penalty still lands on the
+    antibodies injected into the FAILING session, which is where the failure
+    happened. Same-session pairing wins; a probe never closes anything.
+
 ## Verification
 
 ```bash
@@ -401,7 +414,7 @@ node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
 node scripts/bench-scale.mjs         # 300-rule library: index cost and match p50/p95; gates a pathological slowdown
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
-node scripts/verify-connected-runtime.mjs # 23 — the connect'd (vendored) hooks driven end-to-end with NO host env vars; also pinned in CI on Linux
+node scripts/verify-connected-runtime.mjs # 25 — the connect'd (vendored) hooks driven end-to-end with NO host env vars; also pinned in CI on Linux
 node scripts/verify-dist-integrity.mjs   # 5  — every relative dist import resolves, source↔dist 1:1; --self-test proves the dead-import detector; pinned in CI
 node scripts/verify-llm.mjs          # env-gated, SKIPs without LLM env; one command to live-verify external distillation
 node scripts/eval-judge.mjs          # machine-only: replays the host's labeled tool calls through the judge (needs the ZCode db)
