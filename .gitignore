@@ -23,3 +23,4 @@ node_modules/
 
 # host-side plan/session scratch from the ZCode runtime
 .zcode/
+.git-commit-msg
