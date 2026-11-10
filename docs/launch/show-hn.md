@@ -1,6 +1,6 @@
 # Show HN — draft
 
-> 发布前需人工核对：数字以发布当天重跑为准；HN 不接受多账号顶帖，评论区首条补充常见问题。
+> 数字已于 2026-11-10 重跑核对（120 天窗口）；发布当天仍建议再跑一次；HN 不接受多账号顶帖，评论区首条补充常见问题。
 
 ## Title
 
@@ -17,11 +17,11 @@ call that succeeds on the same target, is a lesson.**
 
 The numbers from my own machine (120 days, dry-run of `immune audit`):
 
-- 19,971 tool calls scanned · 835 failures · **172 failed-then-fixed episodes**
-- The same mistakes kept repeating: 83× "File has not been read yet", 63×
-  "File has been modified since read", 101× a family of shell-misuse failures
+- 19,958 tool calls scanned · 842 failures · **173 failed-then-fixed episodes**
+- The same mistakes kept repeating: 78× "File has not been read yet", 60×
+  "File has been modified since read", 107× a family of shell-misuse failures
   (writing source files through the shell, bypassing the editor's safety scan)
-- Estimated ~34M tokens burned on episodes that a rule would have prevented
+- Estimated ~32.8M tokens burned on episodes that a rule would have prevented
   (median request size × 2 round-trips per episode — the estimate's one stated
   assumption, no invented exchange rate)
 

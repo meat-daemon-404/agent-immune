@@ -1,6 +1,6 @@
 # Reddit r/ClaudeAI — draft
 
-> 发布前需人工核对：数字以发布当天重跑为准；先看版规（self-promotion 频率限制），正文把数字换成当天的重跑结果。
+> 数字已于 2026-11-10 重跑核对（120 天窗口）；发布当天仍建议再跑一次；先看版规（self-promotion 频率限制），正文把数字换成当天的重跑结果。
 
 ## Title
 
@@ -15,10 +15,10 @@ wall: the agent hits an error, figures it out, fixes it — and then hits the
 **same error again next week** because nothing remembered the lesson.
 
 I measured it. ~4 months of real sessions on my machine, replayed through a
-failed-then-fixed pairing rule: **19,971 tool calls → 835 failures → 172
+failed-then-fixed pairing rule: **19,958 tool calls → 842 failures → 173
 episodes where a fix succeeded but nothing remembered it.** Top offenders were
-not exotic: "File has not been read yet" 83 times, "File has been modified
-since read" 63 times, a shell-misuse family 101 times. ~34M tokens of
+not exotic: "File has not been read yet" 78 times, "File has been modified
+since read" 60 times, a shell-misuse family 107 times. ~32.8M tokens of
 preventable round-trips (estimate, assumption stated — median request × 2).
 
 So I built an immune system for coding agents:
