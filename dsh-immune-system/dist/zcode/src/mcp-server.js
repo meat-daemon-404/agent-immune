@@ -110,6 +110,14 @@ const TOOLS = [
         description: 'List the builtin seed packs (git-safety, node-ts, python-uv, docker) with per-pack seeded counts. Install with `immune seed <id>` in a terminal; this tool never writes.',
         inputSchema: { type: 'object', properties: {} },
     },
+    {
+        name: 'immune_detours',
+        description: 'List recent convergent detours: sessions that probed one target 4+ times read-only before the successful command landed. Telemetry / review candidates — the engine never mints a shortcut rule from these (that stays on the LLM rewrite path). READ-ONLY.',
+        inputSchema: {
+            type: 'object',
+            properties: { limit: { type: 'number', description: 'Rows to show. Default 20.' } },
+        },
+    },
 ];
 /** Dispatch one tools/call. Kept pure-ish so tests can call it without stdio. */
 export function callTool(store, name, args) {
@@ -211,6 +219,20 @@ export function callTool(store, name, args) {
                 return `${pack.id.padEnd(12)} ${String(installed).padStart(2)}/${pack.rules.length} seeded · ${pack.label} — ${pack.description}`;
             });
             return `Builtin seed packs (install with \`immune seed <id>\` in a terminal; this tool never writes):\n${lines.join('\n')}`;
+        }
+        case 'immune_detours': {
+            const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+                ? Math.min(100, Math.trunc(args.limit))
+                : 20;
+            const rows = store.recentDetours(limit);
+            if (rows.length === 0) {
+                return 'no convergent detours recorded (4+ same-target probes before the fix). Telemetry only — `immune rewrite` is the minting path.';
+            }
+            const lines = rows.map((row) => {
+                const when = new Date(row.created_at).toISOString().slice(0, 16).replace('T', ' ');
+                return `${when}  ${String(row.probes).padStart(2)} probes  ${row.signature}`;
+            });
+            return `convergent detours (telemetry — \`immune rewrite\` is the minting path):\n${lines.join('\n')}`;
         }
         default:
             return `error: unknown tool ${name}`;

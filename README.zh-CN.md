@@ -76,17 +76,18 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 原生插件安装只覆盖 DSH 和 ZCode。Claude Code 和 Codex CLI 走的是普通 hook——同一个引擎，不依赖插件系统：
 
 ```bash
+npx dsh-immune-system@latest connect               # 自动探测本机装了哪些宿主并逐一接入
 npx dsh-immune-system@latest connect claude-code   # 写 ~/.claude/settings.json
 npx dsh-immune-system@latest connect codex         # 写 ~/.codex/hooks.json
 ```
 
-它做的事：把引擎复制到固定的 `~/.dsh-immune/` 安装位（这样钩子不随 npx 缓存清理或包升级而失效），往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个）并指向该固定副本，用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作（`--refresh` 强制重灌）；旧版 connect 留下的 npx 缓存路径会被原地升级；`connect <host> --remove` 只摘走 immune 的条目，最后一个宿主卸载时顺带删除 `~/.dsh-immune/`。裸 `connect` 只读显示两个宿主的接入状态；`immune doctor` 会对失效的钩子路径报警并给出修复命令。hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码——而且 vendor 运行时已在**零宿主环境变量**下端到端验证过（`scripts/verify-connected-runtime.mjs`）：库经回退链落位、事件在回合末蒸馏、新会话拿到注入；连 Codex 原生的 `shell_command` / `apply_patch` 工具名序列（映射回引擎的 Bash/Edit 词汇）也跑过；六个 hook 事件、人工纠偏挂载、注入分隔符对伪造闭合标签的隔离、guard deny 分支，以及**一个会话踩的坑由新会话在项目 30 分钟窗口内闭合**，都在 `scripts/verify-connected-runtime.mjs` 的 25 条断言里。仍未覆盖的：真实宿主 CLI 自身的分发。
+它做的事：把引擎复制到固定的 `~/.dsh-immune/` 安装位（这样钩子不随 npx 缓存清理或包升级而失效），往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个）并指向该固定副本，用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作（`--refresh` 强制重灌）；旧版 connect 留下的 npx 缓存路径会被原地升级；`connect <host> --remove` 只摘走 immune 的条目，最后一个宿主卸载时顺带删除 `~/.dsh-immune/`。不带宿主参数的 `connect` 会探测这台机器实际装了哪些宿主（`~/.claude`、`~/.codex`）并逐一幂等接入——ZCode 也会被探测到，但只报告不写入，因为 ZCode 走自己的插件市场安装。`connect --status` 保留只读巡检；`immune doctor` 会对失效的钩子路径报警并给出修复命令。hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码——而且 vendor 运行时已在**零宿主环境变量**下端到端验证过（`scripts/verify-connected-runtime.mjs`）：库经回退链落位、事件在回合末蒸馏、新会话拿到注入；连 Codex 原生的 `shell_command` / `apply_patch` 工具名序列（映射回引擎的 Bash/Edit 词汇）也跑过；六个 hook 事件、人工纠偏挂载、注入分隔符对伪造闭合标签的隔离、guard deny 分支，以及**一个会话踩的坑由新会话在项目 30 分钟窗口内闭合**，都在 `scripts/verify-connected-runtime.mjs` 的 25 条断言里。仍未覆盖的：真实宿主 CLI 自身的分发。
 
 两个提醒：接完重启宿主会话才生效；**Codex 需要先在 Codex 里跑一次 `/hooks` 信任这些命令**，否则不会执行。
 
 ### 体检：用你已有的历史冷启动
 
-刚装完的库是空的。`immune audit` 把活体配对循环原样重放到这台机器已有的会话历史上——ZCode 的会话库、Codex 的 rollout 文件（`~/.codex/sessions`）、Claude Code 的转录（`~/.claude/projects`）——打印一份可截图分享的摘要（按工具的失败计数、最高频的重复坑点、有用量记录时的可省 token 估算），然后把这些历史蒸馏成你自己最早的一批规则：
+刚装完的库是空的。`immune audit` 把活体配对循环原样重放到这台机器已有的会话历史上——ZCode 的会话库、Codex 的 rollout 文件（`~/.codex/sessions`）、Claude Code 的转录（`~/.claude/projects`，含嵌套的子代理转录；工具结果没带 `is_error` 标记时回退读 `Exit code:` 文本标记）——打印一份可截图分享的摘要（按工具的失败计数、最高频的重复坑点、有用量记录时的可省 token 估算），然后把这些历史蒸馏成你自己最早的一批规则：
 
 ```bash
 npx dsh-immune-system@latest audit --dry-run   # 只出报告，不写库
@@ -194,7 +195,21 @@ description: 本仓库踩过的坑 … 11 proven rules.
 | … | … | … | … |
 ```
 
-仪表盘的 `/api/export?format=json` 导出的快照能被 `immune import` 读回，团队可以从某个人的成熟规则起步。
+仪表盘的 `/api/export?format=json` 导出的快照能被 `immune import` 读回，团队可以从某个人的成熟规则起步。导出有闸门：规则里还带着机器路径或密钥形状的文本时**导出直接失败**，而不是把问题带给团队——脱敏在捕获时清洗 trace，这道闸检查的是规则本身。
+
+### 遥测：弯路、进化曲线和 CI 闸门
+
+不是所有值得知道的事都会变成规则。剩下的一半有三块面板：
+
+```bash
+immune detours                    # 同一目标探测 4+ 次才修好的弯路记录
+immune stats                      # 含 5+ 条同课规则的"睡眠评审"簇，等 `immune consolidate`
+immune ci-check --diff pr.diff    # 拿 PR 新增行扫本仓库已提交的 AGENTS.md 托管块
+```
+
+`immune detours` 只是遥测——确定性路径绝不会从它蒸馏"捷径规则"（那只能是回声命令；写规则走 `immune rewrite`）。`immune ci-check` 刻意无状态：CI 里没有免疫库，它读的是仓库已经提交的 `<!-- immune:generated -->` 托管块，新增行碰到某条规则的触发领地就 exit 1（`--json` 供机器读）。仪表盘（`immune ui`）多了进化条带：每周新规则/episode 直方图，加谱系、来源、probation 和弯路计数——只展示库能证明的数据。`immune doctor` 用一行 advisory 报告同一份生命周期状态。
+
+1.1 给循环本身加的东西：对无规则覆盖的目标第三次尝试前，会注入一次结构化诊断提示（"先读报错第一行、查 --help/版本、看锁文件和环境变量，确认原因再改参数重试"）；这样找到的修复结晶为 `origin = self_healing_experiment`，被人工纠偏救回的规则带 `origin = user_correction`。环境变更（锁文件内容、Node 主版本）会把旧环境学的规则放入观察期，新环境自己重新学会同一课时将其退役为 `superseded_by_env_upgrade`。每条规则都带出处：哪个工作区教的（`env_fingerprint`）、什么修好的（`repair_path`）、从哪条规则变异来的（`parent_id`）。
 
 ### 不跑 hook 的 agent 怎么办
 

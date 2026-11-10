@@ -87,6 +87,7 @@ test('MCP handshake and tool listing follow the wire protocol', async (t) => {
     const names = tools.result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
       'immune_audit',
+      'immune_detours',
       'immune_export',
       'immune_forget',
       'immune_learn',
@@ -124,6 +125,10 @@ test('immune_audit previews read-only and immune_seed_packs lists without writin
     assert.match(packs, /python-uv/);
     assert.match(packs, /docker/);
     assert.match(packs, /never writes/, 'the tool states its own read-only contract');
+
+    const detours = textOf(await server.call('tools/call', { name: 'immune_detours', arguments: {} }));
+    assert.match(detours, /no convergent detours recorded/, 'the empty answer states the threshold');
+    assert.match(detours, /rewrite/, 'it names the only minting path');
 
     // Neither call stored anything: the database is untouched.
     const stats = textOf(await server.call('tools/call', { name: 'immune_stats', arguments: {} }));

@@ -84,6 +84,18 @@ function cmdList(store: ImmuneStore, includeRetired: boolean): void {
         `${indent}${t.avoid}: ${clamp(ab.symptom, 90)}\n` +
         `${indent}${t.do}: ${clamp(ab.prescription, 90)}\n`,
     );
+    // Provenance rides on its own line, and only when there is any: a plain
+    // rule stays two lines, a rule with a story carries it visibly.
+    const marks: string[] = [];
+    if (ab.origin === 'user_correction') marks.push('origin: user correction');
+    else if (ab.origin === 'self_healing_experiment') marks.push('origin: self-healing');
+    if ((ab.parent_id ?? 0) > 0) marks.push(`mutated from #${ab.parent_id}`);
+    if ((ab.probation_at ?? 0) > 0 && ab.status === 'active') marks.push('env probation');
+    if (ab.retire_reason) marks.push(ab.retire_reason);
+    if (ab.prescription_source === 'llm' || ab.prescription_source === 'human') {
+      marks.push(`prescription: ${ab.prescription_source}`);
+    }
+    if (marks.length > 0) process.stdout.write(`${indent}— ${marks.join(' · ')}\n`);
   }
 }
 

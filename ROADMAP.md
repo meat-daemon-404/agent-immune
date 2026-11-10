@@ -64,6 +64,13 @@
     2nd failure, suppression once resolved, and antibody crystallization on
     success.
 
+### Known delivery gap (tracked, not hidden)
+
+- [ ] **1.5-DSH**: the stuck hypothesis currently delivers only on ZCode.
+  DSH's `PreToolDecision` has no context channel (the same constraint that
+  keeps `IMMUNE_GUARD=warn` ZCode-only), so the hypothesis needs a turn-start
+  delivery shape on that host — the pattern `topProbeStreak` already uses.
+
 ## Phase 2: v1.5 — Rule Evolution, Sleep Consolidation & Efficiency
 
 - [x] **2.4a Managed `AGENTS.md` sync (`core/sync-doc.ts`)** — already

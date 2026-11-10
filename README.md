@@ -79,6 +79,7 @@ Native plugin installs are for DSH and ZCode. For Claude Code and Codex CLI the
 same engine installs as plain hooks — no plugin system required:
 
 ```bash
+npx dsh-immune-system@latest connect               # auto-detect and wire every installed host
 npx dsh-immune-system@latest connect claude-code   # writes ~/.claude/settings.json
 npx dsh-immune-system@latest connect codex         # writes ~/.codex/hooks.json
 ```
@@ -91,7 +92,11 @@ keeps a one-time `.bak-immune` backup before the first write; re-running is a
 no-op (`--refresh` forces a re-copy); a stale install — an npx cache path from
 an older connect — is upgraded in place; `connect <host> --remove` takes only
 the immune entries back out and deletes `~/.dsh-immune/` when no host remains.
-Bare `connect` surveys both hosts read-only. `immune doctor` reports broken
+With no host argument, `connect` detects which hosts this machine actually
+has (`~/.claude`, `~/.codex`) and wires each one idempotently — ZCode is
+detected too but reported rather than written, because ZCode installs immune
+through its own plugin marketplace. `connect --status` keeps the read-only
+survey. `immune doctor` reports broken
 hook paths with the exact reconnect command. The hook payload contract is the
 one the ZCode adapter already speaks (same `hookSpecificOutput` injection
 shape), so no adapter code ships per host — and the vendored runtime is
@@ -115,7 +120,9 @@ running `/hooks` inside Codex once to trust the commands** before they fire.
 A fresh install has an empty library. `immune audit` replays the same
 failed-then-fixed pairing over the session history already on this machine —
 the ZCode session db, Codex rollout files (`~/.codex/sessions`), and Claude
-Code transcripts (`~/.claude/projects`) — prints a shareable summary (per-tool
+Code transcripts (`~/.claude/projects`, including nested subagent transcripts;
+a tool result without an `is_error` flag falls back to its `Exit code:` text
+marker) — prints a shareable summary (per-tool
 failure counts, top repeat offenders, the avoidable token cost when the source
 records usage), and distils your own first rules from it:
 
@@ -190,7 +197,21 @@ description: Pitfalls this project already paid for once … 11 proven rules.
 | … | … | … | … |
 ```
 
-The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules.
+The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules. The export is gated: a rule that still carries a machine path or a secret-shaped string **fails the export** instead of shipping to the team — redaction scrubs traces at capture time, and the gate checks the rules themselves.
+
+### Telemetry: detours, evolution, and a CI gate
+
+Not everything worth knowing becomes a rule. Three surfaces report the rest:
+
+```bash
+immune detours        # sessions that probed one target 4+ times before the fix landed
+immune stats          # + "sleep review" clusters of 5+ same-lesson rules awaiting `immune consolidate`
+immune ci-check --diff pr.diff   # scan PR added lines against this repo's committed AGENTS.md block
+```
+
+`immune detours` is telemetry only — the deterministic path never mints a shortcut rule from it (that would be the echoed command; `immune rewrite` is the minting path). `immune ci-check` is stateless by design: CI has no immune database, so it reads the managed `<!-- immune:generated -->` section your repo already commits, and exits 1 when an added diff line names a rule's trigger territory (`--json` for machine output). The dashboard (`immune ui`) gained an evolution strip: weekly new-rules and episodes histograms plus lineage, origin, probation and detour counters — only data the library can prove. `immune doctor` reports the same lifecycle in one advisory line.
+
+What 1.1 added to the loop itself: a third failed attempt at an uncovered target arrives with a one-time structured diagnostic ("read the first line of the error, check --help/versions, inspect the lockfile/env — then fix and retry"); a fix found that way crystallizes with `origin = self_healing_experiment`, and a rule a human correction rescued carries `origin = user_correction`. An environment change (lockfile contents, Node major) puts rules learned in the old environment on probation, and retires them as `superseded_by_env_upgrade` once the new environment re-learns the same lesson on its own. Rules keep provenance: which workspace taught them (`env_fingerprint`), what repaired the episode (`repair_path`), which rule a refinement mutated from (`parent_id`).
 
 ### When a rule reads like a command dump
 
