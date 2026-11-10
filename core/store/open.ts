@@ -47,6 +47,21 @@ const COLUMNS: ReadonlyArray<{ table: string; column: string; ddl: string }> = [
   // operator needs to see that a rule's wording is model-written rather than
   // captured evidence.
   { table: 'antibodies', column: 'prescription_source', ddl: "TEXT NOT NULL DEFAULT ''" },
+  // ROADMAP 1.4b: what taught the lesson ('' = self-repair,
+  // 'user_correction' = a human hint closed the episode). Provenance for the
+  // dashboard and audits, never a behavior switch.
+  { table: 'antibodies', column: 'origin', ddl: "TEXT NOT NULL DEFAULT ''" },
+  { table: 'distill_jobs', column: 'origin', ddl: "TEXT NOT NULL DEFAULT ''" },
+  // ROADMAP 2.2: mutation lineage — the rule a refined child was mutated from,
+  // and when the last evidence-based refinement landed.
+  { table: 'antibodies', column: 'parent_id', ddl: 'INTEGER' },
+  { table: 'antibodies', column: 'mutated_at', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  // ROADMAP 3.1: which workspace taught the rule, whether it is on probation
+  // after that workspace changed, and why a rule left the active set when the
+  // reason is not anti-rot.
+  { table: 'antibodies', column: 'env_fingerprint', ddl: "TEXT NOT NULL DEFAULT ''" },
+  { table: 'antibodies', column: 'probation_at', ddl: 'INTEGER NOT NULL DEFAULT 0' },
+  { table: 'antibodies', column: 'retire_reason', ddl: "TEXT NOT NULL DEFAULT ''" },
 ];
 
 function migrate(db: DatabaseSync): void {

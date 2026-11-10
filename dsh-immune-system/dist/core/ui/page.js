@@ -1,15 +1,3 @@
-/**
- * The dashboard page, as one self-contained string.
- *
- * No external CSS/JS: this must work offline and must not phone anywhere. The
- * runtime token is substituted in so the page can call the local API, and the
- * embedded script uses string concatenation rather than template literals so
- * nothing inside it can be mistaken for an interpolation.
- *
- * The marker (brand glyph, status dots, skeleton) is pure CSS — an inline <svg>
- * would drag an `xmlns="http://…"` through the document and the offline test
- * (no `http(s)://` anywhere) is right to reject that.
- */
 const LABELS = {
     'zh-CN': {
         title: '免疫系统',
@@ -62,6 +50,13 @@ const LABELS = {
         toastRetired: '已退役',
         toastRestored: '已恢复',
         toastDeleted: '已删除',
+        evoTitle: '进化曲线（8 周）',
+        evoNew: '新规则/周',
+        evoEpisodes: '蒸馏episode/周',
+        evoLineage: '谱系规则',
+        evoOrigins: '用户纠正',
+        evoDetours: '弯路遥测',
+        evoNote: '只展示库中可证明的数据；逐调用成功率与均次重试数需要宿主未记录的原始调用历史。',
     },
     en: {
         title: 'Immune System',
@@ -114,6 +109,13 @@ const LABELS = {
         toastRetired: 'retired',
         toastRestored: 'restored',
         toastDeleted: 'deleted',
+        evoTitle: 'Evolution (8 weeks)',
+        evoNew: 'new rules/week',
+        evoEpisodes: 'episodes/week',
+        evoLineage: 'lineage rules',
+        evoOrigins: 'user corrections',
+        evoDetours: 'detour telemetry',
+        evoNote: 'Only data the library can prove; per-call success rate needs call history the host does not record.',
     },
 };
 /** Escape for interpolation into HTML text/attribute position. */
@@ -131,6 +133,35 @@ function formatBudget(ms) {
         return `${seconds % 1 === 0 ? seconds.toFixed(0) : seconds.toFixed(1)} s`;
     }
     return `${Math.round(ms)} ms`;
+}
+/**
+ * ROADMAP 3.3 — the evolution strip, server-rendered so it needs no extra API
+ * round trip. Pure CSS bars, no external assets (the offline bar is #14).
+ */
+function evoStrip(evo, t) {
+    const maxWeek = Math.max(1, ...evo.newRules, ...evo.episodes);
+    const bars = (values) => values
+        .map((value) => {
+        const pct = Math.round((value / maxWeek) * 100);
+        return `<i style="height:${pct}%"${value > 0 ? ` data-n="${value}"` : ''}></i>`;
+    })
+        .join('');
+    const counters = [
+        [t.evoLineage, evo.lineage],
+        [t.evoOrigins, evo.fromUserCorrection],
+        [t.evoDetours, evo.detours],
+    ];
+    const note = evo.probation > 0 || evo.supersededByEnv > 0
+        ? ` · ${evo.probation} probation · ${evo.supersededByEnv} superseded-by-env`
+        : '';
+    return (`<div class="evo" role="group" aria-label="${esc(t.evoTitle)}">` +
+        `<div class="evo-h"><b>${esc(t.evoTitle)}</b><span>${esc(t.evoNew)} ${evo.newRules.reduce((a, b) => a + b, 0)} · ${esc(t.evoEpisodes)} ${evo.episodes.reduce((a, b) => a + b, 0)}${esc(note)}</span></div>` +
+        `<div class="evo-bars">` +
+        `<div class="evo-col">${bars(evo.newRules)}</div>` +
+        `<div class="evo-col alt">${bars(evo.episodes)}</div>` +
+        `</div>` +
+        `<div class="evo-f"><span>${counters.map(([label, value]) => `${label} ${value}`).join(' · ')}</span><span class="evo-note">${esc(t.evoNote)}</span></div>` +
+        `</div>`);
 }
 export function renderPage(options) {
     const t = LABELS[options.locale];
@@ -223,6 +254,16 @@ export function renderPage(options) {
   .kpi .v { font-size: 23px; font-weight: 660; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
   .kpi .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
   .kpi .hint { color: var(--faint); font-size: 10.5px; margin-top: 1px; }
+  .evo { margin-top: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 16px; }
+  .evo-h { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .evo-h b { font-size: 12.5px; letter-spacing: .02em; }
+  .evo-h span { color: var(--muted); font-size: 11px; }
+  .evo-bars { display: flex; gap: 16px; margin-top: 10px; }
+  .evo-col { flex: 1; display: flex; align-items: flex-end; gap: 6px; height: 56px; }
+  .evo-col i { flex: 1; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; opacity: .85; }
+  .evo-col.alt i { background: var(--ok); opacity: .6; }
+  .evo-f { margin-top: 8px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .evo-note { color: var(--faint); }
 
   /* ---------- per-model strip ---------- */
   .by-model {
@@ -405,6 +446,7 @@ export function renderPage(options) {
   </div>
 
   <div class="kpis" id="kpis" aria-live="polite"></div>
+  ${options.evolution ? evoStrip(options.evolution, t) : ''}
   <div class="by-model" id="byModel" hidden></div>
 
   <div class="toolbar">

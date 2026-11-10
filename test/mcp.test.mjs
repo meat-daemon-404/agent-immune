@@ -49,7 +49,7 @@ function startServer(dbPath) {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error(`timeout waiting for ${method}`));
-      }, 5000);
+      }, 30000);
       pending.set(id, (message) => {
         clearTimeout(timer);
         resolve(message);

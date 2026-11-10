@@ -21,7 +21,13 @@ export const SCHEMA_STATEMENTS = [
     tool_name       TEXT,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
-    prescription_source TEXT NOT NULL DEFAULT ''
+    prescription_source TEXT NOT NULL DEFAULT '',
+    origin          TEXT    NOT NULL DEFAULT '',
+    parent_id       INTEGER,
+    mutated_at      INTEGER NOT NULL DEFAULT 0,
+    env_fingerprint TEXT    NOT NULL DEFAULT '',
+    probation_at    INTEGER NOT NULL DEFAULT 0,
+    retire_reason   TEXT    NOT NULL DEFAULT ''
   )`,
     `CREATE VIRTUAL TABLE IF NOT EXISTS antibodies_fts USING fts5(
     trigger_pattern,
@@ -55,6 +61,29 @@ export const SCHEMA_STATEMENTS = [
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (session_id, tool_name)
   )`,
+    // ROADMAP 1.5: consecutive same-target failure streaks and whether the
+    // diagnostic hypothesis was already delivered for one. Rows age out with the
+    // pending TTL (pruneStale), so the state cannot outlive its episode.
+    `CREATE TABLE IF NOT EXISTS stuck_state (
+    session_id      TEXT    NOT NULL,
+    signature       TEXT    NOT NULL,
+    fail_streak     INTEGER NOT NULL DEFAULT 0,
+    hypothesized_at INTEGER NOT NULL DEFAULT 0,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL,
+    PRIMARY KEY (session_id, signature)
+  )`,
+    // ROADMAP 2.3b: convergent-detour telemetry — a session that probed the
+    // same target 4+ times read-only before the successful command landed.
+    // Review candidates only: the LLM rewrite path (`immune rewrite`) is the
+    // only place a shortcut RULE may be minted (AGENTS.md #28).
+    `CREATE TABLE IF NOT EXISTS detours (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL,
+    signature   TEXT    NOT NULL,
+    probes      INTEGER NOT NULL,
+    created_at  INTEGER NOT NULL
+  )`,
     // Repeat suppression: what was injected last turn in this session, and how
     // many turns have passed without it changing.
     `CREATE TABLE IF NOT EXISTS session_turns (
@@ -77,6 +106,7 @@ export const SCHEMA_STATEMENTS = [
     success_trace TEXT    NOT NULL,
     injected_ids  TEXT    NOT NULL DEFAULT '[]',
     human_hint    TEXT    NOT NULL DEFAULT '',
+    origin        TEXT    NOT NULL DEFAULT '',
     status        TEXT    NOT NULL DEFAULT 'pending',
     note          TEXT    NOT NULL DEFAULT '',
     created_at    INTEGER NOT NULL,

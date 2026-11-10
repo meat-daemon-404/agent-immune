@@ -26,9 +26,11 @@ dsh-immune-system/  the installable package (manifest, hooks.json, commands,
 
 Build: `npm run build` (tsc, emits into `dsh-immune-system/dist/`). Zero runtime
 dependencies — `node:sqlite` only. `dist/` and `client/client.js` are committed
-so installs need no toolchain; bump versions in **four** manifests
+so installs need no toolchain; bump versions in **five** manifests
 (`package.json` ×2 fields, `dsh-immune-system/package.json` ×2,
-`dsh-immune-system/.zcode-plugin/plugin.json`, `marketplace.json`).
+`dsh-immune-system/.zcode-plugin/plugin.json`, `marketplace.json`,
+`.claude-plugin/plugin.json` — the last is checked by
+`scripts/check-versions.mjs` like the rest, so drift fails CI, not users).
 
 ## Load-bearing decisions (do not "simplify" these away)
 
@@ -417,6 +419,29 @@ identical-retry note).
     is better than noise). No self-reinforcement loop exists to fuel:
     priming's recordInjection does not bump hit_count; only match() does.
 
+40. **Evidence provenance is advice-grade; the detector must strip it before
+    judging.** The 1.3 repair-chain suffix (`… (after: Edit package.json)`)
+    pushed an otherwise-short prescription over `looksEchoPrescription`'s
+    length line, and priming silently dropped the rule — caught by
+    `verify-connected-runtime`'s "new session-start injects the learned rule"
+    pin on its FIRST run after the change, which is what the pins are for.
+    The echo detector now strips the `(after: …)` suffix before its checks:
+    the suffix is captured repair evidence (the causal chain advice is made
+    of), not a dump. Any new prescription suffix must be added to the
+    detector's strip list in the same commit.
+
+41. **Seed pre-warming is cold-start only.** Stacks install once, only while
+    the library has zero rules (`core/prewarm.ts`); the first version ran on
+    every SessionStart and its fresh packs displaced learned rules from the
+    priming top-3 by recency. Seeds are for empty libraries; a workspace that
+    already learned keeps its slots. IMMUNE_PREWARM=off opts out.
+
+42. **Mutation and metabolism refine; only humans and models rewrite.** 2.2's
+    `mutateRule` refines a TRIGGER from observed repair evidence and never
+    touches the prescription (#28 unchanged); 3.1's env metabolism has one
+    state (probation) and one decay (superseded_by_env_upgrade when the new
+    environment re-learns the same lesson) — no third tunable (#19's lesson).
+
 ## Verification
 
 ```bash
@@ -456,6 +481,12 @@ silently broke the canonical episode shape.
 | Host connect installer | `core/connect.ts` | `test/connect.test.mjs` |
 | History audit | `core/audit.ts` | `test/audit.test.mjs` |
 | Seed packs | `core/packs.ts`, `core/store/seeds.ts` | `test/seed.test.mjs` |
+| Share gate / CI gate | `core/share-guard.ts` | `test/share-guard.test.mjs` |
+| Stack pre-warm | `core/prewarm.ts` | hooks tests ("4.2 …") |
+| Stuck state | `core/store/stuck.ts` | hooks tests ("1.5 …") |
+| Detour telemetry | `core/store/detours.ts` | hooks tests ("2.3b …") |
+| Env fingerprint metabolism | `core/env-fingerprint.ts` | `test/core.test.mjs` ("3.1 …") |
+| Sleep consolidation | `core/sleep-consolidate.ts` | `test/core.test.mjs` ("2.4 …") |
 
 ## Known limits (do not file these as bugs)
 

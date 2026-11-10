@@ -77,6 +77,8 @@ export interface BatchEpisode {
   failedTrace: string;
   fixedTrace: string;
   humanHint?: string;
+  /** Observed repair chain (ROADMAP 1.3): rides in the payload, not the trace. */
+  repairs?: string[];
 }
 
 /** Build the batch payload: a JSON array, as the prompt asks for. */
@@ -87,6 +89,7 @@ export function buildBatchInput(episodes: readonly BatchEpisode[]): string {
       failedTrace: episode.failedTrace,
       fixedTrace: episode.fixedTrace,
       ...(episode.humanHint ? { humanHint: episode.humanHint } : {}),
+      ...(episode.repairs && episode.repairs.length > 0 ? { repairs: episode.repairs } : {}),
     })),
     null,
     1,

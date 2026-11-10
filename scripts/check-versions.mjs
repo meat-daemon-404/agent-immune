@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Verify that the four version-carrying manifests agree.
+ * Verify that the five version-carrying manifests agree.
  *
  * They drifted once by accident (package.json said 0.2.0 while the plugin
  * manifest said 0.3.8), and the npm publish flow publishes from the ROOT
@@ -22,6 +22,7 @@ const rootPkg = read('package.json');
 const nestedPkg = read('dsh-immune-system/package.json');
 const pluginManifest = read('dsh-immune-system/.zcode-plugin/plugin.json');
 const market = read('marketplace.json');
+const claudePlugin = read('.claude-plugin/plugin.json');
 
 const versions = {
   'package.json': rootPkg.version,
@@ -30,6 +31,7 @@ const versions = {
   'dsh-immune-system/package.json (dsh)': nestedPkg.dsh?.version,
   'plugin.json': pluginManifest.version,
   'marketplace.json': market.plugins[0]?.version,
+  '.claude-plugin/plugin.json': claudePlugin.version,
 };
 
 let failed = false;
@@ -41,7 +43,7 @@ for (const [where, version] of Object.entries(versions)) {
 }
 
 if (seen.size > 1) {
-  console.error(`\nversion drift: ${[...seen].join(' vs ')} — bump all four together`);
+  console.error(`\nversion drift: ${[...seen].join(' vs ')} — bump all five together`);
   process.exit(1);
 }
 

@@ -18,6 +18,8 @@ import { distillBatch, distillEpisode } from '../../core/distiller.js';
 import { readLlmConfig } from '../../core/llm.js';
 import { matchGenericLesson } from '../../core/lessons.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
+import { isRelated } from '../../core/relevance.js';
+import { currentFingerprint } from '../../core/env-fingerprint.js';
 import { selfMarkers } from './root-marker.js';
 
 export interface DrainResult {
@@ -76,16 +78,57 @@ function commit(
     store.finishJobNote(job.id, `llm degraded: ${result.degradedReason ?? skippedModelReason}`);
   }
   // A generic lesson is published to the shared library so the next project
-  // starts already knowing it. The action diff rides along as provenance.
+  // starts already knowing it. The action diff, the teaching origin and the
+  // workspace fingerprint ride along as provenance.
   store.insertShared(
-    { ...result.antibody, repair_path: job.repair_path ?? [] },
+    {
+      ...result.antibody,
+      repair_path: job.repair_path ?? [],
+      origin: job.origin ?? '',
+      env_fingerprint: currentFingerprint().key,
+    },
     {
       generic: matchGenericLesson(result.antibody.symptom) !== null,
       humanHint: Boolean(job.human_hint),
     },
   );
+  // ROADMAP 2.2: a rule that was in context and still failed gets refined once
+  // the fix arrives with repair evidence. The distilled rule's trigger tokens
+  // are the refinement source; the prescription is never rewritten here (#28).
+  mutateInjectedRules(store, job, result);
   store.finishJob(job.id, 'done');
   return true;
+}
+
+/**
+ * Post-injection mutation (ROADMAP 2.2). Only rules that were injected into
+ * the failing turn AND related to the failure (the same bar anti-rot uses
+ * before blaming a rule) mutate; the refinement source is the distilled
+ * trigger, the prescription stays captured evidence.
+ */
+function mutateInjectedRules(
+  store: ImmuneStore,
+  job: DistillJob,
+  result: Awaited<ReturnType<typeof distillEpisode>>,
+): void {
+  if (!result.ok) return;
+  let ids: number[] = [];
+  try {
+    const parsed: unknown = JSON.parse(job.injected_ids ?? '[]');
+    if (Array.isArray(parsed)) ids = parsed.filter((v): v is number => typeof v === 'number');
+  } catch {
+    return;
+  }
+  if (ids.length === 0) return;
+  for (const id of ids) {
+    const rule = store.byId(id);
+    if (!rule || rule.status !== 'active') continue;
+    if (!isRelated(rule.trigger_pattern, job.failure_trace, job.tool_name)) continue;
+    store.mutateRule(id, result.antibody.trigger_pattern, {
+      repairPath: job.repair_path ?? [],
+      humanHint: job.human_hint ?? '',
+    });
+  }
 }
 
 /**
@@ -140,6 +183,7 @@ export async function drainJobs(
             failedTrace: job.failure_trace,
             fixedTrace: job.success_trace,
             humanHint: job.human_hint ?? '',
+            repairs: job.repair_path ?? [],
           })),
           { llm, signal: AbortSignal.timeout(Math.max(1000, remaining)) },
         );
@@ -168,6 +212,7 @@ export async function drainJobs(
         llm,
         signal: AbortSignal.timeout(Math.max(1000, remaining)),
         humanHint: job.human_hint ?? '',
+        repairs: job.repair_path ?? [],
       });
       processed += 1;
       if (commit(store, job, result, budgetShort ? budgetNote(configured, budgetMs) : undefined)) {

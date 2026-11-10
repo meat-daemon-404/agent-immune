@@ -15,7 +15,7 @@
  */
 import { ImmuneStore } from '../../../core/store/index.js';
 import { isSelfEpisode } from '../../../core/selfnoise.js';
-import { targetSignature } from '../../../core/pairing.js';
+import { normaliseTargetPath, targetSignature } from '../../../core/pairing.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
@@ -43,10 +43,26 @@ await runHook('PostToolUse', (event) => {
             const base = typeof filePath === 'string' && filePath.length > 0
                 ? filePath.split(/[\\/]/).pop() ?? filePath
                 : toolName;
-            store.recordRepairAction(sessionId, `${toolName} ${base}`);
+            // ROADMAP 1.3: the chain entry carries the project-relative path when the
+            // host provides cwd (two configs named pytest.ini in different directories
+            // stay distinguishable); the basename remains the fallback.
+            const cwd = typeof record.cwd === 'string' ? record.cwd : undefined;
+            const relative = typeof filePath === 'string' && filePath.length > 0
+                ? normaliseTargetPath(filePath, cwd)
+                : '';
+            store.recordRepairAction(sessionId, `${toolName} ${relative || base}`);
         }
         // Probe-thrash bookkeeping: a completed probe extends its streak, any
         // other call resets all streaks for the session.
+        // ROADMAP 2.3b: a >= 4 same-target probe streak meeting a SUCCESSFUL
+        // non-probe is a convergent detour — one telemetry row, never a rule (the
+        // deterministic shortcut would be an echo, AGENTS.md #28; `immune rewrite`
+        // is the minting path).
+        if (!target.probeOnly && !outcome.failed) {
+            const detourStreak = store.topProbeStreak(sessionId, store.detourMinProbes);
+            if (detourStreak)
+                store.recordDetour(sessionId, detourStreak.signature, detourStreak.count);
+        }
         store.recordProbeOutcome(sessionId, target.probeOnly ? target.signature : null);
         if (outcome.failed) {
             const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
@@ -63,6 +79,11 @@ await runHook('PostToolUse', (event) => {
             return null;
         }
         const failure = store.claimFailure(sessionId, toolName, target);
+        // ROADMAP 1.5: any success ends the streak; when the hypothesis had fired,
+        // the rule distilled from this closing success is marked as an
+        // experiment. user_correction outranks it (the human taught the lesson).
+        const hypothesized = store.wasHypothesized(sessionId, target.signature);
+        store.clearStuck(sessionId, target.signature);
         if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
             // Hand the distiller the action diff with the success trace: keyword
             // extraction picks the repaired files out of it, and the LLM prompt gets
@@ -70,7 +91,14 @@ await runHook('PostToolUse', (event) => {
             const successTrace = failure.repair_path.length > 0
                 ? `${trace}\nrepair actions: ${failure.repair_path.join(' | ')}`
                 : trace;
-            store.enqueueJob(toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path);
+            // ROADMAP 1.4b: a non-empty human hint is what closed the episode — the
+            // rule that emerges is a user correction, recorded as provenance.
+            const origin = failure.human_hint.trim()
+                ? 'user_correction'
+                : hypothesized
+                    ? 'self_healing_experiment'
+                    : '';
+            store.enqueueJob(toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path, origin);
         }
     }
     finally {

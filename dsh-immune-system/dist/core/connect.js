@@ -431,3 +431,34 @@ export function connectStatus(options) {
         }
     });
 }
+export function detectHosts(home) {
+    const detected = [];
+    if (existsSync(join(home, '.claude'))) {
+        detected.push({ host: 'claude-code', label: 'Claude Code', marker: '~/.claude', wired: true });
+    }
+    if (existsSync(join(home, '.codex'))) {
+        detected.push({ host: 'codex', label: 'Codex CLI', marker: '~/.codex', wired: true });
+    }
+    if (existsSync(join(home, '.zcode'))) {
+        detected.push({
+            host: 'zcode',
+            label: 'ZCode',
+            marker: '~/.zcode',
+            wired: false,
+            reason: 'installs through the ZCode plugin marketplace (zcode plugins marketplace add), not connect',
+        });
+    }
+    return detected;
+}
+/** Wire every detected host in one idempotent pass (zero-arg `connect`). */
+export function connectAllDetected(options) {
+    const home = options?.home ?? homedir();
+    const detected = detectHosts(home);
+    const wired = [];
+    for (const candidate of detected) {
+        if (!candidate.wired)
+            continue;
+        wired.push(connectHost(candidate.host, options));
+    }
+    return { wired, detected };
+}

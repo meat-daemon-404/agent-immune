@@ -13,7 +13,7 @@ import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
 import { GlobalStore, globalDbPathFor, isPromotable } from './global.js';
 import { rerank } from './rerank.js';
-import { bumpMeta, readMeta } from './meta.js';
+import { bumpMeta, readMeta, setMeta } from './meta.js';
 
 /** meta-table key for the value metric: repeats the plugin measurably prevented. */
 export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
@@ -31,8 +31,10 @@ import {
   bumpHits,
   exportableAntibodies,
   findMatches,
+  getAntibodyById,
   insertAntibody,
   listAntibodies,
+  mutateRule,
   penalizeAntibodies,
   removeAntibody,
   setAntibodyStatus,
@@ -68,10 +70,25 @@ import {
   attachHumanHint,
 } from './episodes.js';
 import {
+  clearStuck,
+  markHypothesized,
+  recordStuckFailure,
+  stuckStreak,
+  wasHypothesized,
+} from './stuck.js';
+import { applyEnvMetabolism } from '../env-fingerprint.js';
+import {
+  DETOUR_MIN_PROBES,
+  detourCount,
+  recentDetours,
+  recordDetour,
+} from './detours.js';
+import {
   claimJob,
   claimJobs,
   enqueueJob,
   finishJob,
+  listRecentJobs,
   pendingJobCount,
   requeueStuckJobs,
   type DistillJob,
@@ -330,6 +347,55 @@ export class ImmuneStore {
     recordProbeOutcome(this.db, sessionId, signature);
   }
 
+  // ------------------------------------------------ ROADMAP 1.5 stuck state
+  /** Consecutive same-target failures for this session (0 when none). */
+  stuckStreak(sessionId: string, signature: string): number {
+    return stuckStreak(this.db, sessionId, signature);
+  }
+
+  /** Whether the diagnostic hypothesis already fired for this streak. */
+  wasHypothesized(sessionId: string, signature: string): boolean {
+    return wasHypothesized(this.db, sessionId, signature);
+  }
+
+  recordStuckFailure(sessionId: string, signature: string): number {
+    return recordStuckFailure(this.db, sessionId, signature);
+  }
+
+  markHypothesized(sessionId: string, signature: string): void {
+    markHypothesized(this.db, sessionId, signature);
+  }
+
+  clearStuck(sessionId: string, signature: string): void {
+    clearStuck(this.db, sessionId, signature);
+  }
+
+  // ------------------------------------------- ROADMAP 3.1 env metabolism
+  /** SessionStart pass: probation on fingerprint mismatch, re-validation on match. */
+  runEnvMetabolism(cwd: string): { probation: number; revalidated: number } {
+    return applyEnvMetabolism(this.db, cwd);
+  }
+
+  // ------------------------------------------------- ROADMAP 2.3b detours
+  /** Record a convergent-detour telemetry row (review candidate). */
+  recordDetour(sessionId: string, signature: string, probes: number): void {
+    recordDetour(this.db, sessionId, signature, probes);
+  }
+
+  /** Newest detour rows (telemetry only — never auto-distilled). */
+  recentDetours(limit = 20) {
+    return recentDetours(this.db, limit);
+  }
+
+  detourCount(): number {
+    return detourCount(this.db);
+  }
+
+  /** Minimum same-target probes that qualify as a detour. */
+  get detourMinProbes(): number {
+    return DETOUR_MIN_PROBES;
+  }
+
   recordInjection(sessionId: string, ids: number[], prescriptions: string[] = []): void {
     if (ids.length > 0) recordInjection(this.db, sessionId, ids, prescriptions);
   }
@@ -427,6 +493,25 @@ export class ImmuneStore {
   /** Replace a prescription's wording, keeping the rule and its counters. */
   setPrescription(id: number, prescription: string, source: 'rule' | 'llm' | 'human'): boolean {
     return setAntibodyPrescription(this.db, id, prescription, source);
+  }
+
+  // ---------------------------------------------------- ROADMAP 2.2 mutation
+  /** One rule by id, or null. Read-only. */
+  byId(id: number): Antibody | null {
+    return getAntibodyById(this.db, id);
+  }
+
+  /**
+   * Mutate an injected-but-still-failed rule into a refined child (v1 -> v2).
+   * Returns the child id, or null when there is no repair evidence, the parent
+   * is gone/retired, or the trigger would not actually change.
+   */
+  mutateRule(
+    parentId: number,
+    incomingTokens: string,
+    evidence: { repairPath?: string[]; humanHint?: string } = {},
+  ): number | null {
+    return mutateRule(this.db, parentId, incomingTokens, evidence);
   }
 
   recordFailure(
@@ -536,6 +621,17 @@ export class ImmuneStore {
     };
   }
 
+  // ---------------------------------------------------- meta key accessors
+  /** One meta value as a number (0 when unset). */
+  metaValue(key: string): number {
+    return readMeta(this.db, key);
+  }
+
+  /** Write one meta value (timestamps for the sleep-consolidation cooldown). */
+  setMetaValue(key: string, value: number): void {
+    setMeta(this.db, key, value);
+  }
+
   enqueueJob(
     tool: string,
     failure: string,
@@ -543,12 +639,18 @@ export class ImmuneStore {
     injected: number[],
     humanHint = '',
     repairPath: string[] = [],
+    origin = '',
   ): number {
-    return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath);
+    return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath, origin);
   }
 
   claimJob(): DistillJob | null {
     return claimJob(this.db);
+  }
+
+  /** Newest jobs for telemetry (ROADMAP 3.3); read-only. */
+  listJobs(limit = 500): DistillJob[] {
+    return listRecentJobs(this.db, limit);
   }
 
   /** Claim up to `count` pending jobs, for batch distillation. */

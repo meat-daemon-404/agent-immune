@@ -36,6 +36,22 @@ export interface Antibody {
    * records 'llm', so an operator can tell rewritten wording from evidence.
    */
   prescription_source?: string;
+  /**
+   * Optional. ROADMAP 1.4b: what taught the lesson — '' (self-repair),
+   * 'user_correction' (a human hint closed the episode). Provenance only;
+   * never a behavior switch.
+   */
+  origin?: string;
+  /** ROADMAP 2.2: the rule this refined child was mutated from (lineage). */
+  parent_id?: number | null;
+  /** ROADMAP 2.2: when the last evidence-based trigger refinement landed. */
+  mutated_at?: number;
+  /** ROADMAP 3.1: which workspace taught the rule (lockfile content hash). */
+  env_fingerprint?: string;
+  /** ROADMAP 3.1: nonzero when the workspace changed and the rule awaits re-validation. */
+  probation_at?: number;
+  /** ROADMAP 3.1: why a rule left the active set when it was not anti-rot. */
+  retire_reason?: string;
   created_at: number;
   updated_at: number;
 }
@@ -47,6 +63,8 @@ export type NewAntibody = Pick<
 > & {
   tool_name?: string | null;
   repair_path?: string[];
+  origin?: string;
+  env_fingerprint?: string;
 };
 
 /** One failed tool call, captured so a later success can be paired with it. */

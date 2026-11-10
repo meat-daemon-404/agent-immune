@@ -142,22 +142,79 @@ function claudeFixture(dir) {
       line({ type: 'user', timestamp: iso(t + 2500), message: { content: [{ type: 'tool_result', tool_use_id: 'tu3', content: 'passed' }] } }),
     'utf8',
   );
-  return projDir;
+  return join(dir, '.claude', 'projects');
 }
 
 test('audit parses Claude Code transcripts (fixture-tested parser)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'immune-audit-'));
   claudeFixture(dir);
   const s = store();
-  const report = auditHistory(s, { days: 30, source: 'claude-code', claudeProjectsDir: join(dir, '.claude', 'projects') });
+  const report = auditHistory(s, { days: 30, source: 'claude-code', claudeProjectsDir: nestedClaudeFixture(dir) });
   const cc = report.sources.find((source) => source.source === 'claude-code');
   assert.equal(cc.present, true);
-  assert.equal(cc.scanned, 3, 'tu1-tu3 are the only tool calls');
-  assert.equal(cc.failures, 1);
-  assert.equal(cc.paired, 1, 'failed npm test, Edit, then passing npm test');
-  assert.equal(cc.enqueued, 1);
+  assert.equal(cc.scanned, 6, 'tu1-tu3 flat + nu1-nu3 from the nested subagents dir');
+  assert.equal(cc.failures, 2);
+  assert.equal(cc.paired, 2, 'flat episode + nested-subagent episode');
+  assert.equal(cc.enqueued, 2);
   assert.ok(cc.note.includes('fixture-tested'), 'the unverified-parser note ships in the report');
   assert.equal(cc.medianRequestTokens, null, 'one usage sample is below the median bar');
+  s.close();
+});
+
+/**
+ * Nested subagent transcripts: <project>/<session>/subagents/<file>.jsonl
+ * (newer Claude Code builds nest session transcripts). The memory/ skip and
+ * the depth guard live in the recursive walker; this fixture exercises both.
+ */
+function nestedClaudeFixture(dir) {
+  const nestedDir = join(dir, '.claude', 'projects', 'D--proj2', 'sess-uuid', 'subagents');
+  mkdirSync(nestedDir, { recursive: true });
+  const t = Date.now() - 60_000;
+  const iso = (ms) => new Date(ms).toISOString();
+  const line = (record) => `${JSON.stringify(record)}\n`;
+  writeFileSync(
+    join(nestedDir, 'agent-1.jsonl'),
+    line({ type: 'assistant', timestamp: iso(t), message: { content: [{ type: 'tool_use', id: 'nu1', name: 'Bash', input: { command: 'pytest tests/' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 500), message: { content: [{ type: 'tool_result', tool_use_id: 'nu1', is_error: true, content: 'ImportError: no module named cfg' }] } }) +
+      line({ type: 'assistant', timestamp: iso(t + 1000), message: { content: [{ type: 'tool_use', id: 'nu2', name: 'Edit', input: { file_path: '/p/conftest.py', old_string: 'a', new_string: 'b' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 1500), message: { content: [{ type: 'tool_result', tool_use_id: 'nu2', content: 'ok' }] } }) +
+      line({ type: 'assistant', timestamp: iso(t + 2000), message: { content: [{ type: 'tool_use', id: 'nu3', name: 'Bash', input: { command: 'pytest tests/' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 2500), message: { content: [{ type: 'tool_result', tool_use_id: 'nu3', content: '3 passed' }] } }),
+    'utf8',
+  );
+  // memory/ holds notes, not transcripts — the walker must not scan it.
+  const memDir = join(dir, '.claude', 'projects', 'D--proj2', 'memory');
+  mkdirSync(memDir, { recursive: true });
+  writeFileSync(join(memDir, 'notes.jsonl'), line({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'mx', name: 'Bash', input: { command: 'x' } }] } }), 'utf8');
+  return join(dir, '.claude', 'projects');
+}
+
+test('Claude exit-code text fallback: absent flag parses the marker, explicit false wins', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-audit-'));
+  const projDir = join(dir, '.claude', 'projects', 'D--proj3');
+  mkdirSync(projDir, { recursive: true });
+  const t = Date.now() - 60_000;
+  const iso = (ms) => new Date(ms).toISOString();
+  const line = (record) => `${JSON.stringify(record)}\n`;
+  // cla1: no is_error flag, text carries the exit-code marker -> error.
+  // cla2: explicit is_error:false — the flag wins over the same marker (#13).
+  writeFileSync(
+    join(projDir, 's2.jsonl'),
+    line({ type: 'assistant', timestamp: iso(t), message: { content: [{ type: 'tool_use', id: 'cla1', name: 'Bash', input: { command: 'make' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 500), message: { content: [{ type: 'tool_result', tool_use_id: 'cla1', content: 'Exit code: 1\nmake: *** No rule' }] } }) +
+      line({ type: 'assistant', timestamp: iso(t + 1000), message: { content: [{ type: 'tool_use', id: 'cla2', name: 'Bash', input: { command: 'make' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 1500), message: { content: [{ type: 'tool_result', tool_use_id: 'cla2', is_error: false, content: 'Exit code: 1\nstale marker in passing output' }] } }) +
+      line({ type: 'assistant', timestamp: iso(t + 2000), message: { content: [{ type: 'tool_use', id: 'cla3', name: 'Bash', input: { command: 'make' } }] } }) +
+      line({ type: 'user', timestamp: iso(t + 2500), message: { content: [{ type: 'tool_result', tool_use_id: 'cla3', content: 'built' }] } }),
+    'utf8',
+  );
+  const s = store();
+  const report = auditHistory(s, { days: 30, source: 'claude-code', claudeProjectsDir: join(dir, '.claude', 'projects') });
+  const cc = report.sources.find((source) => source.source === 'claude-code');
+  assert.equal(cc.scanned, 3, 'cla1-cla3 are the only tool calls');
+  assert.equal(cc.failures, 1, 'absent flag + nonzero Exit code marker -> error; explicit false wins');
+  assert.equal(cc.paired, 1);
+  assert.equal(cc.enqueued, 1);
   s.close();
 });
 

@@ -19,3 +19,8 @@ export function readMeta(db, key) {
     const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key);
     return row ? Number(row.value) : 0;
 }
+/** Set one key to an absolute integer value (timestamps, not just counters). */
+export function setMeta(db, key, value) {
+    db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = CAST(? AS TEXT)`).run(key, String(Math.trunc(value)), Math.trunc(value));
+}

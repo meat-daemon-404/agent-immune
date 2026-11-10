@@ -36,6 +36,47 @@ export function readState(store, view, query = '', budgetMs = resolveBudgetMs())
     const antibodies = view === 'shared' ? store.sharedAntibodies(MAX_QUERY) : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
     return { stats: dashboardStats(store), antibodies, budgetMs };
 }
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+const EVOLUTION_WEEKS = 8;
+/**
+ * Evolution telemetry from what the database actually records. The roadmap's
+ * first-try-success-rate and mean-retries curves need per-call outcome history
+ * the store does not keep — those are NOT invented here; the panel shows the
+ * rule lifecycle the store can prove.
+ */
+export function evolutionStats(store, now = Date.now()) {
+    const weeks = new Array(EVOLUTION_WEEKS).fill(0);
+    const bucketOf = (timestamp) => {
+        const age = now - timestamp;
+        if (age < 0 || age >= EVOLUTION_WEEKS * WEEK)
+            return -1;
+        return EVOLUTION_WEEKS - 1 - Math.floor(age / WEEK);
+    };
+    for (const rule of store.listAll(true)) {
+        const bucket = bucketOf(rule.created_at);
+        if (bucket >= 0)
+            weeks[bucket] = (weeks[bucket] ?? 0) + 1;
+    }
+    const episodeWeeks = new Array(EVOLUTION_WEEKS).fill(0);
+    for (const job of store.listJobs(500)) {
+        if (job.status !== 'done')
+            continue;
+        const bucket = bucketOf(job.created_at);
+        if (bucket >= 0)
+            episodeWeeks[bucket] = (episodeWeeks[bucket] ?? 0) + 1;
+    }
+    const all = store.listAll(true);
+    return {
+        newRules: weeks,
+        episodes: episodeWeeks,
+        lineage: all.filter((rule) => (rule.parent_id ?? 0) > 0).length,
+        fromUserCorrection: all.filter((rule) => rule.origin === 'user_correction').length,
+        fromSelfHealing: all.filter((rule) => rule.origin === 'self_healing_experiment').length,
+        probation: all.filter((rule) => (rule.probation_at ?? 0) > 0 && rule.status === 'active').length,
+        supersededByEnv: all.filter((rule) => rule.retire_reason === 'superseded_by_env_upgrade').length,
+        detours: store.detourCount(),
+    };
+}
 /** Apply one validated mutation. */
 export function applyAction(store, op, id) {
     if (!ACTIONS.has(op) || !Number.isInteger(id) || id <= 0) {

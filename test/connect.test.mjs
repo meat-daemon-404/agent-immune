@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import {
   HOSTS,
   buildEventTable,
+  connectAllDetected,
   connectHost,
   connectStatus,
   disconnectHost,
@@ -296,4 +297,53 @@ test('verifyConnectedPaths flags a host whose scripts vanished', () => {
   assert.equal(issues.length, 1);
   assert.equal(issues[0].host, 'claude-code');
   assert.equal(issues[0].broken.length, 6, 'every command is broken once the vendor tree is gone');
+});
+
+test('zero-arg auto-detect wires ~/.claude and ~/.codex, reports zcode without writing it', () => {
+  const h = home();
+  mkdirSync(join(h, '.claude'), { recursive: true });
+  mkdirSync(join(h, '.codex'), { recursive: true });
+  mkdirSync(join(h, '.zcode'), { recursive: true });
+  const report = connectAllDetected({ home: h });
+  assert.equal(report.detected.length, 3, 'three hosts detected');
+  assert.equal(report.wired.length, 2, 'claude-code and codex are wired; zcode is marketplace-only');
+  const zcode = report.detected.find((row) => row.host === 'zcode');
+  assert.equal(zcode.wired, false);
+  assert.ok(zcode.reason.includes('marketplace'), 'the skip reason names the supported install path');
+  const claudeSettings = JSON.parse(readFileSync(join(h, '.claude', 'settings.json'), 'utf8'));
+  assert.ok(claudeSettings.hooks.SessionStart, 'claude-code actually wired');
+  const codexHooks = JSON.parse(readFileSync(join(h, '.codex', 'hooks.json'), 'utf8'));
+  assert.ok(codexHooks.SessionStart, 'codex actually wired');
+  // Idempotent: a second pass adds nothing anywhere.
+  const second = connectAllDetected({ home: h });
+  assert.equal(second.wired.every((row) => row.added === 0), true);
+});
+
+test('zero-arg auto-detect wires only what exists', () => {
+  const h = home();
+  mkdirSync(join(h, '.codex'), { recursive: true });
+  const report = connectAllDetected({ home: h });
+  assert.equal(report.detected.length, 1);
+  assert.equal(report.wired.length, 1);
+  assert.equal(report.wired[0].host, 'codex');
+  assert.equal(existsSync(join(h, '.claude')), false, 'no claude config written for an absent host');
+});
+
+test('the native Claude Code plugin manifests agree with the package', () => {
+  const root = join(dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
+  const claudePlugin = JSON.parse(readFileSync(join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
+  const hooksTable = JSON.parse(readFileSync(join(root, 'hooks', 'hooks.json'), 'utf8'));
+  assert.equal(claudePlugin.name, 'dsh-immune-system');
+  assert.equal(claudePlugin.version, ownVersion(), 'plugin manifest version matches the package');
+  // Every event the connect table wires for Claude Code is present in the
+  // plugin's hooks.json, and every ${CLAUDE_PLUGIN_ROOT} path resolves to a
+  // real script inside the package dist (the doubled-prefix layout, #11).
+  const expected = buildEventTable(HOSTS['claude-code'], SCRIPT_DIR);
+  for (const [event, groups] of Object.entries(expected)) {
+    assert.ok(Array.isArray(hooksTable[event]), `hooks.json carries ${event}`);
+    const command = hooksTable[event][0].hooks[0].command;
+    assert.match(command, /\$\{CLAUDE_PLUGIN_ROOT\}/, `${event} uses the plugin root variable`);
+    const rel = command.match(/dsh-immune-system\/(.+?)"/)?.[1];
+    assert.ok(rel && existsSync(join(root, 'dsh-immune-system', rel)), `${event}: script exists in dist`);
+  }
 });

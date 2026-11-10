@@ -29,7 +29,9 @@ import {
   findConsolidationCandidates,
   findLessonGroups,
 } from '../../core/consolidate.js';
-import { HOSTS, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
+import { sleepReviewGroupsOf } from '../../core/sleep-consolidate.js';
+import { HOSTS, connectAllDetected, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
+import { ciCheck, parseManagedBlock, shareSanityCheck } from '../../core/share-guard.js';
 import type { ConnectHostId } from '../../core/connect.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
@@ -130,6 +132,13 @@ function cmdStats(store: ImmuneStore): void {
     ? `value: ${avoided.suppressed} suppressed repeat(s) ≈ ${formatTokens(avoided.avoidedTokens)} tokens not spent ` +
       `(median round-trip ${formatTokens(avoided.medianRequestTokens)} × ${ROUND_TRIPS_PER_REPEAT}, ${avoided.samples} samples)\n`
     : '';
+  // ROADMAP 2.4b: the sleep scan queues review clusters; here is where the
+  // operator finds out without remembering that `immune consolidate` exists.
+  const sleepGroups = sleepReviewGroupsOf(store);
+  const sleepLine =
+    sleepGroups > 0
+      ? `sleep review: ${sleepGroups} cluster(s) of 5+ same-lesson rules — run \`immune consolidate --dry-run\`\n`
+      : '';
   process.stdout.write(
     `antibodies: ${all.length} (active ${active.length}, retired ${retired})\n` +
       `injections: ${hits}\n` +
@@ -139,6 +148,7 @@ function cmdStats(store: ImmuneStore): void {
       model +
       attribution +
       valueLine +
+      sleepLine +
       `database: ${store.dbPath}\n`,
   );
 }
@@ -149,6 +159,22 @@ function cmdExport(store: ImmuneStore, args: string[]): void {
   const rows = store.exportable(threshold);
   if (rows.length === 0) {
     process.stdout.write(`${strings().noExport}\n`);
+    return;
+  }
+
+  // ROADMAP 3.2: the share gate. A rule that still carries a machine path or a
+  // secret-shaped string must FAIL the export, not ship to the team — redaction
+  // at capture time (#10) is the first line; this is the second.
+  const violations = shareSanityCheck(rows);
+  if (violations.length > 0) {
+    process.stderr.write('export blocked by the share gate:\n');
+    for (const violation of violations) {
+      process.stderr.write(
+        `  rule ${violation.rule} ${violation.field}: ${violation.kind} — "${violation.sample}"\n`,
+      );
+    }
+    process.stderr.write('fix or forget those rules, then re-export\n');
+    process.exitCode = 1;
     return;
   }
 
@@ -190,14 +216,56 @@ function main(argv: string[]): number {
     const hostArg = args.find((arg) => !arg.startsWith('--'));
     const remove = args.includes('--remove');
     if (!hostArg) {
-      // Bare `connect` (and `connect --status`): read-only survey of the hosts
-      // this machine knows about.
-      const rows = connectStatus();
-      process.stdout.write('Hosts immune can hook (connect <host> [--remove]):\n');
-      for (const row of rows) {
-        process.stdout.write(`  ${row.label.padEnd(12)} ${row.state.padEnd(14)} ${row.configPath}\n`);
+      if (args.includes('--status')) {
+        // `connect --status`: read-only survey of the hosts this machine knows
+        // about. The only zero-arg form that stays read-only.
+        const rows = connectStatus();
+        process.stdout.write('Hosts immune can hook (connect <host> [--remove]):\n');
+        for (const row of rows) {
+          process.stdout.write(`  ${row.label.padEnd(12)} ${row.state.padEnd(14)} ${row.configPath}\n`);
+        }
+        return 0;
       }
-      return 0;
+      // Zero-arg `connect`: detect installed hosts and wire each one
+      // idempotently (ROADMAP 1.2). Nothing detected is a no-op with guidance.
+      try {
+        const report = connectAllDetected({ refresh: args.includes('--refresh') });
+        if (report.detected.length === 0) {
+          process.stdout.write(
+            'connect: no supported host detected (~/.claude, ~/.codex). ' +
+              'Install a host first, or wire one explicitly: connect claude-code\n',
+          );
+          return 0;
+        }
+        for (const candidate of report.detected) {
+          if (candidate.wired) continue;
+          process.stdout.write(`  ${candidate.label}: detected (${candidate.marker}) — ${candidate.reason}\n`);
+        }
+        if (report.wired.length === 0) {
+          process.stdout.write('connect: detected hosts are wired through their own plugin systems; nothing to write\n');
+          return 0;
+        }
+        for (const wired of report.wired) {
+          process.stdout.write(`connected ${wired.label} -> ${wired.configPath}\n`);
+          const counts: string[] = [];
+          if (wired.added > 0) counts.push(`${wired.added} event(s) wired`);
+          if (wired.upgraded > 0) counts.push(`${wired.upgraded} stale entry(ies) upgraded`);
+          if (wired.alreadyPresent > 0) counts.push(`${wired.alreadyPresent} already present`);
+          process.stdout.write(`  ${counts.join(' · ')}: ${wired.eventsWired.join(', ')}\n`);
+          if (wired.vendorDir) {
+            process.stdout.write(
+              `  vendored: ${wired.vendorDir} (v${wired.vendorVersion ?? '?'}${wired.vendorRefreshed ? ', refreshed' : ''})\n`,
+            );
+          }
+          process.stdout.write(`  scripts: ${wired.scriptDir}\n`);
+          if (wired.backupPath) process.stdout.write(`  backup: ${wired.backupPath}\n`);
+          for (const note of wired.notes) process.stdout.write(`  note: ${note}\n`);
+        }
+        return 0;
+      } catch (error) {
+        process.stderr.write(`connect failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        return 1;
+      }
     }
     const definition = (HOSTS as Record<string, (typeof HOSTS)[ConnectHostId]>)[hostArg];
     if (!definition) {
@@ -279,6 +347,53 @@ function main(argv: string[]): number {
       case 'stats':
         cmdStats(store);
         return 0;
+      case 'detours': {
+        // ROADMAP 2.3b: convergent detours are review candidates — the CLI
+        // shows them; minting a shortcut rule stays on `immune rewrite`.
+        const rows = store.recentDetours(20);
+        if (rows.length === 0) {
+          process.stdout.write('no convergent detours recorded (4+ same-target probes before the fix)\n');
+          return 0;
+        }
+        process.stdout.write('convergent detours (telemetry — `immune rewrite` is the minting path):\n');
+        for (const row of rows) {
+          const when = new Date(row.created_at).toISOString().slice(0, 16).replace('T', ' ');
+          process.stdout.write(`  ${when}  ${String(row.probes).padStart(2)} probes  ${row.signature}\n`);
+        }
+        return 0;
+      }
+      case 'ci-check': {
+        // ROADMAP 3.2: stateless CI gate. Rules come from the repo's committed
+        // managed AGENTS.md block — CI has no immune database. Added diff lines
+        // whose text touches a rule's trigger tokens are findings; a nonzero
+        // exit makes the gate wireable in GitHub Actions. The store was only
+        // opened for the dispatch; hand it to the shared close below.
+        deferStoreClose = true;
+        store.close();
+        const diffArg = args.indexOf('--diff');
+        const docArg = args.indexOf('--doc');
+        let diffText = '';
+        if (diffArg >= 0) {
+          diffText = readFileSync(resolve(args[diffArg + 1] ?? ''), 'utf8');
+        } else {
+          diffText = readFileSync(0, 'utf8');
+        }
+        const doc = docArg >= 0 ? resolve(args[docArg + 1] ?? '') : resolve(process.cwd(), 'AGENTS.md');
+        const rules = parseManagedBlock(doc);
+        const report = ciCheck(diffText, rules);
+        const asJson = args.includes('--json');
+        if (asJson) {
+          process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        } else {
+          process.stdout.write(
+            `immune ci-check: ${report.addedLines} added line(s) vs ${report.rulesConsidered} managed rule(s)\n`,
+          );
+          for (const finding of report.findings) {
+            process.stdout.write(`  L${finding.line}: ${finding.trigger} — "${finding.text}"\n`);
+          }
+        }
+        return report.findings.length > 0 ? 1 : 0;
+      }
       case 'coverage': {
         // What the library does NOT cover. `stats` can look healthy while every
         // failure that actually happens is one no rule matches.
@@ -794,7 +909,7 @@ function main(argv: string[]): number {
       }
       default:
         process.stderr.write(
-          'usage: immune <list|stats|coverage|export|search|learn|forget|prune|rewrite|consolidate|' +
+          'usage: immune <list|stats|coverage|detours|export|search|learn|forget|prune|rewrite|consolidate|' +
             'backup|connect|seed|backfill|audit|sync-doc|export-json|import-json|ui|doctor|demo> [...args]\n' +
             '  seed / audit / connect: cold start, history health check, and host hooking — see README\n',
         );

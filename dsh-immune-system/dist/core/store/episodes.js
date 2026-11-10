@@ -1,5 +1,7 @@
 import { redactAndClamp } from '../redact.js';
 import { canCloseEpisode } from '../pairing.js';
+import { pruneStuck } from './stuck.js';
+import { pruneDetours } from './detours.js';
 /** A failure is abandoned if no success follows within this window. */
 export const PENDING_TTL_MS = 30 * 60 * 1000;
 /** Injected antibodies are only penalised for failures within this window. */
@@ -265,6 +267,8 @@ export function pruneStale(db, now = Date.now()) {
     const probes = db
         .prepare('DELETE FROM probe_streaks WHERE updated_at < ?')
         .run(now - PENDING_TTL_MS);
+    const stuck = pruneStuck(db, PENDING_TTL_MS, now);
+    const detours = pruneDetours(db, SESSION_RETENTION_MS, now);
     return {
         pendingFailures: Number(pendingFailures.changes),
         sessionInjections: Number(sessionInjections.changes),
@@ -272,5 +276,7 @@ export function pruneStale(db, now = Date.now()) {
         sessions: Number(sessions.changes),
         repairs: Number(repairs.changes),
         probes: Number(probes.changes),
+        stuck,
+        detours,
     };
 }

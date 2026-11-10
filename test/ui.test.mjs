@@ -169,3 +169,19 @@ test('the API exposes the value and model counters for the KPI row', async (t) =
   assert.ok(Array.isArray(state.stats.byModel), 'the per-model strip has data to render');
   assert.equal(typeof state.stats.crossModelRules, 'number');
 });
+
+test('3.3 the evolution strip renders from data the store can prove', async (t) => {
+  const { handle, html, dbPath } = await boot(t);
+  assert.match(html, /class="evo"/, 'the strip is server-rendered on the page');
+  assert.match(html, /进化曲线/, 'the strip carries the title');
+
+  const { evolutionStats } = await import('../dsh-immune-system/dist/core/ui/query.js');
+  const { ImmuneStore: S } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const s = new S({ dbPath });
+  const evo = evolutionStats(s);
+  assert.equal(evo.newRules.length, 8, 'eight weekly buckets');
+  assert.equal(evo.newRules.reduce((a, b) => a + b, 0), 2, 'both seeded rules are in the current week');
+  assert.equal(evo.lineage, 0);
+  assert.equal(evo.detours, 0);
+  s.close();
+});

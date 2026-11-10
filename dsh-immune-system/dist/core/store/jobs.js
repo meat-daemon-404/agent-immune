@@ -1,10 +1,10 @@
-export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds, humanHint = '', repairPath = []) {
+export function enqueueJob(db, toolName, failureTrace, successTrace, injectedIds, humanHint = '', repairPath = [], origin = '') {
     const now = Date.now();
     const info = db
         .prepare(`INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
-        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, JSON.stringify(repairPath.slice(-3)), now, now);
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, origin, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`)
+        .run(toolName, failureTrace, successTrace, JSON.stringify(injectedIds), humanHint, JSON.stringify(repairPath.slice(-3)), origin, now, now);
     return Number(info.lastInsertRowid);
 }
 /**
@@ -55,6 +55,24 @@ export function claimJobs(db, count) {
 }
 export function finishJob(db, id, status, note = '') {
     db.prepare('UPDATE distill_jobs SET status = ?, note = ?, updated_at = ? WHERE id = ?').run(status, note.slice(0, 400), Date.now(), id);
+}
+/** Newest jobs for telemetry (ROADMAP 3.3); read-only. */
+export function listRecentJobs(db, limit = 500) {
+    const rows = db
+        .prepare('SELECT * FROM distill_jobs ORDER BY created_at DESC LIMIT ?')
+        .all(limit);
+    for (const row of rows) {
+        try {
+            const parsed = JSON.parse(String(row.repair_path ?? '[]'));
+            row.repair_path = Array.isArray(parsed)
+                ? parsed.filter((v) => typeof v === 'string')
+                : [];
+        }
+        catch {
+            row.repair_path = [];
+        }
+    }
+    return rows;
 }
 /**
  * How long a 'running' claim may be silent before another drain may take it.

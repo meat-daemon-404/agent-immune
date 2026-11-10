@@ -12,18 +12,21 @@ import { resolveDbPath } from './path.js';
 import { openDatabase } from './open.js';
 import { GlobalStore, globalDbPathFor, isPromotable } from './global.js';
 import { rerank } from './rerank.js';
-import { bumpMeta, readMeta } from './meta.js';
+import { bumpMeta, readMeta, setMeta } from './meta.js';
 /** meta-table key for the value metric: repeats the plugin measurably prevented. */
 export const SUPPRESSED_REPEATS_KEY = 'suppressed_repeats';
 /** Runtime truth for the optional model path: rules it produced / times it degraded. */
 export const LLM_SUCCESS_KEY = 'llm_distilled';
 export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
-import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, consolidateAntibodies, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { bumpHits, exportableAntibodies, findMatches, getAntibodyById, insertAntibody, listAntibodies, mutateRule, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, consolidateAntibodies, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 import { installSeedPack, removeSeedPack, seededPackCounts } from './seeds.js';
 import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
-import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
+import { clearStuck, markHypothesized, recordStuckFailure, stuckStreak, wasHypothesized, } from './stuck.js';
+import { applyEnvMetabolism } from '../env-fingerprint.js';
+import { DETOUR_MIN_PROBES, detourCount, recentDetours, recordDetour, } from './detours.js';
+import { claimJob, claimJobs, enqueueJob, finishJob, listRecentJobs, pendingJobCount, requeueStuckJobs, } from './jobs.js';
 export { RETIRE_AFTER_FAILURES } from './antibodies.js';
 export { resolveDbPath } from './path.js';
 export { tokenize, buildFtsQuery } from './tokenize.js';
@@ -222,6 +225,45 @@ export class ImmuneStore {
     recordProbeOutcome(sessionId, signature) {
         recordProbeOutcome(this.db, sessionId, signature);
     }
+    // ------------------------------------------------ ROADMAP 1.5 stuck state
+    /** Consecutive same-target failures for this session (0 when none). */
+    stuckStreak(sessionId, signature) {
+        return stuckStreak(this.db, sessionId, signature);
+    }
+    /** Whether the diagnostic hypothesis already fired for this streak. */
+    wasHypothesized(sessionId, signature) {
+        return wasHypothesized(this.db, sessionId, signature);
+    }
+    recordStuckFailure(sessionId, signature) {
+        return recordStuckFailure(this.db, sessionId, signature);
+    }
+    markHypothesized(sessionId, signature) {
+        markHypothesized(this.db, sessionId, signature);
+    }
+    clearStuck(sessionId, signature) {
+        clearStuck(this.db, sessionId, signature);
+    }
+    // ------------------------------------------- ROADMAP 3.1 env metabolism
+    /** SessionStart pass: probation on fingerprint mismatch, re-validation on match. */
+    runEnvMetabolism(cwd) {
+        return applyEnvMetabolism(this.db, cwd);
+    }
+    // ------------------------------------------------- ROADMAP 2.3b detours
+    /** Record a convergent-detour telemetry row (review candidate). */
+    recordDetour(sessionId, signature, probes) {
+        recordDetour(this.db, sessionId, signature, probes);
+    }
+    /** Newest detour rows (telemetry only — never auto-distilled). */
+    recentDetours(limit = 20) {
+        return recentDetours(this.db, limit);
+    }
+    detourCount() {
+        return detourCount(this.db);
+    }
+    /** Minimum same-target probes that qualify as a detour. */
+    get detourMinProbes() {
+        return DETOUR_MIN_PROBES;
+    }
     recordInjection(sessionId, ids, prescriptions = []) {
         if (ids.length > 0)
             recordInjection(this.db, sessionId, ids, prescriptions);
@@ -307,6 +349,19 @@ export class ImmuneStore {
     setPrescription(id, prescription, source) {
         return setAntibodyPrescription(this.db, id, prescription, source);
     }
+    // ---------------------------------------------------- ROADMAP 2.2 mutation
+    /** One rule by id, or null. Read-only. */
+    byId(id) {
+        return getAntibodyById(this.db, id);
+    }
+    /**
+     * Mutate an injected-but-still-failed rule into a refined child (v1 -> v2).
+     * Returns the child id, or null when there is no repair evidence, the parent
+     * is gone/retired, or the trigger would not actually change.
+     */
+    mutateRule(parentId, incomingTokens, evidence = {}) {
+        return mutateRule(this.db, parentId, incomingTokens, evidence);
+    }
     recordFailure(sessionId, toolName, trace, targetSignature = '') {
         return recordFailure(this.db, sessionId, toolName, trace, targetSignature);
     }
@@ -385,11 +440,24 @@ export class ImmuneStore {
             dbBytes,
         };
     }
-    enqueueJob(tool, failure, success, injected, humanHint = '', repairPath = []) {
-        return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath);
+    // ---------------------------------------------------- meta key accessors
+    /** One meta value as a number (0 when unset). */
+    metaValue(key) {
+        return readMeta(this.db, key);
+    }
+    /** Write one meta value (timestamps for the sleep-consolidation cooldown). */
+    setMetaValue(key, value) {
+        setMeta(this.db, key, value);
+    }
+    enqueueJob(tool, failure, success, injected, humanHint = '', repairPath = [], origin = '') {
+        return enqueueJob(this.db, tool, failure, success, injected, humanHint, repairPath, origin);
     }
     claimJob() {
         return claimJob(this.db);
+    }
+    /** Newest jobs for telemetry (ROADMAP 3.3); read-only. */
+    listJobs(limit = 500) {
+        return listRecentJobs(this.db, limit);
     }
     /** Claim up to `count` pending jobs, for batch distillation. */
     claimJobs(count) {

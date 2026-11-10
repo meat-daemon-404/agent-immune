@@ -104,6 +104,41 @@ function parseRepairPath(value) {
 function rowToAntibody(row) {
     return { ...row, repair_path: parseRepairPath(row.repair_path) };
 }
+/** One rule by id, or null. Read-only. */
+export function getAntibodyById(db, id) {
+    const row = db.prepare('SELECT * FROM antibodies WHERE id = ?').get(id);
+    return row ? rowToAntibody(row) : null;
+}
+/**
+ * ROADMAP 2.2 — mutate an injected-but-still-failed rule into a refined child.
+ *
+ * The trigger is refined with the NEW episode's evidence tokens (mergeTriggers
+ * keeps the old recall keys and appends the observed ones); the prescription is
+ * NOT rewritten — that stays model-only (AGENTS.md #28). The parent is retired
+ * (it was injected and still failed — the anti-rot verdict), recoverable via
+ * `immune list --all`. Repair evidence is REQUIRED: a failure-only episode
+ * cannot mutate either (AGENTS.md #24 — the flow that minted junk from the
+ * literal retirement text).
+ */
+export function mutateRule(db, parentId, incomingTokens, evidence = {}) {
+    const hasEvidence = (evidence.repairPath ?? []).length > 0 || Boolean(evidence.humanHint?.trim());
+    if (!hasEvidence)
+        return null;
+    const parent = getAntibodyById(db, parentId);
+    if (!parent || parent.status !== 'active')
+        return null;
+    const refined = mergeTriggers(parent.trigger_pattern, incomingTokens);
+    if (!refined || refined === parent.trigger_pattern)
+        return null;
+    const now = Date.now();
+    const info = db
+        .prepare(`INSERT INTO antibodies
+         (trigger_pattern, symptom, prescription, tool_name, repair_path, origin, parent_id, mutated_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(refined, parent.symptom, parent.prescription, parent.tool_name, toRepairJson(evidence.repairPath), parent.origin ?? '', parentId, now, now, now);
+    db.prepare("UPDATE antibodies SET status = 'retired', updated_at = ? WHERE id = ?").run(now, parentId);
+    return Number(info.lastInsertRowid);
+}
 /** Normalise and cap an incoming action diff for storage. */
 function toRepairJson(repairPath) {
     const actions = (repairPath ?? [])
@@ -156,10 +191,22 @@ export function insertAntibody(db, ab, options = {}) {
         }
     }
     const info = db
-        .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, repair_path, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`)
-        .run(trigger, ab.symptom.trim(), prescription, ab.tool_name ?? null, toRepairJson(ab.repair_path), now, now);
-    return Number(info.lastInsertRowid);
+        .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, repair_path, origin, env_fingerprint, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(trigger, ab.symptom.trim(), prescription, ab.tool_name ?? null, toRepairJson(ab.repair_path), ab.origin ?? '', ab.env_fingerprint ?? '', now, now);
+    const newId = Number(info.lastInsertRowid);
+    // ROADMAP 3.1: the new environment just re-learned this lesson on its own —
+    // a same-lesson probation rule is superseded_by_env_upgrade. Exact lesson
+    // key (tool + symptom), the consolidation standard, nothing fuzzier.
+    if (ab.env_fingerprint) {
+        db.prepare(`UPDATE antibodies
+          SET status = 'retired', retire_reason = 'superseded_by_env_upgrade', updated_at = ?
+        WHERE status = 'active' AND probation_at > 0
+          AND id != ?
+          AND tool_name IS ?
+          AND symptom = ?`).run(now, newId, ab.tool_name ?? null, ab.symptom.trim());
+    }
+    return newId;
 }
 /**
  * Rank active antibodies against free text.

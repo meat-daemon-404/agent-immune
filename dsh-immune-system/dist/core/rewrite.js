@@ -23,9 +23,14 @@ export function looksEchoPrescription(prescription) {
         return true;
     if (p.startsWith('tool='))
         return true;
+    // ROADMAP 1.3: a trailing "(after: …)" suffix is the observed repair chain —
+    // captured evidence, i.e. the causal shape advice is made of. Strip it
+    // before the dump checks so an evidence-bearing prescription is judged on
+    // the command it carries, not punished for its provenance.
+    const bare = p.replace(/\s*\(after: .+\)$/, '');
     // A leading "Bash:" with a real command after it is a dump. "Edit: re-read
     // the file" is advice and stays, which is why the length guard is here.
-    if (/^Bash:\s/.test(p) && p.length > 30)
+    if (/^Bash:\s/.test(bare) && bare.length > 30)
         return true;
     return p.length > 160;
 }

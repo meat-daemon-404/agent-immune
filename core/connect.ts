@@ -548,3 +548,60 @@ export function connectStatus(options?: ConnectOptions): ConnectStatusRow[] {
     }
   });
 }
+
+/**
+ * Zero-arg `connect`: which hosts does this machine actually have installed?
+ * The signal is each host's home directory — the same evidence the hosts'
+ * own installers leave behind. ZCode is detected but deliberately NOT wired
+ * by connect: it installs immune through its plugin marketplace, and a
+ * settings.json hook would double-fire with the plugin's hooks.
+ */
+export interface DetectedHost {
+  host: string;
+  label: string;
+  /** The install signal that matched. */
+  marker: string;
+  /** Whether connectAllDetected wires this host. */
+  wired: boolean;
+  /** Why a detected host is not wired by connect. */
+  reason?: string;
+}
+
+export function detectHosts(home: string): DetectedHost[] {
+  const detected: DetectedHost[] = [];
+  if (existsSync(join(home, '.claude'))) {
+    detected.push({ host: 'claude-code', label: 'Claude Code', marker: '~/.claude', wired: true });
+  }
+  if (existsSync(join(home, '.codex'))) {
+    detected.push({ host: 'codex', label: 'Codex CLI', marker: '~/.codex', wired: true });
+  }
+  if (existsSync(join(home, '.zcode'))) {
+    detected.push({
+      host: 'zcode',
+      label: 'ZCode',
+      marker: '~/.zcode',
+      wired: false,
+      reason: 'installs through the ZCode plugin marketplace (zcode plugins marketplace add), not connect',
+    });
+  }
+  return detected;
+}
+
+export interface ConnectAllReport {
+  /** connectHost reports for every detected, wirable host. */
+  wired: ConnectReport[];
+  /** Everything detected, including hosts connect deliberately skips. */
+  detected: DetectedHost[];
+}
+
+/** Wire every detected host in one idempotent pass (zero-arg `connect`). */
+export function connectAllDetected(options?: ConnectOptions): ConnectAllReport {
+  const home = options?.home ?? homedir();
+  const detected = detectHosts(home);
+  const wired: ConnectReport[] = [];
+  for (const candidate of detected) {
+    if (!candidate.wired) continue;
+    wired.push(connectHost(candidate.host as ConnectHostId, options));
+  }
+  return { wired, detected };
+}

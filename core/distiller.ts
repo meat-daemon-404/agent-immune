@@ -37,6 +37,8 @@ const ERRNOS = new Set([
 const ERROR_CODE_RE = /\b(ERR_[A-Z0-9_]{3,})\b/g;
 const ERRNO_RE = /\b(E[A-Z]{4,})\b/g;
 const HTTP_CODE_RE = /\b(?:HTTP|status)\s*(?:code)?\s*[:=]?\s*(\d{3})\b/gi;
+/** ROADMAP 2.5a: TypeScript's diagnostic namespace (TS2304) ranks with ERR_*. */
+const TS_CODE_RE = /\bTS(\d{4,})\b/g;
 
 /** Pull up to `max` distinct, useful trigger keywords out of the two traces. */
 export function extractKeywords(text: string, max = 8): string[] {
@@ -54,6 +56,7 @@ export function extractKeywords(text: string, max = 8): string[] {
   for (const m of text.matchAll(ERROR_CODE_RE)) if (m[1]) push(m[1]);
   for (const m of text.matchAll(ERRNO_RE)) if (m[1] && ERRNOS.has(m[1])) push(m[1]);
   for (const m of text.matchAll(HTTP_CODE_RE)) if (m[1]) push(`HTTP${m[1]}`);
+  for (const m of text.matchAll(TS_CODE_RE)) if (m[0]) push(m[0]);
 
   // Commands contribute their meaningful words, not their first word (`cd`,
   // `sudo`), and not their flags.
@@ -74,6 +77,18 @@ function firstLine(trace: string, max = 80): string {
     .replace(/\s+/g, ' ')
     .trim();
   return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
+/**
+ * Trailing evidence line the live loop appends to a success trace when a
+ * repair chain exists ("repair actions: Edit pytest.ini | Edit conftest.py").
+ * The explicit list wins when a caller carries it separately (history paths).
+ */
+const REPAIR_LINE_RE = /\nrepair actions: (.+)\s*$/;
+
+export function repairEvidenceOf(successTrace: string, repairs: string[] = []): string {
+  if (repairs.length > 0) return repairs.join(' | ').slice(0, 200);
+  return successTrace.match(REPAIR_LINE_RE)?.[1]?.trim().slice(0, 200) ?? '';
 }
 
 /**
@@ -100,6 +115,7 @@ export function ruleDistill(
   failureTrace: string,
   successTrace: string,
   humanHint = '',
+  repairs: string[] = [],
 ): DistillResult {
   if (TRANSIENT.test(failureTrace)) {
     return { ok: false, reason: 'skip', detail: 'transient failure' };
@@ -160,10 +176,17 @@ export function ruleDistill(
     : invocation
       ? `${toolName}: ${invocation}`
       : firstLine(successTrace, 120) || 'use the retried invocation that succeeded';
+  // Roadmap 1.3: the repair chain is OBSERVED evidence (recorded tool calls),
+  // so the deterministic prescription may restate it verbatim — that is
+  // provenance on the closing command, not invented advice (AGENTS.md #28:
+  // the deterministic path may not WRITE advice). Without repair evidence the
+  // prescription stays the bare echoed command, exactly as before.
+  const evidence = repairEvidenceOf(successTrace, repairs);
+  const withEvidence = evidence ? `${prescription} (after: ${evidence})` : prescription;
 
   return {
     ok: true,
-    antibody: { trigger_pattern: trigger, symptom, prescription, tool_name: toolName },
+    antibody: { trigger_pattern: trigger, symptom, prescription: withEvidence, tool_name: toolName },
   };
 }
 
@@ -177,11 +200,11 @@ export async function distillEpisode(
   toolName: string,
   failureTrace: string,
   successTrace: string,
-  opts: { llm?: LlmConfig | null; signal?: AbortSignal; humanHint?: string } = {},
+  opts: { llm?: LlmConfig | null; signal?: AbortSignal; humanHint?: string; repairs?: string[] } = {},
 ): Promise<DistillResult> {
   const hint = opts.humanHint ?? '';
   const fallback = (reason?: string): DistillResult => {
-    const ruled = ruleDistill(toolName, failureTrace, successTrace, hint);
+    const ruled = ruleDistill(toolName, failureTrace, successTrace, hint, opts.repairs);
     if (!ruled.ok) return ruled;
     return { ...ruled, source: 'rule', ...(reason ? { degradedReason: reason } : {}) };
   };
@@ -311,6 +334,7 @@ export async function distillBatch(
         episode.failedTrace,
         episode.fixedTrace,
         episode.humanHint,
+        episode.repairs ?? [],
       );
       results.set(
         episode.id,

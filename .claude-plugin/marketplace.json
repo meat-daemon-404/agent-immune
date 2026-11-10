@@ -1,0 +1,12 @@
+{
+  "name": "agent-immune",
+  "owner": { "name": "meat-daemon-404", "url": "https://github.com/meat-daemon-404/agent-immune" },
+  "plugins": [
+    {
+      "name": "dsh-immune-system",
+      "source": "./",
+      "description": "Hook-based immune system for coding agents — turns failed-then-fixed tool episodes into injected antibodies.",
+      "version": "1.0.58"
+    }
+  ]
+}

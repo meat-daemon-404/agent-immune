@@ -12,6 +12,7 @@ import { ImmuneStore } from '../../../core/store/index.js';
 import { targetSignature } from '../../../core/pairing.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeFailure } from '../format.js';
+import { isRelated } from '../../../core/relevance.js';
 
 await runHook('PostToolUseFailure', (event) => {
   const sessionId = sessionIdOf(event);
@@ -26,6 +27,18 @@ await runHook('PostToolUseFailure', (event) => {
       summarizeFailure(event),
       target.signature,
     );
+
+    // ROADMAP 1.5 stuck detection: count a NON-probe failure toward its
+    // signature's consecutive-failure streak — unless the library already has
+    // a related rule (AGENTS.md #33's isRelated bar), in which case a
+    // hypothesis would be noise on covered ground. Probe-class failures never
+    // count: a nonzero exit can BE the answer (AGENTS.md #25).
+    if (!target.probeOnly) {
+      const covered = store
+        .match(snapshot.trace, { limit: 1, sessionId, toolName })
+        .some((row) => isRelated(row.trigger_pattern, snapshot.trace, toolName));
+      if (!covered) store.recordStuckFailure(sessionId, target.signature);
+    }
 
     // Anti-rot: antibodies injected this turn that did not prevent the failure
     // lose credit, and are retired once they keep failing. The penalty is

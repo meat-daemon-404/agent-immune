@@ -67,6 +67,7 @@ export function buildBatchInput(episodes) {
         failedTrace: episode.failedTrace,
         fixedTrace: episode.fixedTrace,
         ...(episode.humanHint ? { humanHint: episode.humanHint } : {}),
+        ...(episode.repairs && episode.repairs.length > 0 ? { repairs: episode.repairs } : {}),
     })), null, 1);
 }
 /**

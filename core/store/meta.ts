@@ -27,3 +27,11 @@ export function readMeta(db: DatabaseSync, key: string): number {
     | undefined;
   return row ? Number(row.value) : 0;
 }
+
+/** Set one key to an absolute integer value (timestamps, not just counters). */
+export function setMeta(db: DatabaseSync, key: string, value: number): void {
+  db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = CAST(? AS TEXT)`,
+  ).run(key, String(Math.trunc(value)), Math.trunc(value));
+}

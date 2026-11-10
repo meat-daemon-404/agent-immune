@@ -1818,3 +1818,215 @@ test('turn-end auto sync is opt-in, resolves the path, and never throws', async 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('1.3 repair chain: the distilled prescription references the edited file', async () => {
+  const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
+  const failure = 'tool=Bash input={"command":"pytest tests/"} error=ImportError: cannot import name cfg from conftest';
+  const success = 'tool=Bash input={"command":"pytest tests/"} result=all green\nrepair actions: Edit tests/conftest.py | Edit tests/pytest.ini';
+  const result = ruleDistill('Bash', failure, success);
+  assert.equal(result.ok, true);
+  assert.ok(result.ok && /conftest\.py/.test(result.antibody.prescription), 'prescription names the edited file');
+  assert.ok(result.ok && /pytest/.test(result.antibody.prescription), 'the closing command stays primary');
+
+  // History paths carry the chain as an explicit list, not a trace line.
+  const explicit = ruleDistill(
+    'Bash',
+    failure,
+    'tool=Bash input={"command":"pytest tests/"} result=all green',
+    '',
+    ['Edit tests/conftest.py'],
+  );
+  assert.ok(explicit.ok && /conftest\.py/.test(explicit.antibody.prescription));
+
+  // No repair evidence -> no suffix: the prescription stays the bare echo.
+  const bare = ruleDistill('Bash', failure, 'tool=Bash input={"command":"pytest tests/"} result=all green');
+  assert.ok(bare.ok && !/after:/.test(bare.antibody.prescription), 'no repair line, no suffix');
+});
+
+test('1.4b user correction: the hint closes the episode and the rule records its origin', async () => {
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  // The canonical shape: fail, the human explains, the retry works.
+  s.recordFailure('s-uc', 'Bash', 'tool=Bash input={"command":"npm install"} error=ERR_SOCKET', 'Bash:npm:install');
+  assert.equal(s.attachHumanHint('s-uc', '这个仓库用 pnpm，不要用 npm'), 1, 'the hint attaches to the pending failure');
+  const failure = s.claimFailure('s-uc', 'Bash', { signature: 'Bash:npm:install', probeOnly: false });
+  assert.ok(failure && failure.human_hint.includes('pnpm'), 'the closing snapshot carries the correction');
+
+  const jobId = s.enqueueJob('Bash', failure.trace, 'tool=Bash result=ok', [], failure.human_hint, [], 'user_correction');
+  assert.ok(jobId > 0);
+  const job = s.claimJob();
+  assert.equal(job?.origin, 'user_correction', 'the job carries the origin');
+
+  // The origin lands on the stored rule (NewAntibody field, INSERT column).
+  const id = s.insert({
+    trigger_pattern: 'npm install pnpm ERR_SOCKET',
+    symptom: '用错包管理器',
+    prescription: '这个仓库用 pnpm',
+    tool_name: 'Bash',
+    origin: 'user_correction',
+  });
+  assert.ok(id);
+  const row = s.listAll(true).find((r) => r.id === id);
+  assert.equal(row?.origin, 'user_correction', 'provenance survives storage');
+
+  // A self-repair episode stays '' — origin is evidence, not a default label.
+  const plainId = s.insert({ trigger_pattern: 't2 keyword', symptom: 's', prescription: 'p2 different' });
+  const plain = s.listAll(true).find((r) => r.id === plainId);
+  assert.equal(plain?.origin ?? '', '');
+  s.close();
+});
+
+test('2.2 mutation: an injected-but-failed rule refines into a lineage child; evidence required', async () => {
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  const parent = s.insert({
+    trigger_pattern: 'Bash pytest import',
+    symptom: 'import error during tests',
+    prescription: 'run pytest after fixing conftest imports',
+    tool_name: 'Bash',
+  });
+  assert.ok(parent);
+
+  // AGENTS.md #24: a failure-only episode cannot mutate either.
+  assert.equal(s.mutateRule(parent, 'pytest conftest ERR_PATCH', {}), null, 'no evidence, no mutation');
+  assert.equal(
+    s.mutateRule(parent, 'pytest conftest ERR_PATCH', { repairPath: [] }),
+    null,
+    'an empty repair list is no evidence',
+  );
+
+  // Evidence + genuinely new tokens -> a v2 child with lineage.
+  const child = s.mutateRule(parent, 'pytest conftest ERR_PATCH', { repairPath: ['Edit conftest.py'] });
+  assert.ok(child && child !== parent, 'a child row is created');
+  const childRow = s.byId(child);
+  assert.equal(childRow?.parent_id, parent, 'lineage recorded');
+  assert.ok(childRow?.trigger_pattern.includes('conftest'), 'the trigger gained the observed token');
+  assert.ok((childRow?.mutated_at ?? 0) > 0, 'the mutation is timestamped');
+  assert.equal(childRow?.prescription, 'run pytest after fixing conftest imports', 'prescription untouched (#28)');
+
+  // The parent is retired (it was injected and still failed), recoverable.
+  const parentRow = s.byId(parent);
+  assert.equal(parentRow?.status, 'retired');
+
+  // An already-specific trigger refuses to mutate into itself.
+  assert.equal(s.mutateRule(child, 'pytest conftest ERR_PATCH', { repairPath: ['Edit conftest.py'] }), null, 'no-op refinement returns null');
+
+  s.close();
+});
+
+test('2.4 sleep consolidation: 12h cooldown holds, 5+ clusters queue, nothing auto-merges', async () => {
+  const { maybeSleepConsolidate, sleepReviewGroupsOf, SLEEP_COOLDOWN_MS } = await import(
+    '../dsh-immune-system/dist/core/sleep-consolidate.js'
+  );
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  // One same-lesson cluster of five, seeded straight via SQL: insertAntibody's
+  // near-duplicate merge is its own tested behavior and would fold some of
+  // these into one row — the sleep scan's business is what ALREADY exists.
+  const db = s['db'];
+  const now = Date.now();
+  const fixes = [
+    'close every editor first',
+    'check the antivirus quarantine list',
+    'verify the drive letter still exists',
+    'run the filesystem repair once',
+    'take ownership in the security tab',
+  ];
+  const insert = db.prepare(
+    'INSERT INTO antibodies (trigger_pattern, symptom, prescription, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+  );
+  for (let i = 0; i < fixes.length; i += 1) {
+    insert.run(`trigger${i} writefail`, '写入失败 / write failed', fixes[i], now, now);
+  }
+  const first = maybeSleepConsolidate(s, {}, 1_000_000_000);
+  assert.ok(first?.ran, 'the first scan runs');
+  assert.equal(first.reviewGroups, 1, 'the five-rule cluster queues for review');
+  assert.equal(sleepReviewGroupsOf(s), 1);
+
+  // The cooldown holds well inside the window.
+  const soon = maybeSleepConsolidate(s, {}, (first?.lastRun ?? 0) + 60_000);
+  assert.equal(soon, null, 'cooldown holds');
+
+  // After the window it runs again; the operator opts in with consolidate.
+  const later = maybeSleepConsolidate(s, {}, (first?.lastRun ?? 0) + SLEEP_COOLDOWN_MS + 1);
+  assert.ok(later?.ran);
+  assert.equal(later?.reviewGroups, 1);
+
+  // AGENTS.md #29: the scan never merges — all five rules still exist.
+  assert.equal(s.listAll(false).length, 5, 'the scan queues review work, it does not merge');
+  s.close();
+});
+
+test('2.5a error-code slots: TS codes become trigger anchors and recall the rule', async () => {
+  const { extractKeywords } = await import('../dsh-immune-system/dist/core/distiller.js');
+  const trace = 'tool=Bash input={"command":"tsc -p ."} error=src/a.ts(3,7): error TS2304: Cannot find name cfg';
+  const keywords = extractKeywords(trace);
+  assert.ok(keywords.includes('TS2304'), `TS code extracted, got ${keywords.join(',')}`);
+
+  // Round-trip: a rule whose trigger carries the code is recalled by a query
+  // that only mentions the code (bm25 ranks the rare token first).
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  const id = s.insert({
+    trigger_pattern: 'tsc TS2304 Cannot-find-name',
+    symptom: 'name not in scope',
+    prescription: 'import cfg before use',
+  });
+  assert.ok(id);
+  const hits = s.match('error TS2304 missing name', { limit: 3 });
+  assert.ok(hits.some((row) => row.id === id), 'the code anchors the recall');
+  s.close();
+});
+
+test('3.1 env metabolism: lockfile change puts rules on probation; re-learn retires as superseded', async () => {
+  const { computeFingerprint } = await import('../dsh-immune-system/dist/core/env-fingerprint.js');
+  const { writeFileSync, rmSync } = await import('node:fs');
+  const dirA = mkdtempSync(join(tmpdir(), 'immune-env-a-'));
+  const dirB = mkdtempSync(join(tmpdir(), 'immune-env-b-'));
+  try {
+    writeFileSync(join(dirA, 'package-lock.json'), '{"lockfileVersion":3,"name":"a"}', 'utf8');
+    writeFileSync(join(dirB, 'package-lock.json'), '{"lockfileVersion":3,"name":"b"}', 'utf8');
+    const fpA = computeFingerprint(dirA).key;
+    const fpB = computeFingerprint(dirB).key;
+    assert.notEqual(fpA, fpB, 'different lockfile content = different fingerprint');
+
+    const s = new ImmuneStore({ dbPath: ':memory:' });
+    const oldId = s.insert({
+      trigger_pattern: 't1 kw',
+      symptom: 'sym one',
+      prescription: 'p one exact',
+      env_fingerprint: fpA,
+    });
+    assert.ok(oldId);
+
+    // A lockfile change puts the old-environment rule on probation (still
+    // active — the lesson may hold — but flagged).
+    s.runEnvMetabolism(dirB);
+    const probationRow = s.byId(oldId);
+    assert.equal(probationRow?.status, 'active');
+    assert.ok((probationRow?.probation_at ?? 0) > 0, 'probation recorded');
+
+    // Same environment again: the rule is re-validated, probation cleared.
+    s.runEnvMetabolism(dirA);
+    assert.equal((s.byId(oldId)?.probation_at ?? 0) > 0, false, 're-validated in the old env');
+
+    // Back on probation... and the new environment re-learns the SAME lesson
+    // on its own: the old rule retires as superseded_by_env_upgrade.
+    s.runEnvMetabolism(dirB);
+    const newId = s.insert({
+      trigger_pattern: 't2 kw',
+      symptom: 'sym one',
+      prescription: 'p two entirely different wording',
+      env_fingerprint: fpB,
+    });
+    assert.ok(newId && newId !== oldId, 'the new rule is a separate row');
+    const retired = s.byId(oldId);
+    assert.equal(retired?.status, 'retired');
+    assert.equal(retired?.retire_reason, 'superseded_by_env_upgrade');
+
+    // Rules without a fingerprint are never touched by metabolism.
+    const bareId = s.insert({ trigger_pattern: 't3 other', symptom: 'sym three', prescription: 'p three unrelated' });
+    s.runEnvMetabolism(dirB);
+    assert.equal(s.byId(bareId)?.status, 'active', 'no fingerprint, no probation');
+    s.close();
+  } finally {
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  }
+});

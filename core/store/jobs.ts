@@ -10,6 +10,8 @@ export interface DistillJob {
   human_hint?: string;
   /** Action-diff provenance (JSON text in the DB, parsed on claim). */
   repair_path?: string[];
+  /** ROADMAP 1.4b: '' (self-repair) or 'user_correction'. */
+  origin?: string;
   status: string;
   note: string;
   created_at: number;
@@ -24,13 +26,14 @@ export function enqueueJob(
   injectedIds: number[],
   humanHint = '',
   repairPath: string[] = [],
+  origin = '',
 ): number {
   const now = Date.now();
   const info = db
     .prepare(
       `INSERT INTO distill_jobs
-         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         (tool_name, failure_trace, success_trace, injected_ids, human_hint, repair_path, origin, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
     )
     .run(
       toolName,
@@ -39,6 +42,7 @@ export function enqueueJob(
       JSON.stringify(injectedIds),
       humanHint,
       JSON.stringify(repairPath.slice(-3)),
+      origin,
       now,
       now,
     );
@@ -104,6 +108,24 @@ export function finishJob(
     Date.now(),
     id,
   );
+}
+
+/** Newest jobs for telemetry (ROADMAP 3.3); read-only. */
+export function listRecentJobs(db: DatabaseSync, limit = 500): DistillJob[] {
+  const rows = db
+    .prepare('SELECT * FROM distill_jobs ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as unknown as Array<DistillJob & { repair_path?: unknown }>;
+  for (const row of rows) {
+    try {
+      const parsed: unknown = JSON.parse(String(row.repair_path ?? '[]'));
+      row.repair_path = Array.isArray(parsed)
+        ? parsed.filter((v): v is string => typeof v === 'string')
+        : [];
+    } catch {
+      row.repair_path = [];
+    }
+  }
+  return rows;
 }
 
 /**

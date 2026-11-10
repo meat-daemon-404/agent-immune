@@ -12,6 +12,7 @@ import { ImmuneStore } from '../../../core/store/index.js';
 import { runHook } from '../hook-io.js';
 import { drainJobs } from '../drain.js';
 import { maybeSyncDocAfterDrain } from '../../../core/sync-doc.js';
+import { maybeSleepConsolidate } from '../../../core/sleep-consolidate.js';
 await runHook('Stop', async () => {
     const store = new ImmuneStore();
     try {
@@ -19,6 +20,15 @@ await runHook('Stop', async () => {
         // Opt-in (IMMUNE_SYNC_DOC): push freshly learned rules into the project's
         // agent docs at the same boundary. Best-effort; never throws.
         maybeSyncDocAfterDrain(store);
+        // ROADMAP 2.4b: the sleep-consolidation scan — 12h cooldown, read-only
+        // over the rules, queues review clusters in meta for `immune stats`.
+        // Best-effort; never throws into the turn boundary.
+        try {
+            maybeSleepConsolidate(store);
+        }
+        catch {
+            // A failed scan must not cost the turn end anything.
+        }
     }
     finally {
         store.close();

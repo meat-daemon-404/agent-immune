@@ -90,6 +90,65 @@ export function readState(
   return { stats: dashboardStats(store), antibodies, budgetMs };
 }
 
+// --------------------------------------------------------- ROADMAP 3.3
+export interface EvolutionStats {
+  /** New rules per week, oldest of the shown weeks first (8 buckets). */
+  newRules: number[];
+  /** Episodes distilled (jobs done) per week, same buckets. */
+  episodes: number[];
+  /** Rules with mutation lineage (parent_id set) — refined children. */
+  lineage: number;
+  /** Rules whose origin is a human correction. */
+  fromUserCorrection: number;
+  /** Rules whose origin is a self-healing experiment. */
+  fromSelfHealing: number;
+  /** Rules on probation after an environment change (3.1). */
+  probation: number;
+  /** Retirements with the env-upgrade reason (3.1). */
+  supersededByEnv: number;
+  /** Convergent detours recorded (2.3b). */
+  detours: number;
+}
+
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+const EVOLUTION_WEEKS = 8;
+
+/**
+ * Evolution telemetry from what the database actually records. The roadmap's
+ * first-try-success-rate and mean-retries curves need per-call outcome history
+ * the store does not keep — those are NOT invented here; the panel shows the
+ * rule lifecycle the store can prove.
+ */
+export function evolutionStats(store: ImmuneStore, now = Date.now()): EvolutionStats {
+  const weeks = new Array<number>(EVOLUTION_WEEKS).fill(0);
+  const bucketOf = (timestamp: number): number => {
+    const age = now - timestamp;
+    if (age < 0 || age >= EVOLUTION_WEEKS * WEEK) return -1;
+    return EVOLUTION_WEEKS - 1 - Math.floor(age / WEEK);
+  };
+  for (const rule of store.listAll(true)) {
+    const bucket = bucketOf(rule.created_at);
+    if (bucket >= 0) weeks[bucket] = (weeks[bucket] ?? 0) + 1;
+  }
+  const episodeWeeks = new Array<number>(EVOLUTION_WEEKS).fill(0);
+  for (const job of store.listJobs(500)) {
+    if (job.status !== 'done') continue;
+    const bucket = bucketOf(job.created_at);
+    if (bucket >= 0) episodeWeeks[bucket] = (episodeWeeks[bucket] ?? 0) + 1;
+  }
+  const all = store.listAll(true);
+  return {
+    newRules: weeks,
+    episodes: episodeWeeks,
+    lineage: all.filter((rule) => (rule.parent_id ?? 0) > 0).length,
+    fromUserCorrection: all.filter((rule) => rule.origin === 'user_correction').length,
+    fromSelfHealing: all.filter((rule) => rule.origin === 'self_healing_experiment').length,
+    probation: all.filter((rule) => (rule.probation_at ?? 0) > 0 && rule.status === 'active').length,
+    supersededByEnv: all.filter((rule) => rule.retire_reason === 'superseded_by_env_upgrade').length,
+    detours: store.detourCount(),
+  };
+}
+
 export interface ActionResult {
   status: number;
   body: unknown;

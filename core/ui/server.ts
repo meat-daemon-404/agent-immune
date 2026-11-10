@@ -20,7 +20,7 @@ import type { AddressInfo } from 'node:net';
 import { ImmuneStore } from '../store/index.js';
 import { renderPage } from './page.js';
 import { resolveLocale } from '../i18n.js';
-import { applyAction, dashboardStats, readState, resolveBudgetMs } from './query.js';
+import { applyAction, dashboardStats, evolutionStats, readState, resolveBudgetMs } from './query.js';
 import { exportLibrary, importLibrary } from '../sync.js';
 import { renderSkillMarkdown } from '../export.js';
 
@@ -77,7 +77,15 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         'x-content-type-options': 'nosniff',
         'referrer-policy': 'no-referrer',
       });
-      res.end(renderPage({ token, locale, dbPath: store.dbPath, budgetMs: resolveBudgetMs() }));
+      res.end(
+        renderPage({
+          token,
+          locale,
+          dbPath: store.dbPath,
+          budgetMs: resolveBudgetMs(),
+          evolution: evolutionStats(store),
+        }),
+      );
       return;
     }
 

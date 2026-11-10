@@ -19,6 +19,7 @@ import { looksEchoPrescription } from '../../../core/rewrite.js';
 import { runHook, sessionIdOf } from '../hook-io.js';
 import { formatImmuneContext } from '../format.js';
 import { drainJobs } from '../drain.js';
+import { prewarmStacks } from '../../../core/prewarm.js';
 await runHook('SessionStart', async (event) => {
     const store = new ImmuneStore();
     try {
@@ -27,6 +28,31 @@ await runHook('SessionStart', async (event) => {
         const source = typeof event.source === 'string' ? event.source : '';
         if (source === 'resume' || source === 'clear' || source === 'compact') {
             store.resetTurnState(sessionIdOf(event));
+        }
+        // The workspace is the event's cwd when the host provides it; the project
+        // dir env is the fallback the tests (and ZCode) already use.
+        const workspace = (typeof event.cwd === 'string' && event.cwd) ||
+            process.env.ZCODE_PROJECT_DIR ||
+            process.cwd();
+        // ROADMAP 3.1: environment metabolism — a lockfile/runtime change puts the
+        // rules learned in the OLD environment on probation; the insert path
+        // retires any of them the new environment re-learns on its own.
+        try {
+            store.runEnvMetabolism(workspace);
+        }
+        catch {
+            // Metabolism is bookkeeping; a failed pass must not block the session.
+        }
+        // ROADMAP 4.2: stack pre-warming — a workspace's matching hand-authored
+        // seed packs install once, before the first tool error. IMMUNE_PREWARM=off
+        // opts out. Best-effort; never blocks the session.
+        if (process.env.IMMUNE_PREWARM !== 'off') {
+            try {
+                prewarmStacks(store, workspace);
+            }
+            catch {
+                // Pre-warming is bookkeeping too.
+            }
         }
         await drainJobs(store);
         // Priming has NO context to match against, so an echo-grade prescription

@@ -286,26 +286,52 @@ function parseCodexFile(path) {
     return { calls, parts, tokenSamples: [] };
 }
 /**
- * Claude Code source: transcripts under ~/.claude/projects/<project>/*.jsonl.
- * Assistant lines carry tool_use blocks; user lines carry tool_result blocks
- * with is_error. FIXTURE-TESTED ONLY — no real transcripts existed on the dev
- * machine, and the parser refuses nothing it should not read.
+ * Claude Code source: transcripts under ~/.claude/projects/<project>/ at any
+ * nesting depth — flat session files, plus nested subagent transcripts
+ * (e.g. <project>/<session>/subagents/*.jsonl on newer builds). Assistant
+ * lines carry tool_use blocks; user lines carry tool_result blocks with
+ * is_error; older lines omit is_error and only carry an "Exit code: N" text
+ * marker, which the parser reads as a fallback verdict. FIXTURE-TESTED ONLY —
+ * no real transcripts existed on the dev machine (only a per-project memory/
+ * directory, which the scan deliberately skips), and the parser refuses
+ * nothing it should not read.
  */
+function listClaudeTranscripts(dir, depth = 0) {
+    // Four levels is generous: <project>/<uuid>/subagents/<file> is three.
+    if (depth > 4)
+        return [];
+    let entries;
+    try {
+        entries = readdirSync(dir, { withFileTypes: true }).map((entry) => ({
+            name: entry.name,
+            isDirectory: entry.isDirectory(),
+        }));
+    }
+    catch {
+        return [];
+    }
+    const files = [];
+    for (const entry of entries) {
+        if (entry.isDirectory) {
+            // memory/ holds per-project agent notes, not transcripts.
+            if (entry.name === 'memory')
+                continue;
+            files.push(...listClaudeTranscripts(join(dir, entry.name), depth + 1));
+        }
+        else if (entry.name.endsWith('.jsonl')) {
+            files.push(join(dir, entry.name));
+        }
+    }
+    return files;
+}
 function loadClaudeSessions(dir, since) {
     if (!existsSync(dir))
         return { sessions: [], present: false, note: 'no ~/.claude/projects directory' };
     const sessions = [];
     for (const project of readdirSync(dir)) {
         const projectDir = join(dir, project);
-        let files = [];
-        try {
-            files = readdirSync(projectDir).filter((file) => file.endsWith('.jsonl'));
-        }
-        catch {
-            continue;
-        }
-        for (const file of files) {
-            const parsed = parseClaudeFile(join(projectDir, file), since);
+        for (const file of listClaudeTranscripts(projectDir)) {
+            const parsed = parseClaudeFile(file, since);
             if (parsed.calls.length > 0)
                 sessions.push(parsed);
         }
@@ -359,8 +385,9 @@ function parseClaudeFile(path, since) {
                 const text = claudeResultText(block.content);
                 const call = callById.get(block.tool_use_id);
                 if (call) {
-                    call.status = block.is_error === true ? 'error' : 'completed';
-                    call.error_message = block.is_error === true ? clampText(text) : null;
+                    const verdict = claudeVerdictOf(block, text);
+                    call.status = verdict.status;
+                    call.error_message = verdict.error ?? null;
                     call.started_at = timestamp;
                     call.session_id = path;
                 }
@@ -387,6 +414,27 @@ function claudeResultText(content) {
             .join('');
     }
     return '';
+}
+/**
+ * Verdict for a Claude Code tool_result. The structured `is_error` flag is
+ * authoritative (the same rank the judge gives a structured status); only a
+ * record that carries NO flag falls back to the "Exit code: N" text marker —
+ * the same verdict shape the Codex parser reads — because without a flag the
+ * text is all the transcript says. A passing command that merely prints an
+ * exit code is protected by reading the marker only near the start of the
+ * text, where Claude Code's own wrapper puts it.
+ */
+function claudeVerdictOf(block, text) {
+    if (block.is_error === true)
+        return { status: 'error', error: clampText(text) };
+    if (block.is_error === false)
+        return { status: 'completed' };
+    const head = text.slice(0, 300);
+    const match = head.match(/^Exit code: (\d+)/m);
+    if (match && Number(match[1]) !== 0) {
+        return { status: 'error', error: clampText(text) };
+    }
+    return { status: 'completed' };
 }
 function safeJson(text) {
     try {

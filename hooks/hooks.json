@@ -1,0 +1,69 @@
+{
+  "SessionStart": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/session-start.js\"",
+          "timeout": 20
+        }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/user-prompt-submit.js\"",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "matcher": "Bash|Edit|Write|MultiEdit|Read|Grep|Glob",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/pre-tool-use.js\"",
+          "timeout": 4
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/post-tool-use.js\"",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "PostToolUseFailure": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/post-tool-use-failure.js\"",
+          "timeout": 5
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node \"${CLAUDE_PLUGIN_ROOT}/dsh-immune-system/dist/zcode/src/hooks/stop.js\"",
+          "timeout": 30
+        }
+      ]
+    }
+  ]
+}
