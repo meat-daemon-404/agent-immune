@@ -57,7 +57,7 @@ export function buildDocSection(store: ImmuneStore, minHits: number, heading: st
   // to a public repo, the line reads as attribution instead of mystery text.
   lines.push(
     '',
-    '<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/dsh-plugin-immune).</sub>',
+    '<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/agent-immune).</sub>',
     SECTION_END,
     '');
   return lines.join('\n');

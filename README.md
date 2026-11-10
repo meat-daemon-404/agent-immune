@@ -8,11 +8,11 @@
 
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm version"></a>
-    <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/meat-daemon-404/agent-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/agent-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <img src="https://img.shields.io/badge/tests-passing-4c9f4c" alt="tests passing">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
     <img src="https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-blue" alt="node ^22.19 || >=24">
-    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
+    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/agent-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
   </p>
 
   <p>
@@ -57,7 +57,7 @@ Same package from a tarball or from git:
 ```bash
 cd dsh-immune-system && npm pack        # prints the exact dsh-immune-system-<version>.tgz it wrote
 dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
-dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
+dsh plugin --profile <profile> add github:meat-daemon-404/agent-immune
 ```
 
 The `github:` form builds at install time through `prepare`, which pnpm blocks until it is allowlisted (the Chinese README has the exact setting). npm or the tarball sidesteps that.
@@ -67,7 +67,7 @@ Restart DSH afterwards; plugin bundles are composed at startup.
 **ZCode** — this repository is itself a marketplace source:
 
 ```bash
-node "<zcode.cjs>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
+node "<zcode.cjs>" plugins marketplace add meat-daemon-404/agent-immune
 node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
@@ -267,7 +267,7 @@ Every push runs the retrieval gate and unit suite on Node 22 and 24:
 
 ### Comparison
 
-|  | dsh-plugin-immune | [deja-vu](https://github.com/vshulcz/deja-vu) | [mem0](https://github.com/mem0ai/mem0) | [claude-memory-compiler](https://github.com/nicobailon/claude-memory-compiler) |
+|  | agent-immune | [deja-vu](https://github.com/vshulcz/deja-vu) | [mem0](https://github.com/mem0ai/mem0) | [claude-memory-compiler](https://github.com/nicobailon/claude-memory-compiler) |
 | --- | --- | --- | --- | --- |
 | Keeps | failure→success pairs distilled into rules | full session transcripts | conversation facts | compiled skill files |
 | Delivery | injected before the repeat, via hooks | search on demand (MCP/TUI) | SDK-level recall | skill file, read by the model |

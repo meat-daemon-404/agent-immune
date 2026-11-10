@@ -51,6 +51,6 @@ failure judge — 97.54% agreement, **0 false negatives** (the 2.46% false
 positives are probe commands where a nonzero exit was the intended answer;
 quantified and accepted, in AGENTS.md decision #25).
 
-Repo + README with screenshots: https://github.com/meat-daemon-404/dsh-plugin-immune
+Repo + README with screenshots: https://github.com/meat-daemon-404/agent-immune
 
 Happy to answer anything about the pairing logic or the retrieval layer.

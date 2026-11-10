@@ -1,13 +1,13 @@
 {
   "name": "dsh-immune-system",
-  "version": "1.0.55",
+  "version": "1.0.56",
   "description": "Self-evolving pitfall immunity: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
   "description_i18n": {
     "en": "Self-evolving pitfall immunity: capture every failed-then-fixed tool episode, distil it into a reusable antibody, and inject the relevant ones before the agent repeats the mistake.",
     "zh-CN": "自进化避坑免疫：捕获每次「失败→修复」的工具调用，蒸馏成可复用的抗体，并在下次遇到同样场景前注入，避免重蹈覆辙。"
   },
   "author": {
-    "name": "dsh-plugin-immune"
+    "name": "agent-immune"
   },
   "keywords": [
     "hooks",

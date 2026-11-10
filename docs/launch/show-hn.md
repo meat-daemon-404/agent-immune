@@ -56,7 +56,7 @@ Quick tour (30 seconds each, installs nothing):
   what it would learn (the table above came from this)
 - `npx dsh-immune-system@latest seed git-safety` — six hand-authored starter rules
 
-Repo: https://github.com/meat-daemon-404/dsh-plugin-immune
+Repo: https://github.com/meat-daemon-404/agent-immune
 
 Happy to answer questions about the pairing logic, the FTS5/trigram retrieval
 (the 2-char CJK fallback was measured, not guessed), or why the fitness/dormant

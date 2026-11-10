@@ -66,7 +66,7 @@ for (const svc of [Llm, Session, SystemPrompt, Tools, Agent, Commands]) {
   await ctx.plugin(svc);
 }
 
-const plugin = await import(pathToFileURL('D:/Project/dsh-plugin-immune/dsh-immune-system/dist/dsh/src/index.js').href);
+const plugin = await import(pathToFileURL(join(import.meta.dirname, '..', 'dsh-immune-system', 'dist', 'dsh', 'src', 'index.js')).href);
 const fiber = ctx.plugin(plugin);
 await fiber;
 

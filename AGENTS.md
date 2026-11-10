@@ -466,6 +466,6 @@ silently broke the canonical episode shape.
   - 忌/avoid: s
   - 宜/do: p
 
-<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/dsh-plugin-immune).</sub>
+<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/agent-immune).</sub>
 <!-- immune:generated end -->
 

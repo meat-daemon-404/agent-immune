@@ -117,7 +117,7 @@ ZCode 半读 `.zcode-plugin/plugin.json`，DSH 半读同一目录下的 `package
 `cordis.patch.yml`。两个宿主清单同处一个目录，所以不会漂移。
 
 ```
-dsh-plugin-immune/
+agent-immune/
 |- core/                              # 宿主无关：存储、蒸馏、检索、导出
 |- dsh/src/                           # DSH 插件源码（本目录）
 |  |- index.ts                        # 入口：name + inject + apply(ctx)

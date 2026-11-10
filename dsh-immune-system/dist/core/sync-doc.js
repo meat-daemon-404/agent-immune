@@ -35,7 +35,7 @@ export function buildDocSection(store, minHits, heading) {
     }
     // Provenance travels with the section: when a project ships its AGENTS.md
     // to a public repo, the line reads as attribution instead of mystery text.
-    lines.push('', '<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/dsh-plugin-immune).</sub>', SECTION_END, '');
+    lines.push('', '<sub>Rules learned from failed-then-fixed tool episodes by [dsh-immune-system](https://github.com/meat-daemon-404/agent-immune).</sub>', SECTION_END, '');
     return lines.join('\n');
 }
 /** Create or replace the managed section in the target doc. */

@@ -726,7 +726,7 @@ test('doctor surfaces rule hygiene without failing on historical LLM fallbacks',
   s.insert({ trigger_pattern: 'alpha x', symptom: 'same sentence', prescription: 'use the editor' });
   s.insert({ trigger_pattern: 'beta x', symptom: 'same sentence', prescription: 'change the directory' });
 
-  const rows = runDoctor(s, { pluginRoot: 'D:/Project/dsh-plugin-immune/dsh-immune-system' });
+  const rows = runDoctor(s, { pluginRoot: join(import.meta.dirname, '..', 'dsh-immune-system') });
   const hygiene = rows.find((row) => row.name === 'rule hygiene');
   assert.ok(hygiene, 'the row is always present');
   assert.equal(hygiene.ok, true, 'hygiene is advisory');

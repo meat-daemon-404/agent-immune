@@ -1,0 +1,22 @@
+Release 1.0.56: rename the repository to agent-immune
+
+The GitHub repo is now meat-daemon-404/agent-immune (GitHub redirects the
+old URL permanently). The npm package name stays dsh-immune-system for
+install compatibility; the plugin id and the dsh-immune-system/ source
+directory stay as they are.
+
+All 24 repo URLs, install commands (github: / marketplace add), author
+field, comparison-table brand, launch drafts and the sync-doc provenance
+link now name agent-immune. Deliberately kept:
+- marketplace.json's `dev-dsh-plugin-immune` source id — installed copies
+  resolve updates through it, renaming would break every existing user;
+- SELF_PACKAGE_NAMES ADD agent-immune rather than replacing the old name,
+  so clones checked out before the rename are still recognised as self;
+- local filesystem paths and test fixtures that mention the old checkout
+  directory (they describe a machine, not a brand).
+
+Two hardcoded D:/Project/dsh-plugin-immune paths (verify-live-host.mjs and
+a doctor test) are now derived from import.meta.dirname — a clone into the
+new directory name works. Repo About description was updated to the
+host-neutral positioning. Full verification green: 179 tests, dist gate,
+23 connected-runtime, 20 live-host, both recall gates, plugin validate.

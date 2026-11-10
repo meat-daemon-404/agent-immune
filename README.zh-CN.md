@@ -8,11 +8,11 @@
 
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm 版本"></a>
-    <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/meat-daemon-404/agent-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/agent-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
     <img src="https://img.shields.io/badge/单测-通过-4c9f4c" alt="单测通过">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
     <img src="https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-blue" alt="node ^22.19 || >=24">
-    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="已收录于 DSH 插件市场"></a>
+    <a href="https://dsh-plugin.org/plugins/meat-daemon-404/agent-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="已收录于 DSH 插件市场"></a>
   </p>
 
   <p>
@@ -57,7 +57,7 @@ dsh plugin --profile <profile> add dsh-immune-system
 ```bash
 cd dsh-immune-system && npm pack        # 会打印它写出的 dsh-immune-system-<version>.tgz 文件名
 dsh plugin --profile <profile> add ./dsh-immune-system-<version>.tgz
-dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
+dsh plugin --profile <profile> add github:meat-daemon-404/agent-immune
 ```
 
 `github:` 这种方式会在安装时跑 `prepare`，pnpm 10 默认拦构建脚本，得先 `pnpm approve-builds` 把 `dsh-immune-system` 加进 `onlyBuiltDependencies`。不想折腾就用 npm 或 tarball。装完记得重启 DSH —— 插件 bundle 是启动时组装的。
@@ -65,7 +65,7 @@ dsh plugin --profile <profile> add github:meat-daemon-404/dsh-plugin-immune
 **ZCode**，这个仓库本身就是市场源：
 
 ```bash
-node "<zcode.cjs>" plugins marketplace add meat-daemon-404/dsh-plugin-immune
+node "<zcode.cjs>" plugins marketplace add meat-daemon-404/agent-immune
 node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 ```
 
@@ -222,7 +222,7 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 
 ### 和别的工具比
 
-|  | dsh-plugin-immune | [deja-vu](https://github.com/vshulcz/deja-vu) | [mem0](https://github.com/mem0ai/mem0) | [claude-memory-compiler](https://github.com/nicobailon/claude-memory-compiler) |
+|  | agent-immune | [deja-vu](https://github.com/vshulcz/deja-vu) | [mem0](https://github.com/mem0ai/mem0) | [claude-memory-compiler](https://github.com/nicobailon/claude-memory-compiler) |
 | --- | --- | --- | --- | --- |
 | 存什么 | 失败→成功的配对，蒸馏成规则 | 完整会话记录 | 对话里的事实 | 编译好的 skill 文件 |
 | 怎么用上 | 靠 hook，在重蹈之前注入 | 需要时搜索（MCP / TUI） | SDK 层召回 | 模型得主动去读 |

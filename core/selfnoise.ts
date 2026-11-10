@@ -21,7 +21,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Package names that mean "this is the immune system itself". */
-const SELF_PACKAGE_NAMES = new Set(['dsh-immune-system', 'dsh-plugin-immune']);
+// Both repo names: clones checked out before the 2026-11 rename to
+// agent-immune still carry dsh-plugin-immune in their package.json.
+const SELF_PACKAGE_NAMES = new Set(['dsh-immune-system', 'dsh-plugin-immune', 'agent-immune']);
 
 /** How far up to look for a package.json before giving up. */
 const MAX_UPWARD = 8;
