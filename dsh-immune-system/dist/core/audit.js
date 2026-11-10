@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { BACKFILL_TOOLS, loadCalls, loadParts, pairSession } from './backfill.js';
 import { isSelfEpisode } from './selfnoise.js';
 import { redactAndClamp } from './redact.js';
+import { ROUND_TRIPS_PER_REPEAT } from './value.js';
 /** Trace strings are clamped before redaction, like the live loop. */
 const TRACE_CLAMP = 1_200;
 const TOP_FAMILIES = 5;
@@ -447,4 +448,53 @@ export function auditHistory(store, opts = {}) {
         skippedSelf: acc.skippedSelf + source.skippedSelf,
     }), { scanned: 0, failures: 0, paired: 0, enqueued: 0, skippedSelf: 0 });
     return { sources, totals };
+}
+/** Formatted tokens need value.ts's short form; CLI and MCP render identically. */
+function formatTokensShort(tokens) {
+    if (tokens >= 1_000_000_000)
+        return `${(tokens / 1_000_000_000).toFixed(1)}B`;
+    if (tokens >= 1_000_000)
+        return `${(tokens / 1_000_000).toFixed(1)}M`;
+    if (tokens >= 1_000)
+        return `${(tokens / 1_000).toFixed(1)}K`;
+    return String(tokens);
+}
+/**
+ * Render the shareable audit summary. One renderer for every surface — the
+ * CLI, the MCP tool and a pasted chat reply all show the same report, so a
+ * number can never disagree between them.
+ */
+export function renderAuditReport(report, days, dryRun) {
+    const lines = [`immune audit — last ${days} day(s)`];
+    for (const source of report.sources) {
+        if (!source.present) {
+            lines.push(`[${source.source}] absent · ${source.note ?? 'no data'}`);
+            continue;
+        }
+        lines.push(`[${source.source}] scanned ${source.scanned} · ${source.failures} failures · ` +
+            `${source.paired} paired (${source.superseded} superseded) · ` +
+            `${source.enqueued} enqueued (${source.skippedSelf} self-noise skipped)` +
+            (source.note ? ` · ${source.note}` : ''));
+        const tools = source.byTool.slice(0, 4);
+        if (tools.length > 0) {
+            lines.push(`  by tool: ${tools.map((stat) => `${stat.tool} ${stat.failures}f/${stat.scanned}`).join(' · ')}`);
+        }
+        if (source.topFailures.length > 0) {
+            lines.push('  repeat offenders:');
+            for (const family of source.topFailures) {
+                lines.push(`    ${family.count}× [${family.tool}] ${family.error}`);
+            }
+        }
+        if (source.medianRequestTokens !== null && source.paired > 0) {
+            const waste = source.paired * source.medianRequestTokens * ROUND_TRIPS_PER_REPEAT;
+            lines.push(`  tokens: median request ${formatTokensShort(source.medianRequestTokens)} ` +
+                `(${source.medianSamples} samples) — ${source.paired} episodes ≈ ${formatTokensShort(waste)} tokens`);
+        }
+    }
+    lines.push(`scan total: ${report.totals.scanned} calls · ${report.totals.failures} failures · ` +
+        `${report.totals.paired} failed-then-fixed episodes`);
+    if (dryRun) {
+        lines.push('dry run: nothing enqueued, nothing distilled — drop --dry-run to apply');
+    }
+    return lines.join('\n');
 }

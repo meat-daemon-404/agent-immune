@@ -21,7 +21,7 @@ import { readLlmConfig } from '../../core/llm.js';
 import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../core/value.js';
 import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
-import { auditHistory } from '../../core/audit.js';
+import { auditHistory, renderAuditReport } from '../../core/audit.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
 import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
 import { HOSTS, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
@@ -139,40 +139,6 @@ function cmdExport(store, args) {
     mkdirSync(dirname(outPath), { recursive: true });
     writeFileSync(outPath, renderSkillMarkdown(rows, { minHits: threshold }), 'utf8');
     process.stdout.write(`${strings().exported} ${rows.length} -> ${outPath}\n`);
-}
-function printAuditReport(report, days, dryRun) {
-    process.stdout.write(`immune audit — last ${days} day(s)\n`);
-    for (const source of report.sources) {
-        if (!source.present) {
-            process.stdout.write(`[${source.source}] absent · ${source.note ?? 'no data'}\n`);
-            continue;
-        }
-        process.stdout.write(`[${source.source}] scanned ${source.scanned} · ${source.failures} failures · ` +
-            `${source.paired} paired (${source.superseded} superseded) · ` +
-            `${source.enqueued} enqueued (${source.skippedSelf} self-noise skipped)` +
-            (source.note ? ` · ${source.note}` : '') +
-            '\n');
-        const tools = source.byTool.slice(0, 4);
-        if (tools.length > 0) {
-            process.stdout.write(`  by tool: ${tools.map((stat) => `${stat.tool} ${stat.failures}f/${stat.scanned}`).join(' · ')}\n`);
-        }
-        if (source.topFailures.length > 0) {
-            process.stdout.write('  repeat offenders:\n');
-            for (const family of source.topFailures) {
-                process.stdout.write(`    ${family.count}× [${family.tool}] ${family.error}\n`);
-            }
-        }
-        if (source.medianRequestTokens !== null && source.paired > 0) {
-            const waste = source.paired * source.medianRequestTokens * ROUND_TRIPS_PER_REPEAT;
-            process.stdout.write(`  tokens: median request ${formatTokens(source.medianRequestTokens)} ` +
-                `(${source.medianSamples} samples) — ${source.paired} episodes ≈ ${formatTokens(waste)} tokens\n`);
-        }
-    }
-    process.stdout.write(`scan total: ${report.totals.scanned} calls · ${report.totals.failures} failures · ` +
-        `${report.totals.paired} failed-then-fixed episodes\n`);
-    if (dryRun) {
-        process.stdout.write('dry run: nothing enqueued, nothing distilled — drop --dry-run to apply\n');
-    }
 }
 function main(argv) {
     const [command = 'list', ...args] = argv;
@@ -398,7 +364,7 @@ function main(argv) {
                     dryRun,
                     selfMarkers: selfMarkers(),
                 });
-                printAuditReport(report, Number.isFinite(Number(args[daysArg + 1])) && daysArg >= 0 ? Number(args[daysArg + 1] ?? '30') : 30, dryRun);
+                process.stdout.write(renderAuditReport(report, daysArg >= 0 && Number.isFinite(Number(args[daysArg + 1])) ? Number(args[daysArg + 1] ?? '30') : 30, dryRun) + '\n');
                 if (dryRun) {
                     store.close();
                     return 0;

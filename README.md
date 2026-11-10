@@ -116,7 +116,10 @@ npx dsh-immune-system@latest audit             # + distil (LLM when configured)
 Absence is reported, not hidden: a source with no history on this machine
 prints its own line. The Codex rollout format and the ZCode db were verified
 against real files; the Claude Code transcript parser is fixture-tested only
-until it has met a real install — the report says so on every run.
+until it has met a real install — the report says so on every run. Agents that
+cannot run hooks reach the same report over MCP: `immune_audit` is the
+read-only preview (the applying pass stays in the terminal — an MCP-only host
+has no turn-end drain), and `immune_seed_packs` lists the starter packs.
 
 ### Starter packs
 

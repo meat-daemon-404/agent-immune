@@ -9,7 +9,8 @@
  *
  * Zero dependencies, JSON-RPC 2.0 over stdio, line-delimited. Implementations:
  *   initialize            → protocol handshake
- *   tools/list            → the five tools below
+ *   tools/list            → the tools below (library CRUD plus the read-only
+ *                           audit preview and seed-pack listing)
  *   tools/call            → dispatch, text content back
  *   ping                  → liveness
  * Anything else answers method-not-found, and notifications are ignored.
@@ -21,6 +22,8 @@ import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
+import { auditHistory, renderAuditReport } from '../../core/audit.js';
+import { BUILTIN_PACKS } from '../../core/packs.js';
 const SERVER_INFO = { name: 'dsh-immune-system', version: '0.8.0' };
 const TOOLS = [
     {
@@ -90,6 +93,21 @@ const TOOLS = [
             properties: { id: { type: 'number' } },
             required: ['id'],
         },
+    },
+    {
+        name: 'immune_audit',
+        description: 'Health check over this machine\'s session history (ZCode db, Codex rollouts, Claude Code transcripts): replays the failed-then-fixed pairing and reports per-tool failures, repeat offenders and the avoidable token estimate. READ-ONLY preview — run `immune audit` in a terminal to actually distil (an MCP-only host has no turn-end drain, so enqueued jobs would sit stuck).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                days: { type: 'number', description: 'Look back this many days. Default 30.' },
+            },
+        },
+    },
+    {
+        name: 'immune_seed_packs',
+        description: 'List the builtin seed packs (git-safety, node-ts, python-uv, docker) with per-pack seeded counts. Install with `immune seed <id>` in a terminal; this tool never writes.',
+        inputSchema: { type: 'object', properties: {} },
     },
 ];
 /** Dispatch one tools/call. Kept pure-ish so tests can call it without stdio. */
@@ -170,6 +188,28 @@ export function callTool(store, name, args) {
             if (!Number.isInteger(id) || id <= 0)
                 return 'error: id must be a positive integer.';
             return store.setStatus(id, 'active') ? `restored #${id}.` : `no antibody #${id}.`;
+        }
+        case 'immune_audit': {
+            // Always a dry-run: an MCP-only host has no Stop hook to drain enqueued
+            // jobs, so the applying pass belongs to the terminal CLI.
+            const days = typeof args.days === 'number' && Number.isFinite(args.days) && args.days > 0
+                ? Math.trunc(args.days)
+                : 30;
+            try {
+                const report = auditHistory(store, { days, dryRun: true });
+                return renderAuditReport(report, days, true);
+            }
+            catch (error) {
+                return `error: ${error instanceof Error ? error.message : String(error)}`;
+            }
+        }
+        case 'immune_seed_packs': {
+            const counts = store.seededPackCounts();
+            const lines = BUILTIN_PACKS.map((pack) => {
+                const installed = counts.get(pack.id) ?? 0;
+                return `${pack.id.padEnd(12)} ${String(installed).padStart(2)}/${pack.rules.length} seeded · ${pack.label} — ${pack.description}`;
+            });
+            return `Builtin seed packs (install with \`immune seed <id>\` in a terminal; this tool never writes):\n${lines.join('\n')}`;
         }
         default:
             return `error: unknown tool ${name}`;

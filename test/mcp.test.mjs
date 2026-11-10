@@ -86,12 +86,14 @@ test('MCP handshake and tool listing follow the wire protocol', async (t) => {
     const tools = await server.call('tools/list', {});
     const names = tools.result.tools.map((tool) => tool.name).sort();
     assert.deepEqual(names, [
+      'immune_audit',
       'immune_export',
       'immune_forget',
       'immune_learn',
       'immune_list',
       'immune_restore',
       'immune_retire',
+      'immune_seed_packs',
       'immune_stats',
     ]);
     for (const tool of tools.result.tools) {
@@ -104,6 +106,30 @@ test('MCP handshake and tool listing follow the wire protocol', async (t) => {
 
     const unknown = await server.call('no/such/method', {});
     assert.equal(unknown.error.code, -32601);
+  });
+});
+
+test('immune_audit previews read-only and immune_seed_packs lists without writing', async (t) => {
+  await withServer(t, async (server, dbPath) => {
+    const textOf = (response) => response.result.content[0].text;
+
+    const audit = textOf(await server.call('tools/call', { name: 'immune_audit', arguments: { days: 30 } }));
+    assert.match(audit, /immune audit — last 30 day\(s\)/);
+    assert.match(audit, /scan total:/);
+    assert.match(audit, /dry run: nothing enqueued/, 'the MCP surface is preview-only');
+
+    const packs = textOf(await server.call('tools/call', { name: 'immune_seed_packs', arguments: {} }));
+    assert.match(packs, /git-safety/);
+    assert.match(packs, /node-ts/);
+    assert.match(packs, /python-uv/);
+    assert.match(packs, /docker/);
+    assert.match(packs, /never writes/, 'the tool states its own read-only contract');
+
+    // Neither call stored anything: the database is untouched.
+    const stats = textOf(await server.call('tools/call', { name: 'immune_stats', arguments: {} }));
+    const before = Number(stats.match(/(\d+) queued/)?.[1] ?? '0');
+    assert.equal(before, 0, 'no jobs were enqueued by the preview');
+    assert.ok(dbPath.length > 0);
   });
 });
 

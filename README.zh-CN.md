@@ -93,7 +93,7 @@ npx dsh-immune-system@latest audit --dry-run   # 只出报告，不写库
 npx dsh-immune-system@latest audit             # 报告 + 蒸馏（配了 LLM 就走模型）
 ```
 
-缺席也是明说的：某个源在这台机器上没有历史，就打印自己那一行。Codex rollout 格式和 ZCode 库结构对过真实文件；Claude Code 转录解析器目前只有夹具测试——等它见过一次真实安装再转正，报告里每次都会注明这一点。
+缺席也是明说的：某个源在这台机器上没有历史，就打印自己那一行。Codex rollout 格式和 ZCode 库结构对过真实文件；Claude Code 转录解析器目前只有夹具测试——等它见过一次真实安装再转正，报告里每次都会注明这一点。跑不了钩子的 agent（Cursor、Cline 等）走 MCP 拿同一份报告：`immune_audit` 是只读预览（写入版留在终端——MCP 宿主没有回合末 drain），`immune_seed_packs` 列出种子包。
 
 ### 种子包
 
