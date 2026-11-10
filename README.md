@@ -100,8 +100,10 @@ verified end-to-end without any host environment variables
 chain, an episode distils at turn end, and a fresh session receives the
 injection — including a Codex-native sequence using the host's real
 `shell_command` / `apply_patch` tool names (the hooks map them to the engine's
-Bash/Edit vocabulary). What is still not covered: dispatch by the real host
-CLIs themselves.
+Bash/Edit vocabulary), all six hook events, human-hint attachment, injection
+delimiter isolation against forged closing tags, and the guard's deny path
+(`scripts/verify-connected-runtime.mjs`, 23 assertions). What is still not
+covered: dispatch by the real host CLIs themselves.
 
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.
