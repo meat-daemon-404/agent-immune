@@ -830,7 +830,11 @@ function main(argv: string[]): number {
         return 0;
       }
       default:
-        process.stderr.write('usage: immune <list|stats|export|prune|forget> [...args]\n');
+        process.stderr.write(
+          'usage: immune <list|stats|coverage|export|search|learn|forget|prune|rewrite|consolidate|' +
+            'backup|connect|seed|backfill|audit|sync-doc|export-json|import-json|ui|doctor|demo> [...args]\n' +
+            '  seed / audit / connect: cold start, history health check, and host hooking — see README\n',
+        );
         return 2;
     }
   } finally {
