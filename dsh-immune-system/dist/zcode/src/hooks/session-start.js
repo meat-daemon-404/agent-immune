@@ -15,6 +15,7 @@
  * so hooks.json uses no matcher at all — that matches every source.
  */
 import { ImmuneStore } from '../../../core/store/index.js';
+import { looksEchoPrescription } from '../../../core/rewrite.js';
 import { runHook, sessionIdOf } from '../hook-io.js';
 import { formatImmuneContext } from '../format.js';
 import { drainJobs } from '../drain.js';
@@ -28,7 +29,17 @@ await runHook('SessionStart', async (event) => {
             store.resetTurnState(sessionIdOf(event));
         }
         await drainJobs(store);
-        const top = store.listAll(false).slice(0, 3);
+        // Priming has NO context to match against, so an echo-grade prescription
+        // (a raw command dump) is pure noise here: nothing says this session will
+        // run that command. The same rule stays fully eligible in PreToolUse and
+        // UserPromptSubmit recall, where the concrete call/prompt matches its
+        // trigger — and there the echoed command IS the answer. Measured on the
+        // maintainer's machine: a foreign project's command-dump rules owned the
+        // top slots and rode into every new session of an unrelated project.
+        const top = store
+            .listAll(false)
+            .filter((a) => !looksEchoPrescription(a.prescription))
+            .slice(0, 3);
         if (top.length > 0) {
             store.recordInjection(sessionIdOf(event), top.map((a) => a.id), top.map((a) => a.prescription));
         }

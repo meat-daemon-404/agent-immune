@@ -404,6 +404,19 @@ identical-retry note).
     antibodies injected into the FAILING session, which is where the failure
     happened. Same-session pairing wins; a probe never closes anything.
 
+39. **Priming injects advice, not command echoes.** SessionStart's top-3
+    priming filtered nothing: an echo-grade prescription (the command that
+    worked, verbatim — `looksEchoPrescription`) owned the top slots in a
+    shared database and rode into EVERY new session of unrelated projects,
+    measured on the maintainer's own machine (a foreign project's rules
+    started this very session). Priming has no context to match against, so
+    an echo there is pure noise. The same rule stays fully eligible in
+    PreToolUse / UserPromptSubmit recall, where the concrete call or prompt
+    matches its trigger — and there the echoed command IS the answer. When
+    every active rule is echo-grade, priming injects nothing (an empty block
+    is better than noise). No self-reinforcement loop exists to fuel:
+    priming's recordInjection does not bump hit_count; only match() does.
+
 ## Verification
 
 ```bash

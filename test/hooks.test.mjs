@@ -334,7 +334,7 @@ test('a human correction between failure and retry reaches the antibody', async 
   assert.match(listed.stdout, /pnpm/, 'the human explanation must survive into the rule');
 });
 
-test('session-start priming is recorded, so the first prompt does not repeat it', async (t) => {
+test('session-start priming skips echo rules; a hint-grade rule still primes', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'immune-'));
   const env = {
     IMMUNE_DB_PATH: join(dir, 'immune.sqlite'),
@@ -342,7 +342,9 @@ test('session-start priming is recorded, so the first prompt does not repeat it'
   };
   t.after(() => rmSync(dir, { recursive: true, force: true }));
 
-  // Learn one rule, and give it hits so priming picks it.
+  // ECHO rule: distilled without a model, its prescription is the command
+  // that worked. It must NOT prime (no context at startup says this session
+  // will run that command), but prompt-time recall may still deliver it.
   runHook(
     'post-tool-use-failure',
     {
@@ -368,23 +370,63 @@ test('session-start priming is recorded, so the first prompt does not repeat it'
   );
   runHook('stop', { hook_event_name: 'Stop', session_id: 'p1' }, env);
 
-  // A NEW session primes with the rule at startup...
+  // HINT rule: a human explanation distils into real advice, and THAT is
+  // what priming is for.
+  runHook(
+    'post-tool-use-failure',
+    {
+      hook_event_name: 'PostToolUseFailure',
+      session_id: 'h1',
+      tool_name: 'Bash',
+      tool_input: { command: 'python -X utf8 script.py' },
+      error: 'SyntaxError: invalid syntax',
+    },
+    env,
+  );
+  runHook(
+    'user-prompt-submit',
+    {
+      hook_event_name: 'UserPromptSubmit',
+      session_id: 'h1',
+      prompt: '用 UTF-8 模式跑，别用默认编码',
+    },
+    env,
+  );
+  runHook(
+    'post-tool-use',
+    {
+      hook_event_name: 'PostToolUse',
+      session_id: 'h1',
+      tool_name: 'Bash',
+      tool_input: { command: 'python -X utf8 script.py' },
+      tool_response: { exitCode: 0 },
+      tool_result_preview: 'ok',
+    },
+    env,
+  );
+  runHook('stop', { hook_event_name: 'Stop', session_id: 'h1' }, env);
+
+  // A NEW session primes with the hint rule only.
   const primed = runHook(
     'session-start',
     { hook_event_name: 'SessionStart', session_id: 'p2', source: 'startup' },
     env,
   );
-  assert.match(primed.stdout, /<immune_memory>/, 'priming must deliver the rule');
+  assert.match(primed.stdout, /<immune_memory>/, 'the hint-grade rule primes');
+  assert.doesNotMatch(primed.stdout, /vite build/, 'the echo-grade rule does not ride along');
 
-  // ...and the same rule must NOT come again at the first prompt.
+  // The primed hint rule must not be delivered again at the first prompt...
   const prompted = runHook(
     'user-prompt-submit',
     {
       hook_event_name: 'UserPromptSubmit',
       session_id: 'p2',
-      prompt: 'npm run build 又要打包了，vite.config.ts',
+      prompt: '帮我处理 python 编码问题',
     },
     env,
   );
-  assert.equal(prompted.stdout, '', 'the same session must not pay for the rule twice');
+  // ...whatever it delivers, it must not repeat the primed prescriptions.
+  if (prompted.stdout.includes('<immune_memory>')) {
+    assert.doesNotMatch(prompted.stdout, /UTF-8/, 'the same session must not pay for the primed rule twice');
+  }
 });
