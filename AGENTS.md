@@ -379,6 +379,18 @@ identical-retry note).
     the distribution of every candidate in the live library first — the count
     looked reasonable in isolation and was wrong at scale.
 
+37. **One npm name by decision, not by accident.** The GitHub repo was renamed
+    to `agent-immune` on 2026-11-10 (old URL 301-redirects). Registering the
+    matching npm name was refused by npm's anti-squatting policy ("too similar
+    to existing package `agentimmune`"); the suggested scoped fallback
+    (`@meat-daemon-404/agent-immune`) is LONGER than `dsh-immune-system` and
+    would need a second package publishing the identical dist forever. The
+    owner chose **A: do not publish a second package**. `dsh-immune-system`
+    stays the single npm name; the plugin id, `dsh-immune-system/` source
+    directory and the `dev-dsh-plugin-immune` marketplace source id all stay
+    (renaming the last one breaks updates for every installed copy). Do not
+    re-propose dual publishing without new evidence.
+
 ## Verification
 
 ```bash
