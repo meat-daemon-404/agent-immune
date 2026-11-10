@@ -15,6 +15,8 @@ import {
 } from '../dsh-immune-system/dist/core/connect.js';
 import { rmSync } from 'node:fs';
 import { isSelfEpisode } from '../dsh-immune-system/dist/core/selfnoise.js';
+import { normaliseToolName } from '../dsh-immune-system/dist/zcode/src/hook-io.js';
+import { targetSignature } from '../dsh-immune-system/dist/core/pairing.js';
 
 function home() {
   return mkdtempSync(join(tmpdir(), 'immune-connect-'));
@@ -111,8 +113,34 @@ test('connect codex wires 5 events at the root of hooks.json and needs /hooks tr
 
   const table = JSON.parse(readFileSync(join(h, '.codex', 'hooks.json'), 'utf8'));
   assert.equal(table.PostToolUseFailure, undefined);
-  assert.equal(table.PreToolUse[0].matcher, 'Bash|Edit|Write|MultiEdit|Read|Grep|Glob');
+  // Codex names its tools shell_command / apply_patch — a ZCode-shaped
+  // matcher here would never fire, silently killing recall and guards.
+  assert.equal(table.PreToolUse[0].matcher, 'shell_command|exec_command|shell|local_shell|apply_patch');
   assert.equal(table.Stop[0].hooks[0].timeout, 30);
+});
+
+test('a codex install with the old ZCode-shaped matcher is upgraded in place', () => {
+  const h = home();
+  const configPath = join(h, '.codex', 'hooks.json');
+  mkdirSync(dirname(configPath), { recursive: true });
+  const command = 'node "C:/somewhere/.dsh-immune/dist/zcode/src/hooks/pre-tool-use.js"';
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      PreToolUse: [
+        {
+          matcher: 'Bash|Edit|Write|MultiEdit|Read|Grep|Glob',
+          hooks: [{ type: 'command', command, timeout: 4 }],
+        },
+      ],
+    }),
+    'utf8',
+  );
+  const report = connectHost('codex', { home: h, scriptDir: SCRIPT_DIR });
+  assert.equal(report.upgraded, 1, 'the wrong matcher counts as stale');
+  const table = JSON.parse(readFileSync(configPath, 'utf8'));
+  assert.equal(table.PreToolUse.length, 1, 'the stale group is replaced, not duplicated');
+  assert.equal(table.PreToolUse[0].matcher, 'shell_command|exec_command|shell|local_shell|apply_patch');
 });
 
 test('status reports each host without touching anything', () => {
@@ -239,6 +267,24 @@ test('removing the last connected host deletes the vendored install', () => {
   const last = disconnectHost('codex', { home: h });
   assert.ok(last.vendorDir?.endsWith('.dsh-immune'), 'the report names the removed vendor dir');
   assert.equal(existsSync(join(h, '.dsh-immune')), false, 'vendor deleted once no host remains');
+});
+
+test('codex tool names are normalised to the pairing vocabulary', async () => {
+  assert.equal(normaliseToolName('shell_command'), 'Bash');
+  assert.equal(normaliseToolName('exec_command'), 'Bash');
+  assert.equal(normaliseToolName('apply_patch'), 'Edit');
+  assert.equal(normaliseToolName('Bash'), 'Bash', 'ZCode names pass through');
+  assert.equal(normaliseToolName('unknown_tool'), 'unknown_tool');
+
+  // The point: without the alias, a Codex shell failure/success pair lands
+  // in targetSignature's unknown-tool branch and program families never
+  // match (npm failing, npx succeeding would not pair).
+  const failed = targetSignature(normaliseToolName('shell_command'), { command: 'npm install' });
+  const fixed = targetSignature(normaliseToolName('shell_command'), { command: 'npx install' });
+  assert.equal(failed.signature, 'Bash:npm:install');
+  assert.equal(fixed.signature, 'Bash:npx:install');
+  const { canCloseEpisode } = await import('../dsh-immune-system/dist/core/pairing.js');
+  assert.equal(canCloseEpisode(failed.signature, fixed), true, 'program family pairs across npm/npx');
 });
 
 test('verifyConnectedPaths flags a host whose scripts vanished', () => {

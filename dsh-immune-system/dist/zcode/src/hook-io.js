@@ -89,9 +89,32 @@ export function sessionIdOf(event) {
     const id = event.session_id ?? event.sessionId;
     return typeof id === 'string' && id ? id : 'unknown-session';
 }
+/**
+ * Host tool names, normalised to the vocabulary the engine speaks.
+ *
+ * Codex emits `shell_command` / `exec_command` / `apply_patch`; the pairing
+ * loop, REPAIR_TOOLS and program-family matching all key on ZCode's
+ * Bash/Edit names. Without this map a connect'd Codex host lands in the
+ * unknown-tool branch: program families (npm/npx/pnpm) never pair across
+ * tools and `apply_patch` repairs disappear from the action diff. Keep the
+ * map here — one entry point every hook already calls — so no adapter code
+ * is duplicated per host. Anything not listed passes through verbatim.
+ */
+const HOST_TOOL_ALIASES = {
+    shell_command: 'Bash',
+    exec_command: 'Bash',
+    shell: 'Bash',
+    local_shell: 'Bash',
+    apply_patch: 'Edit',
+};
+export function normaliseToolName(name) {
+    return HOST_TOOL_ALIASES[name.toLowerCase()] ?? name;
+}
 export function toolNameOf(event) {
     const name = event.tool_name ?? event.toolName;
-    return typeof name === 'string' && name ? name : 'unknown-tool';
+    return typeof name === 'string' && name
+        ? normaliseToolName(name)
+        : 'unknown-tool';
 }
 /**
  * Run a hook body. `body` returns the context to inject, or null to stay

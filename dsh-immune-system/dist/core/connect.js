@@ -102,7 +102,11 @@ const HOOK_SPECS = [
         event: 'PreToolUse',
         script: 'pre-tool-use.js',
         timeout: 4,
+        // Codex names its tools differently: shell_command / apply_patch. A
+        // ZCode-shaped matcher would never fire there, silently killing recall
+        // and guards on that host. Claude Code uses the ZCode vocabulary.
         matcher: 'Bash|Edit|Write|MultiEdit|Read|Grep|Glob',
+        codexMatcher: 'shell_command|exec_command|shell|local_shell|apply_patch',
     },
     { event: 'PostToolUse', script: 'post-tool-use.js', timeout: 5 },
     { event: 'PostToolUseFailure', script: 'post-tool-use-failure.js', timeout: 5 },
@@ -148,9 +152,10 @@ function specsFor(host) {
 export function buildEventTable(host, scriptDir) {
     const table = {};
     for (const spec of specsFor(host)) {
+        const matcher = host.id === 'codex' ? (spec.codexMatcher ?? spec.matcher) : spec.matcher;
         table[spec.event] = [
             {
-                ...(spec.matcher ? { matcher: spec.matcher } : {}),
+                ...(matcher ? { matcher } : {}),
                 hooks: [{ type: 'command', command: commandFor(scriptDir, spec.script), timeout: spec.timeout }],
             },
         ];
@@ -225,12 +230,17 @@ export function connectHost(hostId, options) {
     for (const [event, groups] of Object.entries(wanted)) {
         const current = Array.isArray(table[event]) ? table[event] : [];
         const wantedCommand = groups[0]?.hooks[0]?.command ?? '';
-        const stale = current.filter((group) => isImmuneGroup(group) && group.hooks[0]?.command !== wantedCommand);
-        const currentHasWanted = current.some((group) => isImmuneGroup(group) && group.hooks[0]?.command === wantedCommand);
-        // An immune entry whose command differs from what this connect would
-        // write is a stale install (an npx cache path, an old vendor root, a dev
-        // checkout): replace it, or the upgrade never reaches users who already
-        // connected with the broken layout.
+        const wantedMatcher = groups[0]?.matcher;
+        // Stale means the command OR the matcher no longer matches what this
+        // connect would write: an npx cache path, an old vendor root, a dev
+        // checkout, or a dialect whose tool-name matcher was wrong (the Codex
+        // PreToolUse matcher fix). Upgrading in place is what actually reaches
+        // users who connected with the broken layout.
+        const stale = current.filter((group) => isImmuneGroup(group) &&
+            (group.hooks[0]?.command !== wantedCommand || group.matcher !== wantedMatcher));
+        const currentHasWanted = current.some((group) => isImmuneGroup(group) &&
+            group.hooks[0]?.command === wantedCommand &&
+            group.matcher === wantedMatcher);
         const kept = current.filter((group) => !stale.includes(group));
         if (currentHasWanted) {
             alreadyPresent += 1;

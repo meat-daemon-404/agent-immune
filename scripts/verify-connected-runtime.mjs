@@ -14,7 +14,7 @@
  * Not covered here (needs the real CLIs): host-side hook dispatch itself.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -143,6 +143,66 @@ try {
       }
     })(),
   );
+
+  // --- Codex dialect: the host's REAL tool names --------------------------
+  // connect codex matches shell_command / apply_patch, and the hooks map
+  // those back to the Bash/Edit vocabulary. Prove the pairing works with the
+  // names Codex actually emits, not just the normalised ones.
+  const reportCodex = connectHost('codex', { home });
+  check(
+    'codex PreToolUse matcher names the real Codex tools',
+    /shell_command/.test(
+      JSON.stringify(JSON.parse(readFileSync(join(home, '.codex', 'hooks.json'), 'utf8')).PreToolUse[0].matcher),
+    ),
+  );
+  const cx = 'conn-rt-codex';
+  runHook('session-start.js', { hook_event_name: 'SessionStart', session_id: cx, source: 'startup' });
+  runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: cx,
+    tool_name: 'shell_command',
+    tool_input: { command: 'npm install' },
+    tool_response: { exitCode: 1, stderr: 'npm ERR! ERESOLVE' },
+  });
+  runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: cx,
+    tool_name: 'apply_patch',
+    tool_input: { path: join(project, 'package.json') },
+    tool_response: { ok: true },
+  });
+  const cxSuccess = runHook('post-tool-use.js', {
+    hook_event_name: 'PostToolUse',
+    session_id: cx,
+    tool_name: 'shell_command',
+    tool_input: { command: 'npm install' },
+    tool_response: { exitCode: 0, stdout: 'ok' },
+  });
+  check('codex-named failure/repair/success sequence runs clean', cxSuccess.status === 0, cxSuccess.stderr.slice(0, 200));
+  runHook('stop.js', { hook_event_name: 'Stop', session_id: cx });
+  // A second near-identical episode may MERGE into the first rule (the
+  // store's normal insert semantics) — so assert the EPISODE was processed
+  // and its repair name survived, not the row count.
+  const cxEvidence = () => {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const total = db.prepare('SELECT COUNT(*) AS n FROM distill_jobs').get().n;
+    const done = db.prepare("SELECT COUNT(*) AS n FROM distill_jobs WHERE status = 'done'").get().n;
+    const repairs = db
+      .prepare('SELECT repair_path FROM antibodies')
+      .all()
+      .flatMap((row) => (row.repair_path ? JSON.parse(row.repair_path) : []));
+    db.close();
+    return { total, done, repairs };
+  };
+  const ev = cxEvidence();
+  check('codex-native episode was queued and drained', ev.total >= 2 && ev.done >= 2, JSON.stringify(ev));
+  check(
+    'the apply_patch repair reached the rule as an Edit action',
+    ev.repairs.some((action) => /^Edit /.test(action)),
+    JSON.stringify(ev.repairs),
+  );
+  check('codex connect did not clobber the claude-code config', existsSync(join(home, '.claude', 'settings.json')));
+  void reportCodex;
 } finally {
   rmSync(home, { recursive: true, force: true });
   rmSync(project, { recursive: true, force: true });
