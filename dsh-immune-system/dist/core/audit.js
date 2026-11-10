@@ -190,7 +190,19 @@ function codexStatusOf(output) {
     const match = output.match(/^Exit code: (\d+)/);
     if (!match)
         return { status: 'completed' };
-    return Number(match[1]) === 0 ? { status: 'completed' } : { status: 'error', error: clampText(output) };
+    if (Number(match[1]) === 0)
+        return { status: 'completed' };
+    // The exit-code header is the verdict, not the lesson: strip the boilerplate
+    // (Exit code / Wall time / Output) so the error text — and the
+    // repeat-offender families built from its first line — carries the actual
+    // failure instead of 279 copies of "Exit code: 1".
+    const body = output
+        .slice(match[0].length)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !/^Wall time:/.test(line) && !/^Output:$/.test(line))
+        .join('\n');
+    return { status: 'error', error: clampText(body.length > 0 ? body : output) };
 }
 function loadCodexSessions(dir, since) {
     if (!existsSync(dir))
