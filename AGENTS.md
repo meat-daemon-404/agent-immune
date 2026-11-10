@@ -407,6 +407,7 @@ silently broke the canonical episode shape.
 | MCP tools | `zcode/src/mcp-server.ts` | `test/mcp.test.mjs` (real stdio spawn) |
 | Host connect installer | `core/connect.ts` | `test/connect.test.mjs` |
 | History audit | `core/audit.ts` | `test/audit.test.mjs` |
+| Seed packs | `core/packs.ts`, `core/store/seeds.ts` | `test/seed.test.mjs` |
 
 ## Known limits (do not file these as bugs)
 

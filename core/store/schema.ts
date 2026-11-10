@@ -128,4 +128,14 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     model       TEXT NOT NULL,
     resolved_at INTEGER NOT NULL
   )`,
+  // Which rules came from a builtin seed pack (`immune seed <pack>`), so
+  // `--remove` can take exactly them back out. A row is removed only when the
+  // rule's prescription still matches the pack text; rules the user has since
+  // edited or merged carry their own evidence and are kept.
+  `CREATE TABLE IF NOT EXISTS seed_packs (
+    rule_id   INTEGER PRIMARY KEY,
+    pack      TEXT    NOT NULL,
+    prescription TEXT NOT NULL,
+    seeded_at INTEGER NOT NULL
+  )`,
 ];

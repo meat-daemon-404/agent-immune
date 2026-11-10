@@ -7,7 +7,7 @@
  * the logic testable and out of the prompt.
  *
  * Usage: node dist/zcode/src/cli.js
- *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|connect|backfill|audit|sync-doc|ui|doctor|demo> [...]
+ *   <list|stats|coverage|export|prune|forget|search|rewrite|consolidate|backup|connect|seed|backfill|audit|sync-doc|ui|doctor|demo> [...]
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -22,6 +22,7 @@ import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../cor
 import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
 import { auditHistory } from '../../core/audit.js';
+import { BUILTIN_PACKS } from '../../core/packs.js';
 import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
 import { HOSTS, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
 import { startUiServer } from '../../core/ui/server.js';
@@ -505,6 +506,40 @@ function main(argv) {
                     clearInterval(keepAlive);
                     store.close();
                 });
+                return 0;
+            }
+            case 'seed': {
+                // Cold-start starter rules. Hand-authored by the maintainers (the
+                // trust class of core/lessons.ts, not model output), installed through
+                // the normal insert path so duplicates merge and removal is tracked.
+                const packId = args.find((arg) => !arg.startsWith('--'));
+                const remove = args.includes('--remove');
+                if (!packId) {
+                    const counts = store.seededPackCounts();
+                    process.stdout.write('Builtin seed packs (immune seed <id> [--remove]):\n');
+                    for (const pack of BUILTIN_PACKS) {
+                        const installed = counts.get(pack.id) ?? 0;
+                        process.stdout.write(`  ${pack.id.padEnd(12)} ${String(installed).padStart(2)}/${pack.rules.length} seeded · ` +
+                            `${pack.label} — ${pack.description}\n`);
+                    }
+                    return 0;
+                }
+                const pack = BUILTIN_PACKS.find((candidate) => candidate.id === packId);
+                if (!pack) {
+                    process.stderr.write(`seed: unknown pack "${packId}". Builtin packs: ${BUILTIN_PACKS.map((p) => p.id).join(', ')}\n`);
+                    return 2;
+                }
+                if (remove) {
+                    const report = store.removeSeedPack(pack.id);
+                    const kept = report.keptChanged + report.keptProven;
+                    process.stdout.write(`removed ${report.removed} seeded rule(s) from ${pack.id}` +
+                        (kept > 0
+                            ? ` · kept ${kept} (changed or proven since seeding, evidence preserved)\n`
+                            : '\n'));
+                    return 0;
+                }
+                const report = store.seedPack(pack.id, pack.rules);
+                process.stdout.write(`seeded ${pack.id}: ${report.inserted} rule(s) added · ${report.alreadySeeded} already seeded\n`);
                 return 0;
             }
             case 'consolidate': {

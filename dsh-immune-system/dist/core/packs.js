@@ -1,0 +1,174 @@
+export const BUILTIN_PACKS = [
+    {
+        id: 'git-safety',
+        label: 'Git safety',
+        description: 'Force pushes, destructive resets, clean -fd, commit messages, fixture tokens',
+        rules: [
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash git push --force 覆盖远端',
+                symptom: 'git push --force 直接覆盖远端历史，可能抹掉他人提交',
+                prescription: '用 git push --force-with-lease 代替 --force，先把 origin 取回核对',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash git clean -fd 未跟踪文件 删除',
+                symptom: 'git clean -fd 会删掉用户没意识到未跟踪的文件（含 -xdf 连 .gitignore 内的）',
+                prescription: '先 git clean -nd 预览将删除清单，确认后再 -fd；构建产物交给 .gitignore 而不是 clean',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash git reset --hard 丢弃未提交',
+                symptom: 'git reset --hard 把未提交的修改永久丢弃，不可恢复',
+                prescription: '先 git stash（可找回）或 git branch backup-<日期> 留分支，再 reset',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash git commit 消息 printf % 转义',
+                symptom: '用 printf/echo 内联拼 commit 消息，% 或引号被 shell 破坏',
+                prescription: '把消息 Write 到临时文件，用 git commit -F 提交',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'GitHub push protection xoxp token 夹具',
+                symptom: '测试夹具里构造了真实形状的 token（如 Slack xoxp- 数字组），push protection 拦截提交',
+                prescription: '夹具用纯字母组构造同样形状，自己的正则仍能匹配、扫描器不拦',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash git rebase 冲突 中断 继续 abort',
+                symptom: 'rebase 冲突处理到一半状态混乱，继续或放弃都不确定',
+                prescription: 'git status 看当前步骤，git rebase --continue 前先 git add；整体放弃用 --abort',
+            },
+        ],
+    },
+    {
+        id: 'node-ts',
+        label: 'Node.js / TypeScript',
+        description: 'Peer conflicts, ESM on Windows, node:sqlite version bar, editor conflicts',
+        rules: [
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash npm install ERESOLVE peer dependency',
+                symptom: 'npm install 报 ERESOLVE 无法解析依赖树（peer 冲突）',
+                prescription: 'npm install --legacy-peer-deps 装完再收紧版本，或用 overrides 固定 peer',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'ESM Windows 绝对路径 file URL import',
+                symptom: 'ESM 动态 import Windows 绝对路径报 ERR_UNSUPPORTED_ESM_URL_SCHEME',
+                prescription: '用 pathToFileURL() 转成 file:// URL 再 import',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'node:sqlite node 版本 ERR_UNSUPPORTED',
+                symptom: 'node:sqlite 在低版本 Node 上不存在或行为不一致',
+                prescription: 'node:sqlite 需要 Node ≥22.5，先判 process.versions.node 再用',
+            },
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'Edit old_string not found 精确匹配',
+                symptom: 'Edit 的 old_string 与文件实际内容不一致（凭记忆拼或文件已变）',
+                prescription: '重新 Read 后精确复制待替换文本，不要凭记忆拼',
+            },
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'Edit File has been modified since read 外部修改',
+                symptom: 'Edit 报 File has been modified since read（并行会话/格式化工具动过文件）',
+                prescription: '重新 Read 再 Edit；多会话并行时先确认谁在改同一文件',
+            },
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'ESM __dirname ReferenceError import.meta.url',
+                symptom: 'ESM 模块里用 __dirname 报 ReferenceError',
+                prescription: '用 dirname(fileURLToPath(import.meta.url)) 代替 __dirname',
+            },
+        ],
+    },
+    {
+        id: 'python-uv',
+        label: 'Python / uv',
+        description: 'PEP 668 system installs, uv.lock drift, indentation, relative paths',
+        rules: [
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash pip install externally-managed PEP 668 系统环境',
+                symptom: 'pip install 在系统 Python 报 externally-managed-environment',
+                prescription: '用 uv venv 建虚拟环境后 uv pip install；不要 --break-system-packages',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash uv run lockfile 同步 依赖漂移',
+                symptom: '直接 python 跑脚本用的是旧依赖，项目实际由 uv.lock 管理',
+                prescription: '用 uv run python … 让环境自动与 uv.lock 对齐',
+            },
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'Python 缩进 tab 空格 混用 IndentationError',
+                symptom: 'Tab 与空格混用报 IndentationError，或静默改变作用域',
+                prescription: '统一 4 空格；用 ruff format/black 兜底，不要手工对齐',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash python 相对路径 cwd 找不到文件',
+                symptom: '脚本里的相对路径随 cwd 变化找不到文件',
+                prescription: '路径锚定脚本位置：Path(__file__).parent / "data" / …',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'Bash pip uv 环境不一致 装错解释器',
+                symptom: 'pip 装到了另一个解释器的环境，uv 的 venv 里看不到',
+                prescription: '统一 uv pip（同一 venv 激活下），用 uv pip list 核对',
+            },
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'requirements.txt pyproject 不一致 被覆盖',
+                symptom: '手改 requirements.txt 被依赖管理器重新生成时覆盖',
+                prescription: '改 pyproject.toml 源头，再 uv lock / pip-compile 重新生成',
+            },
+        ],
+    },
+    {
+        id: 'docker',
+        label: 'Docker',
+        description: 'Layer caching, .dockerignore, port mapping, musl builds, host networking',
+        rules: [
+            {
+                tool_name: 'Edit',
+                trigger_pattern: 'Dockerfile COPY 缓存失效 node_modules 顺序',
+                symptom: 'COPY . . 放在依赖安装之前，任何文件改动都打穿层缓存',
+                prescription: '先 COPY package.json + lockfile 再 npm install，最后才 COPY . .',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'docker build .dockerignore node_modules .git 泄漏',
+                symptom: '没有 .dockerignore，node_modules/.git/.env 全被塞进构建上下文和镜像',
+                prescription: '加 .dockerignore（node_modules、.git、dist、.env），镜像更小也更安全',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'docker run EXPOSE 端口 -p 映射访问不到',
+                symptom: 'Dockerfile 里 EXPOSE 只是声明，容器端口宿主机访问不到',
+                prescription: 'docker run -p 8080:8080 显式映射；compose 里写 ports',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'alpine musl 原生模块 编译失败 bcrypt sharp',
+                symptom: 'alpine 基础镜像装原生依赖报编译错误（musl 与 glibc 二进制不兼容）',
+                prescription: '换 -slim 基础镜像，或 alpine 里补构建链（python3 make g++）',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'docker compose up 配置没生效 rebuild 旧镜像',
+                symptom: '改了 Dockerfile 或依赖后 compose up 用的还是旧镜像',
+                prescription: 'docker compose up --build，或先 build 再 up',
+            },
+            {
+                tool_name: 'Bash',
+                trigger_pattern: 'docker 容器内 localhost 连不到 宿主机服务',
+                symptom: '容器里的 localhost 指容器自己，连不到宿主机上的服务',
+                prescription: '用 host.docker.internal（Linux 加 --add-host=host.docker.internal:host-gateway）',
+            },
+        ],
+    },
+];

@@ -20,6 +20,7 @@ export const LLM_SUCCESS_KEY = 'llm_distilled';
 export const LLM_FALLBACK_KEY = 'llm_fallbacks';
 import { bumpTurn, clearTurnState, readTurnState, recordTurnInjection, shouldSuppress, } from './turn-state.js';
 import { bumpHits, exportableAntibodies, findMatches, insertAntibody, listAntibodies, penalizeAntibodies, removeAntibody, setAntibodyStatus, setPrescription as setAntibodyPrescription, consolidateAntibodies, newestActiveId, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { installSeedPack, removeSeedPack, seededPackCounts } from './seeds.js';
 import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, pendingJobCount, requeueStuckJobs, } from './jobs.js';
@@ -289,6 +290,18 @@ export class ImmuneStore {
     /** Merge proven duplicate lessons, retaining evidence and attribution. */
     consolidateInto(keepId, input) {
         consolidateAntibodies(this.db, keepId, input);
+    }
+    /** Install a builtin seed pack through the normal insert path. */
+    seedPack(pack, rules) {
+        return installSeedPack(this.db, pack, rules);
+    }
+    /** Remove a seed pack; rules changed since seeding are kept and reported. */
+    removeSeedPack(pack) {
+        return removeSeedPack(this.db, pack);
+    }
+    /** Per-pack counts of still-recorded seed rules, for the list view. */
+    seededPackCounts() {
+        return seededPackCounts(this.db);
     }
     /** Replace a prescription's wording, keeping the rule and its counters. */
     setPrescription(id, prescription, source) {

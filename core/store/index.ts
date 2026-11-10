@@ -43,6 +43,8 @@ import {
   retireZombieAntibodies,
   type PenaltyContext,
 } from './antibodies.js';
+import { installSeedPack, removeSeedPack, seededPackCounts } from './seeds.js';
+import type { SeedInstallReport, SeedRemoveReport, SeedRule } from './seeds.js';
 import {
   crossModelRuleCount,
   modelBreakdown,
@@ -405,6 +407,21 @@ export class ImmuneStore {
     input: { trigger: string; hitCount: number; failCount: number; repairs: string[]; retireIds: number[] },
   ): void {
     consolidateAntibodies(this.db, keepId, input);
+  }
+
+  /** Install a builtin seed pack through the normal insert path. */
+  seedPack(pack: string, rules: SeedRule[]): SeedInstallReport {
+    return installSeedPack(this.db, pack, rules);
+  }
+
+  /** Remove a seed pack; rules changed since seeding are kept and reported. */
+  removeSeedPack(pack: string): SeedRemoveReport {
+    return removeSeedPack(this.db, pack);
+  }
+
+  /** Per-pack counts of still-recorded seed rules, for the list view. */
+  seededPackCounts(): Map<string, number> {
+    return seededPackCounts(this.db);
   }
 
   /** Replace a prescription's wording, keeping the rule and its counters. */

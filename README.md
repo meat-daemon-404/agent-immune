@@ -118,6 +118,23 @@ prints its own line. The Codex rollout format and the ZCode db were verified
 against real files; the Claude Code transcript parser is fixture-tested only
 until it has met a real install — the report says so on every run.
 
+### Starter packs
+
+Not every pitfall has happened to you yet. Four hand-authored packs — the same
+trust class as the built-in generic lessons, **not** model output — install
+through the normal insert path, so a rule you already learned merges instead
+of doubling:
+
+```bash
+npx dsh-immune-system@latest seed            # list the packs
+npx dsh-immune-system@latest seed git-safety # install one (6 rules)
+npx dsh-immune-system@latest seed git-safety --remove  # take it back out
+```
+
+Removal is conservative: a seeded rule the agent has since delivered, or whose
+wording you changed, is kept — it carries your evidence now. Packs: `git-safety`,
+`node-ts`, `python-uv`, `docker`.
+
 ### After installing: what you should see
 
 Run the self-check first; it is the same command support will ask you for:

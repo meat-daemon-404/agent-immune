@@ -95,6 +95,18 @@ npx dsh-immune-system@latest audit             # 报告 + 蒸馏（配了 LLM �
 
 缺席也是明说的：某个源在这台机器上没有历史，就打印自己那一行。Codex rollout 格式和 ZCode 库结构对过真实文件；Claude Code 转录解析器目前只有夹具测试——等它见过一次真实安装再转正，报告里每次都会注明这一点。
 
+### 种子包
+
+不是每个坑你都踩过。四套手工编写的规则包——与内置通用教训同一信任等级，**不是**模型输出——走正常 insert 路径安装，你已经学过的同文规则会合并而不是重复：
+
+```bash
+npx dsh-immune-system@latest seed            # 列出所有包
+npx dsh-immune-system@latest seed git-safety # 装一套（6 条）
+npx dsh-immune-system@latest seed git-safety --remove  # 卸载
+```
+
+卸载是保守的：agent 已经命中过的、或你改写过措辞的种子规则会被保留——它们现在承载的是你自己的证据。现有包：`git-safety`、`node-ts`、`python-uv`、`docker`。
+
 ### 装完先自检：该看到什么，没看到查什么
 
 先跑自检，出问题时客服（以及你自己）第一句就会问这个：
