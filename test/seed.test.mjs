@@ -55,7 +55,7 @@ test('a seeded rule that has been delivered is kept on removal', () => {
   s['db'].prepare('UPDATE antibodies SET hit_count = 3 WHERE id = ?').run(delivered);
 
   const removed = s.removeSeedPack('node-ts');
-  assert.equal(removed.removed, 5);
+  assert.equal(removed.removed, packOf('node-ts').rules.length - 1);
   assert.equal(removed.keptProven, 1, 'the delivered rule is evidence now');
   assert.ok(s.listAll(true).some((row) => row.id === delivered), 'it survives removal');
   s.close();
@@ -68,7 +68,7 @@ test('a seeded rule whose wording changed is kept on removal', () => {
   s.setPrescription(edited, '人工改写过的建议文本', 'human');
 
   const removed = s.removeSeedPack('docker');
-  assert.equal(removed.removed, 5);
+  assert.equal(removed.removed, packOf('docker').rules.length - 1);
   assert.equal(removed.keptChanged, 1, 'the rewritten rule belongs to the user now');
   assert.equal(s.listAll(true).find((row) => row.id === edited).prescription, '人工改写过的建议文本');
   s.close();

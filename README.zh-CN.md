@@ -105,7 +105,7 @@ npx dsh-immune-system@latest seed git-safety # 装一套（6 条）
 npx dsh-immune-system@latest seed git-safety --remove  # 卸载
 ```
 
-卸载是保守的：agent 已经命中过的、或你改写过措辞的种子规则会被保留——它们现在承载的是你自己的证据。现有包：`git-safety`、`node-ts`、`python-uv`、`docker`。
+卸载是保守的：agent 已经命中过的、或你改写过措辞的种子规则会被保留——它们现在承载的是你自己的证据。现有包：`git-safety`、`node-ts`、`python-uv`、`docker`。每条发布出去的规则都受 `scripts/bench-seed-recall.mjs`（也在 CI 里）约束：用换过说法的用户提问必须能在 top-3 召回它——当前 R@3 100%、零误报。
 
 ### 装完先自检：该看到什么，没看到查什么
 

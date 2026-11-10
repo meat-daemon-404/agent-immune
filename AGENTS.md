@@ -440,9 +440,12 @@ silently broke the canonical episode shape.
 4. `node scripts/bench-recall.mjs` PASS (fast; the retrieval gate — R@3 and
    the false-positive rate over a fixed zh/en scenario matrix, borrowed from
    deja-vu's habit of publishing recall numbers)
-5. Bump the four manifests (same version everywhere)
-6. Commit (message file + `git commit -F`), push
-7. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
+5. `node scripts/bench-seed-recall.mjs` PASS (fast; the CONTENT gate — every
+   rule in `core/packs.ts` must be recallable from a paraphrased prompt, so a
+   starter rule that nobody can find fails CI; also pins in CI)
+6. Bump the four manifests (same version everywhere)
+7. Commit (message file + `git commit -F`), push
+8. For a release: tag `v<version>`, `npm pack`, attach the tarball to a GitHub
    Release, update the installed copy:
    `node "D:/zcode/resources/glm/zcode.cjs" plugins marketplace update dev-dsh-plugin-immune && … plugins update dsh-immune-system@dev-dsh-plugin-immune`
 

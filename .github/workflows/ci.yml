@@ -36,6 +36,11 @@ jobs:
       - name: Recall gate
         run: node scripts/bench-recall.mjs
 
+      # Content gate: every shipped seed rule must be recallable from a
+      # paraphrased prompt, and unrelated prompts must surface nothing.
+      - name: Seed-pack recall gate
+        run: node scripts/bench-seed-recall.mjs
+
       # These two are self-contained (fake hosts + temp SQLite). The other two
       # acceptance scripts need a local DSH checkout / profile and stay
       # machine-only — see AGENTS.md "Verification".

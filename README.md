@@ -143,7 +143,9 @@ npx dsh-immune-system@latest seed git-safety --remove  # take it back out
 
 Removal is conservative: a seeded rule the agent has since delivered, or whose
 wording you changed, is kept — it carries your evidence now. Packs: `git-safety`,
-`node-ts`, `python-uv`, `docker`.
+`node-ts`, `python-uv`, `docker`. Every shipped rule is gated by
+`scripts/bench-seed-recall.mjs` (and CI): a paraphrased user prompt must recall
+it in the top-3 — currently R@3 100% with zero false positives.
 
 ### After installing: what you should see
 

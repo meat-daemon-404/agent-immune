@@ -12,13 +12,13 @@ export const BUILTIN_PACKS = [
             },
             {
                 tool_name: 'Bash',
-                trigger_pattern: 'Bash git clean -fd 未跟踪文件 删除',
+                trigger_pattern: 'Bash git clean -fd 清理工作区 未跟踪文件 误删',
                 symptom: 'git clean -fd 会删掉用户没意识到未跟踪的文件（含 -xdf 连 .gitignore 内的）',
                 prescription: '先 git clean -nd 预览将删除清单，确认后再 -fd；构建产物交给 .gitignore 而不是 clean',
             },
             {
                 tool_name: 'Bash',
-                trigger_pattern: 'Bash git reset --hard 丢弃未提交',
+                trigger_pattern: 'Bash git reset --hard 回到上个提交 丢弃未提交 手头改动',
                 symptom: 'git reset --hard 把未提交的修改永久丢弃，不可恢复',
                 prescription: '先 git stash（可找回）或 git branch backup-<日期> 留分支，再 reset',
             },
@@ -73,6 +73,12 @@ export const BUILTIN_PACKS = [
             },
             {
                 tool_name: 'Edit',
+                trigger_pattern: 'Edit File has not been read yet 忘了先读 编辑器不让改',
+                symptom: 'Edit 报 File has not been read yet：文件还没读过就要改',
+                prescription: '先 Read 目标文件再 Edit；不要凭记忆或跳过读取直接改',
+            },
+            {
+                tool_name: 'Edit',
                 trigger_pattern: 'Edit File has been modified since read 外部修改',
                 symptom: 'Edit 报 File has been modified since read（并行会话/格式化工具动过文件）',
                 prescription: '重新 Read 再 Edit；多会话并行时先确认谁在改同一文件',
@@ -110,7 +116,7 @@ export const BUILTIN_PACKS = [
             },
             {
                 tool_name: 'Bash',
-                trigger_pattern: 'Bash python 相对路径 cwd 找不到文件',
+                trigger_pattern: 'Bash python 相对路径 cwd 换工作目录 找不到数据文件',
                 symptom: '脚本里的相对路径随 cwd 变化找不到文件',
                 prescription: '路径锚定脚本位置：Path(__file__).parent / "data" / …',
             },
@@ -135,7 +141,7 @@ export const BUILTIN_PACKS = [
         rules: [
             {
                 tool_name: 'Edit',
-                trigger_pattern: 'Dockerfile COPY 缓存失效 node_modules 顺序',
+                trigger_pattern: 'Dockerfile COPY 缓存失效 改源码 依赖层缓存打穿 node_modules 顺序',
                 symptom: 'COPY . . 放在依赖安装之前，任何文件改动都打穿层缓存',
                 prescription: '先 COPY package.json + lockfile 再 npm install，最后才 COPY . .',
             },
@@ -159,7 +165,7 @@ export const BUILTIN_PACKS = [
             },
             {
                 tool_name: 'Bash',
-                trigger_pattern: 'docker compose up 配置没生效 rebuild 旧镜像',
+                trigger_pattern: 'docker compose up 配置没生效 旧镜像 未重建',
                 symptom: '改了 Dockerfile 或依赖后 compose up 用的还是旧镜像',
                 prescription: 'docker compose up --build，或先 build 再 up',
             },
