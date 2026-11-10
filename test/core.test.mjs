@@ -708,6 +708,17 @@ test('penalize keeps a high-hit rule and retires a small noisy one', () => {
   s.close();
 });
 
+test('doctor node check matches the package engines exactly', async () => {
+  const { nodeVersionSatisfied } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
+  assert.equal(nodeVersionSatisfied('22.18.0'), false, '22.18 is below engines ^22.19');
+  assert.equal(nodeVersionSatisfied('22.19.0'), true);
+  assert.equal(nodeVersionSatisfied('22.20.0'), true);
+  assert.equal(nodeVersionSatisfied('23.0.0'), false, '23 is outside both ranges');
+  assert.equal(nodeVersionSatisfied('24.0.0'), true);
+  assert.equal(nodeVersionSatisfied('24.20.0'), true);
+  assert.equal(nodeVersionSatisfied('21.0.0'), false);
+});
+
 test('doctor surfaces rule hygiene without failing on historical LLM fallbacks', async () => {
   const { runDoctor } = await import('../dsh-immune-system/dist/zcode/src/doctor.js');
   const s = store();

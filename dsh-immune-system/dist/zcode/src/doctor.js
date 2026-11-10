@@ -17,13 +17,22 @@ import { resolveDbPath } from '../../core/store/path.js';
 import { findConsolidationCandidates, findLessonGroups } from '../../core/consolidate.js';
 import { verifyConnectedPaths } from '../../core/connect.js';
 import { dshDirOf, ROOT_MARKER } from './root-marker.js';
+/** The package's engines bar, as a pure predicate so tests can pin it. */
+export function nodeVersionSatisfied(version) {
+    const [majorRaw = '0', minorRaw = '0'] = version.split('.');
+    const major = Number(majorRaw);
+    const minor = Number(minorRaw);
+    // engines: `^22.19.0 || >=24.0.0` — node:sqlite's DatabaseSync.backup()
+    // needs 22.19+. A bare `major >= 22` would call 22.0 healthy even though
+    // npm refuses to install the package there.
+    return (major === 22 && minor >= 19) || major >= 24;
+}
 function nodeVersionOk() {
-    const [major = '0'] = process.versions.node.split('.');
-    const ok = Number(major) >= 22;
+    const ok = nodeVersionSatisfied(process.versions.node);
     return {
-        name: 'node >= 22 (node:sqlite)',
+        name: 'node ^22.19 || >=24 (node:sqlite)',
         ok,
-        detail: `running ${process.versions.node}`,
+        detail: `running ${process.versions.node} · engines: ^22.19.0 || >=24.0.0`,
     };
 }
 function ftsProbe() {

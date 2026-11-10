@@ -9,9 +9,9 @@
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm 版本"></a>
     <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/coverage-82.6%25-4c9f4c" alt="覆盖率 82.6%">
+    <img src="https://img.shields.io/badge/单测-通过-4c9f4c" alt="单测通过">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
-    <img src="https://img.shields.io/badge/node-%E2%89%A522.5-blue" alt="node ≥22.5">
+    <img src="https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-blue" alt="node ^22.19 || >=24">
     <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="已收录于 DSH 插件市场"></a>
   </p>
 
@@ -117,7 +117,7 @@ immune doctor
 node "<插件根目录>/dist/zcode/src/cli.js" doctor
 ```
 
-检查项包括：Node ≥ 22.5、FTS5 trigram 探针（含两字中文的兜底）、项目库和共享库、marker 文件、MCP 脚本、原生 UI 契约、各项计数，以及规则卫生（重复规则、同 symptom 但未达合并线的组，并给出复核命令）。非零退出说明下一个会话会缺东西；提示类检查永远不会把退出码变红——不然几个月前一次模型降级会让你永远忽略这个退出码。
+检查项包括：包的 Node engine（`^22.19 || >=24`，node:sqlite 的门槛）、FTS5 trigram 探针（含两字中文的兜底）、项目库和共享库、marker 文件、MCP 脚本、原生 UI 契约、各项计数，以及规则卫生（重复规则、同 symptom 但未达合并线的组，并给出复核命令）。非零退出说明下一个会话会缺东西；提示类检查永远不会把退出码变红——不然几个月前一次模型降级会让你永远忽略这个退出码。
 
 然后，摊开说哪些验过、哪些没验：
 
@@ -214,7 +214,7 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 每次 push 都在 Node 22 和 24 上跑一遍召回闸和单测：
 
 * **失败判定**（`scripts/eval-judge.mjs`）：把 **20,100 次带宿主标注的真实工具调用**回放给判定器——与宿主标注**一致率 97.54%**，**0 假阴性**，495 个假阳性（2.46%）——全部是探针/检查类命令，非零退出本来就是想要的"答案"，宿主因此标注为"完成"。该类别已量化并在 AGENTS.md 决策 #25 接受。
-* **单测**：`npm test` 是 **176 条，0 失败**。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。这些数字你在本地都能复现。
+* **单测**：`npm test`（条数随覆盖增长，CI 在 Node 22 和 24 上跑，徽章链接到结果）。`scripts/verify-*.mjs` 另加 15 + 24 + 20 条宿主级断言，`verify-installed.mjs` 对你本机已装的 profile 再加 22 条。本地都能用上面的命令复现。
 * **召回**：固定的中英场景矩阵，8 条改述正例、6 条 gram 干净的负例。现在是 R@1 100%、R@3 100%、误报 0%。低于 R@3 7/8 或高于误报 1/6 就红。
 * **索引和查询**（`scripts/bench-scale.mjs`）：300 条规则入库 39 ms（每条 0.13 ms）；67 次匹配 p50 0.44 ms、p95 0.75 ms。
 * **hook 开销**（`scripts/bench-tool-latency.mjs`）：工具执行路径永远不碰模型，蒸馏的钱花在回合边界上。

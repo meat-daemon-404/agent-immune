@@ -9,9 +9,9 @@
   <p>
     <a href="https://www.npmjs.com/package/dsh-immune-system"><img src="https://img.shields.io/npm/v/dsh-immune-system" alt="npm version"></a>
     <a href="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml"><img src="https://github.com/meat-daemon-404/dsh-plugin-immune/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <img src="https://img.shields.io/badge/coverage-82.6%25-4c9f4c" alt="coverage 82.6%">
+    <img src="https://img.shields.io/badge/tests-passing-4c9f4c" alt="tests passing">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="MIT">
-    <img src="https://img.shields.io/badge/node-%E2%89%A522.5-blue" alt="node ≥22.5">
+    <img src="https://img.shields.io/badge/node-%5E22.19%20%7C%7C%20%3E%3D24-blue" alt="node ^22.19 || >=24">
     <a href="https://dsh-plugin.org/plugins/meat-daemon-404/dsh-plugin-immune"><img src="https://dsh-plugin.org/badges/listed.svg" alt="Listed on DSH Plugin Hub"></a>
   </p>
 
@@ -159,7 +159,7 @@ immune doctor
 node "<plugin root>/dist/zcode/src/cli.js" doctor
 ```
 
-The checks cover Node ≥ 22.5, an FTS5 trigram probe (plus the two-character-CJK fallback), both databases, the marker file, the MCP script, the native-UI contract, the counters, and rule hygiene (duplicate or same-symptom groups, with the command to review them). Non-zero exit means the next session will be missing something; advisory rows never turn it red, so a historical LLM fallback cannot train you to ignore the exit code.
+The checks cover the package's Node engine (`^22.19 || >=24`, the node:sqlite bar), an FTS5 trigram probe (plus the two-character-CJK fallback), both databases, the marker file, the MCP script, the native-UI contract, the counters, and rule hygiene (duplicate or same-symptom groups, with the command to review them). Non-zero exit means the next session will be missing something; advisory rows never turn it red, so a historical LLM fallback cannot train you to ignore the exit code.
 
 Then, plainly, what is proven and what is not:
 
@@ -259,7 +259,7 @@ To do that automatically after each turn's distillation:
 Every push runs the retrieval gate and unit suite on Node 22 and 24:
 
 * **Failure judging** (`scripts/eval-judge.mjs`) — replaying **20,100 real host-labeled tool calls** through the judge: **97.54% agreement**, **0 false negatives**, 495 false positives (2.46%) — every one a probe or check command where a nonzero exit was the intended *answer*, a class the host itself labels "completed". Quantified and accepted in AGENTS.md decision #25.
-* **Test suite** — `npm test` runs **176 tests**, 0 failures. `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Those are the numbers you can reproduce locally.
+* **Test suite** — `npm test` (the exact count grows with coverage; CI runs it on Node 22 and 24 and the badge links to the result). `scripts/verify-*.mjs` add 15 + 24 + 20 host-level assertions, and `verify-installed.mjs` adds 22 against your installed profile. Reproduce them locally with the commands above.
 * **Recall** — fixed zh/en matrix with 8 paraphrased positives and 6 gram-clean negatives. Current: R@1 100%, R@3 100%, FP 0%. CI fails below R@3 7/8 or above FP 1/6.
 * **Index and query speed** (`scripts/bench-scale.mjs`) — 300 rules index in 39 ms (0.13 ms/rule); 67 matches run at p50 0.44 ms, p95 0.75 ms.
 * **Hook latency** (`scripts/bench-tool-latency.mjs`) — the tool path never calls a model; distillation is paid at the turn boundary.
