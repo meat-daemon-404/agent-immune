@@ -762,4 +762,28 @@ test('no web-tab line when the host has no client registry at all', async (t) =>
   assert.equal(fx.logs.some((entry) => /web tab:/.test(entry.message)), false);
 });
 
+test('1.5-DSH: an undelivered stuck hypothesis rides the turn-start injection once', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-stuck');
+
+  // Two consecutive failures of an uncovered target left a stuck row behind.
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const store = new ImmuneStore({ dbPath });
+  store.recordStuckFailure(agent.id, 'Bash:weirdtool:deploy');
+  store.recordStuckFailure(agent.id, 'Bash:weirdtool:deploy');
+  store.close();
+
+  const prompt = userMessage('m-1', 'deploy the weird tool again');
+  const first = await preStepAt(fx, agent, [prompt], 2, 1);
+  assert.equal(first.kind, 'enter');
+  const injected = first.messages.map((m) => messageText(m)).join('\n');
+  assert.match(injected, /连续失败两次/, 'the hypothesis rides the turn-start block');
+  assert.match(injected, /weirdtool/, 'it names the stuck target');
+
+  // Once per streak: the next turn delivers nothing stuck (marked delivered).
+  const second = await preStepAt(fx, agent, [userMessage('m-2', 'deploy again')], 3, 1);
+  const secondText = second.messages.map((m) => messageText(m)).join('\n');
+  assert.doesNotMatch(secondText, /连续失败两次/, 'no repeat delivery');
+});
+
 

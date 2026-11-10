@@ -66,10 +66,12 @@
 
 ### Known delivery gap (tracked, not hidden)
 
-- [ ] **1.5-DSH**: the stuck hypothesis currently delivers only on ZCode.
-  DSH's `PreToolDecision` has no context channel (the same constraint that
-  keeps `IMMUNE_GUARD=warn` ZCode-only), so the hypothesis needs a turn-start
-  delivery shape on that host — the pattern `topProbeStreak` already uses.
+- [x] **1.5-DSH**: the stuck hypothesis now ALSO delivers on DSH — turn-start
+  (`preStep`) rides the same channel the probe-thrash advisory already uses.
+  `stuckHypothesisText` lives in core, so both hosts read one string; the row
+  only exists when the failure path found no covering rule, and
+  `markHypothesized` keeps delivery once-per-streak across both surfaces
+  (`test/dsh.test.mjs`, "1.5-DSH").
 
 ## Phase 2: v1.5 — Rule Evolution, Sleep Consolidation & Efficiency
 

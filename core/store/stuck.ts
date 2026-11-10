@@ -57,6 +57,42 @@ export function markHypothesized(db: DatabaseSync, sessionId: string, signature:
   ).run(Date.now(), Date.now(), sessionId, signature);
 }
 
+/**
+ * The strongest unresolved stuck row for a session (streak >= min, hypothesis
+ * not yet delivered), or null. The DSH preStep uses it for turn-start
+ * delivery — that host's PreToolDecision has no context channel, the same
+ * constraint that keeps the guard's warn mode ZCode-only.
+ */
+export function topStuckRow(
+  db: DatabaseSync,
+  sessionId: string,
+  minStreak: number,
+): { signature: string; failStreak: number } | null {
+  const row = db
+    .prepare(
+      `SELECT signature, fail_streak FROM stuck_state
+        WHERE session_id = ? AND fail_streak >= ? AND hypothesized_at = 0
+        ORDER BY fail_streak DESC LIMIT 1`,
+    )
+    .get(sessionId, minStreak) as { signature: string; fail_streak: number | bigint } | undefined;
+  return row ? { signature: row.signature, failStreak: Number(row.fail_streak) } : null;
+}
+
+/**
+ * The structured diagnostic hypothesis, shared verbatim by both delivery
+ * surfaces (ZCode PreToolUse before the third attempt, DSH at turn start) so
+ * the two hosts cannot drift into different advice.
+ */
+export function stuckHypothesisText(signature: string): string {
+  return (
+    '同一目标连续失败两次且规则库无覆盖 / this target failed twice in a row with no covering rule. ' +
+    `目标 / target: ${signature}. ` +
+    '第 3 次尝试前先做一次最小化诊断：读报错第一行、查 --help 或版本、检查锁文件与环境变量，确认原因后再改参数重试。' +
+    ' / Before the third attempt, run ONE minimal diagnostic first: read the first line of the error, ' +
+    'check --help or versions, inspect the lockfile and env vars — confirm the cause, then retry with the fix.'
+  );
+}
+
 /** A success (any close of the episode) ends the stuck state. */
 export function clearStuck(db: DatabaseSync, sessionId: string, signature: string): void {
   db.prepare('DELETE FROM stuck_state WHERE session_id = ? AND signature = ?').run(sessionId, signature);

@@ -74,6 +74,7 @@ import {
   markHypothesized,
   recordStuckFailure,
   stuckStreak,
+  topStuckRow,
   wasHypothesized,
 } from './stuck.js';
 import { applyEnvMetabolism } from '../env-fingerprint.js';
@@ -360,6 +361,11 @@ export class ImmuneStore {
 
   recordStuckFailure(sessionId: string, signature: string): number {
     return recordStuckFailure(this.db, sessionId, signature);
+  }
+
+  /** The strongest unresolved stuck row (streak >= min, hypothesis undelivered), or null. */
+  topStuck(sessionId: string, minStreak = 2): { signature: string; failStreak: number } | null {
+    return topStuckRow(this.db, sessionId, minStreak);
   }
 
   markHypothesized(sessionId: string, signature: string): void {

@@ -51,6 +51,15 @@ window.__ModuleLoader__.load({
       '.imm .kpi.accent::after{background:var(--i-accent)}',
       '.imm .kpi .v{font-size:20px;font-weight:650;letter-spacing:-.2px;font-variant-numeric:tabular-nums}',
       '.imm .kpi .k{color:var(--i-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-top:1px}',
+      '.imm .evo{background:var(--i-panel);border:1px solid var(--i-line);border-radius:11px;padding:10px 14px}',
+      '.imm .evo-h{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}',
+      '.imm .evo-h b{font-size:12px}',
+      '.imm .evo-h span{color:var(--i-muted);font-size:11px}',
+      '.imm .evo-bars{display:flex;gap:14px;margin-top:8px}',
+      '.imm .evo-col{flex:1;display:flex;align-items:flex-end;gap:5px;height:48px}',
+      '.imm .evo-col .b{flex:1;background:var(--i-accent);border-radius:2px 2px 0 0;min-height:2px;opacity:.85}',
+      '.imm .evo-col.alt .b{background:var(--i-ok);opacity:.55}',
+      '.imm .evo-f{margin-top:8px;color:var(--i-muted);font-size:11px}',
       '.imm .search{position:relative;flex:1 1 260px;min-width:180px;display:flex;align-items:center}',
       '.imm .search input{width:100%;padding:8px 32px 8px 30px;font-size:13px;color:inherit;',
       'background:var(--i-panel);border:1px solid var(--i-line);border-radius:8px;transition:border-color .15s,box-shadow .15s}',
@@ -277,6 +286,49 @@ window.__ModuleLoader__.load({
           : [h('div', { key: 'l', className: 'note' }, data.loading ? '加载中… / loading…' : '')],
       );
 
+      // Evolution strip (ROADMAP 3.3): both UIs render it from one query layer.
+      // Pure CSS bars — the offline rule holds here too (no external assets).
+      var evolution = data.evolution;
+      var evo = null;
+      if (evolution) {
+        var maxWeek = Math.max(1, Math.max.apply(null, evolution.newRules.concat(evolution.episodes)));
+        var evoBar = function (value, key) {
+          var pct = Math.max(2, Math.round((value / maxWeek) * 100));
+          return h('i', { key: key, className: 'b', title: String(value), style: { height: pct + '%' } });
+        };
+        var sum = function (values) {
+          return values.reduce(function (a, b) { return a + b; }, 0);
+        };
+        evo = h(
+          'div',
+          { className: 'evo' },
+          h(
+            'div',
+            { className: 'evo-h' },
+            h('b', null, '进化 / evolution (8w)'),
+            h(
+              'span',
+              null,
+              '新规则 / new: ' + sum(evolution.newRules) + ' · episodes: ' + sum(evolution.episodes),
+            ),
+          ),
+          h(
+            'div',
+            { className: 'evo-bars' },
+            h('div', { className: 'evo-col' }, evolution.newRules.map(evoBar)),
+            h('div', { className: 'evo-col alt' }, evolution.episodes.map(evoBar)),
+          ),
+          h(
+            'div',
+            { className: 'evo-f' },
+            '谱系 / lineage ' + evolution.lineage +
+              ' · 用户纠正 / corrections ' + evolution.fromUserCorrection +
+              ' · 弯路 / detours ' + evolution.detours +
+              (evolution.probation > 0 ? ' · probation ' + evolution.probation : ''),
+          ),
+        );
+      }
+
       var sorted = data.rows.slice().sort(function (a, b) {
         if (sort === 'hits') return b.hit_count - a.hit_count || a.id - b.id;
         if (sort === 'fails') return b.fail_count - a.fail_count || a.id - b.id;
@@ -407,6 +459,7 @@ window.__ModuleLoader__.load({
         { className: 'imm' },
         h('style', { id: STYLE_ID }, CSS),
         kpis,
+        evo,
         h(
           'div',
           { className: 'row' },

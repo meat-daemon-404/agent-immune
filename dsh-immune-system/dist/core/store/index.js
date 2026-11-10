@@ -23,7 +23,7 @@ import { bumpHits, exportableAntibodies, findMatches, getAntibodyById, insertAnt
 import { installSeedPack, removeSeedPack, seededPackCounts } from './seeds.js';
 import { crossModelRuleCount, modelBreakdown, recordModelFails, recordModelHits, resolveModel, } from './models.js';
 import { claimFailure, hasPendingFailure, injectedIds, injectedPrescriptions, probeStreakCount, pruneStale, recordFailure, recordInjection, recordProbeOutcome, recordRepairAction, topProbeStreak, attachHumanHint, } from './episodes.js';
-import { clearStuck, markHypothesized, recordStuckFailure, stuckStreak, wasHypothesized, } from './stuck.js';
+import { clearStuck, markHypothesized, recordStuckFailure, stuckStreak, topStuckRow, wasHypothesized, } from './stuck.js';
 import { applyEnvMetabolism } from '../env-fingerprint.js';
 import { DETOUR_MIN_PROBES, detourCount, recentDetours, recordDetour, } from './detours.js';
 import { claimJob, claimJobs, enqueueJob, finishJob, listRecentJobs, pendingJobCount, requeueStuckJobs, } from './jobs.js';
@@ -236,6 +236,10 @@ export class ImmuneStore {
     }
     recordStuckFailure(sessionId, signature) {
         return recordStuckFailure(this.db, sessionId, signature);
+    }
+    /** The strongest unresolved stuck row (streak >= min, hypothesis undelivered), or null. */
+    topStuck(sessionId, minStreak = 2) {
+        return topStuckRow(this.db, sessionId, minStreak);
     }
     markHypothesized(sessionId, signature) {
         markHypothesized(this.db, sessionId, signature);

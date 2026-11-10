@@ -11,7 +11,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ImmuneStore } from '../../core/store/index.js';
-import { applyAction, readState, resolveBudgetMs } from '../../core/ui/query.js';
+import { applyAction, evolutionStats, readState, resolveBudgetMs } from '../../core/ui/query.js';
 import { exportLibrary, importLibrary } from '../../core/sync.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 
@@ -115,7 +115,12 @@ export function registerImmuneUiRoute(
           if (req.method === 'GET') {
             const view = url.searchParams.get('view') === 'shared' ? 'shared' : 'project';
             const query = url.searchParams.get('q') ?? '';
-            sendJson(res, 200, readState(store, view, query, getBudgetMs?.() ?? resolveBudgetMs()));
+            // evolution rides on top of the shared readState payload so BOTH
+            // UIs render the strip from one query layer (AGENTS.md #14).
+            sendJson(res, 200, {
+              ...readState(store, view, query, getBudgetMs?.() ?? resolveBudgetMs()),
+              evolution: evolutionStats(store),
+            });
             return;
           }
 

@@ -21,6 +21,7 @@
  * plus at most three regex tests over a clamped string.
  */
 import { ImmuneStore } from '../../../core/store/index.js';
+import { stuckHypothesisText } from '../../../core/store/stuck.js';
 import { findGuardHit, guardMode } from '../../../core/guards.js';
 import { redact } from '../../../core/redact.js';
 import { targetSignature } from '../../../core/pairing.js';
@@ -68,11 +69,7 @@ await runHook('PreToolUse', (event) => {
             recallRows.length === 0 &&
             store.stuckStreak(sessionId, signature.signature) >= 2 &&
             !store.wasHypothesized(sessionId, signature.signature)) {
-            stuck =
-                '同一目标连续失败两次且规则库无覆盖 / this target failed twice in a row with no covering rule. ' +
-                    '第 3 次尝试前先做一次最小化诊断：读报错第一行、查 --help 或版本、检查锁文件与环境变量，确认原因后再改参数重试。' +
-                    ' / Before the third attempt, run ONE minimal diagnostic first: read the first line of the error, ' +
-                    "check --help or versions, inspect the lockfile and env vars — confirm the cause, then retry with the fix.";
+            stuck = stuckHypothesisText(signature.signature);
             store.markHypothesized(sessionId, signature.signature);
         }
         // ---------------------------------------------------------------- guards

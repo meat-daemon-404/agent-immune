@@ -17,6 +17,7 @@ import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
+import { stuckHypothesisText } from '../../core/store/stuck.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
 import { applyDistillResult } from '../../core/commit.js';
@@ -357,10 +358,21 @@ function startPlugin(ctx) {
         const thrash = streak
             ? `探针提示 / probe note: 上一回合对 ${streak.signature} 连续探测了 ${streak.count} 次 — 一条精确命令（grep -n 关键词、单次 Read）通常一步到位。`
             : null;
-        const withThrash = thrash && block
-            ? `${block}\n${thrash}`
-            : thrash
-                ? `<immune_memory>\n${thrash}\n</immune_memory>`
+        // ROADMAP 1.5-DSH: the stuck hypothesis rides the same turn-start channel.
+        // The row exists only because the failure path found NO covering rule
+        // (post-failure gate), so delivering here cannot be noise on covered
+        // ground; marking hypothesized keeps it once-per-streak and lets the ZCode
+        // PreToolUse surface skip it.
+        const stuck = store.topStuck(agent.id, 2);
+        const stuckNote = stuck ? stuckHypothesisText(stuck.signature) : null;
+        if (stuck)
+            store.markHypothesized(agent.id, stuck.signature);
+        const advisories = [thrash, stuckNote].filter(Boolean);
+        const advisoryBlock = advisories.length > 0 ? advisories.join('\n') : null;
+        const withThrash = advisoryBlock && block
+            ? `${block}\n${advisoryBlock}`
+            : advisoryBlock
+                ? `<immune_memory>\n${advisoryBlock}\n</immune_memory>`
                 : block;
         if (!withThrash)
             return decision;
