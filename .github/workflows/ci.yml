@@ -41,6 +41,12 @@ jobs:
       - name: Seed-pack recall gate
         run: node scripts/bench-seed-recall.mjs
 
+      # The connect'd (vendored) hooks driven end-to-end with NO host env
+      # vars: all six events, Codex-native tool names, injection isolation
+      # and guard deny. Self-contained (temp home/project, spawned node).
+      - name: Connected runtime — vendored hooks, all six events
+        run: node scripts/verify-connected-runtime.mjs
+
       # These two are self-contained (fake hosts + temp SQLite). The other two
       # acceptance scripts need a local DSH checkout / profile and stay
       # machine-only — see AGENTS.md "Verification".

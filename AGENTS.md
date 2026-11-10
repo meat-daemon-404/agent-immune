@@ -345,8 +345,12 @@ identical-retry note).
     `cli.js` that imported a `connect.js` the tarball did not contain — both
     deprecated. The release procedure is now: `git archive HEAD | tar -x -C
     <tmp>`, `npm publish --ignore-scripts` from that export, then unpack the
-    tarball and run the CLI once before tagging. If the working tree is dirty
-    for any reason, stop and read `git status` before packaging. `git add -A`
+    tarball and run the CLI once before tagging. A GitHub Release with an
+    attached tarball is NOT an npm release: on 2026-11-10 the registry sat at
+    1.0.41 while twelve newer versions had tags/Releases, so
+    `npx dsh-immune-system@latest` installed the old code. After publishing,
+    confirm with `npm view dsh-immune-system version`. If the working tree is
+    dirty for any reason, stop and read `git status` before packaging. `git add -A`
     is how those files entered the commit in the first place; stage explicit
     paths.
 
@@ -381,7 +385,7 @@ node scripts/verify-live-host.mjs # 20  — real Cordis event bus + SQLite
 node scripts/bench-tool-latency.mjs  # cost lands at the turn boundary; also pins the drain curve and IMMUNE_DISTILL_BUDGET_MS
 node scripts/bench-scale.mjs         # 300-rule library: index cost and match p50/p95; gates a pathological slowdown
 node scripts/verify-client-serve.mjs # 10  — mounts the real ClientModuleRegistry and serves /plugins/<id>/client.js
-node scripts/verify-connected-runtime.mjs # 23 — the connect'd (vendored) hooks driven end-to-end with NO host env vars
+node scripts/verify-connected-runtime.mjs # 23 — the connect'd (vendored) hooks driven end-to-end with NO host env vars; also pinned in CI on Linux
 node scripts/verify-llm.mjs          # env-gated, SKIPs without LLM env; one command to live-verify external distillation
 node scripts/eval-judge.mjs          # machine-only: replays the host's labeled tool calls through the judge (needs the ZCode db)
 node "D:/zcode/resources/glm/zcode.cjs" plugins validate dsh-immune-system
