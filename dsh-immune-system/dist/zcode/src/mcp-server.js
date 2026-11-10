@@ -24,7 +24,8 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { auditHistory, renderAuditReport } from '../../core/audit.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
-const SERVER_INFO = { name: 'dsh-immune-system', version: '0.8.0' };
+import { packageVersion } from '../../core/version.js';
+const SERVER_INFO = { name: 'dsh-immune-system', version: packageVersion() };
 const TOOLS = [
     {
         name: 'immune_list',

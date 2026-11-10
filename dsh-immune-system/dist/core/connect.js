@@ -17,6 +17,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writ
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packageVersion } from './version.js';
 /**
  * The vendored install: connect copies this package's dist into
  * `~/.dsh-immune/` and points the host hooks there, so the commands survive
@@ -31,16 +32,9 @@ export function vendorRootOf(home) {
 function ownDistRoot() {
     return join(dirname(fileURLToPath(import.meta.url)), '..');
 }
-/** The running package's version, read from the package.json next to dist. */
+/** The running package's version — both repo and npm layouts (core/version.ts). */
 export function ownVersion() {
-    try {
-        const raw = readFileSync(join(ownDistRoot(), '..', 'package.json'), 'utf8');
-        const parsed = JSON.parse(raw);
-        return typeof parsed.version === 'string' ? parsed.version : 'unknown';
-    }
-    catch {
-        return 'unknown';
-    }
+    return packageVersion();
 }
 function readVendorVersion(vendorRoot) {
     try {

@@ -25,8 +25,9 @@ import { renderSkillMarkdown } from '../../core/export.js';
 import { resolveDbPath } from '../../core/store/path.js';
 import { auditHistory, renderAuditReport } from '../../core/audit.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
+import { packageVersion } from '../../core/version.js';
 
-const SERVER_INFO = { name: 'dsh-immune-system', version: '0.8.0' };
+const SERVER_INFO = { name: 'dsh-immune-system', version: packageVersion() };
 
 const TOOLS = [
   {
