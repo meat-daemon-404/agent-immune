@@ -94,6 +94,8 @@ test('MCP handshake and tool listing follow the wire protocol', async (t) => {
       'immune_list',
       'immune_restore',
       'immune_retire',
+      'immune_rewrite_apply',
+      'immune_rewrite_candidates',
       'immune_seed_packs',
       'immune_stats',
     ]);
@@ -129,6 +131,47 @@ test('immune_audit previews read-only and immune_seed_packs lists without writin
     const detours = textOf(await server.call('tools/call', { name: 'immune_detours', arguments: {} }));
     assert.match(detours, /no convergent detours recorded/, 'the empty answer states the threshold');
     assert.match(detours, /rewrite/, 'it names the only minting path');
+
+    // The host-delegated rewrite loop (ROADMAP 2.6): the host IS the model —
+    // candidates out, validated advice back in, provenance host_llm.
+    const seeded = textOf(
+      await server.call('tools/call', {
+        name: 'immune_learn',
+        arguments: {
+          trigger: 'echo rule trigger xyz',
+          symptom: 'wrong installer',
+          prescription: 'Bash: npm install --legacy-peer-deps --force --no-audit --verbose',
+        },
+      }),
+    );
+    const echoId = Number(seeded.match(/learned as #(\d+)/)?.[1]);
+    assert.ok(echoId > 0);
+
+    const candidates = textOf(await server.call('tools/call', { name: 'immune_rewrite_candidates', arguments: {} }));
+    assert.match(candidates, /trigger_pattern/, 'the candidates carry the rewrite contract');
+    assert.match(candidates, /echo rule trigger xyz/, 'the seeded echo rule is listed');
+
+    const applied = textOf(
+      await server.call('tools/call', {
+        name: 'immune_rewrite_apply',
+        arguments: {
+          rewrites: [{ id: echoId, prescription: 'point the install at the workspace binary via npx' }],
+        },
+      }),
+    );
+    assert.match(applied, /rewritten/, 'the advice lands');
+    assert.doesNotMatch(applied, /cooldown/, 'a first pass does not trip the cooldown');
+
+    const rewritten = textOf(await server.call('tools/call', { name: 'immune_list', arguments: {} }));
+    assert.match(rewritten, /point the install at the workspace binary/, 'the new wording is stored');
+
+    const second = textOf(
+      await server.call('tools/call', {
+        name: 'immune_rewrite_apply',
+        arguments: { rewrites: [{ id: echoId, prescription: 'another advice sentence entirely' }] },
+      }),
+    );
+    assert.match(second, /cooldown/, 'a second pass inside the 12h window holds');
 
     // Neither call stored anything: the database is untouched.
     const stats = textOf(await server.call('tools/call', { name: 'immune_stats', arguments: {} }));

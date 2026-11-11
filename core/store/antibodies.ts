@@ -494,7 +494,7 @@ export function setPrescription(
   db: DatabaseSync,
   id: number,
   prescription: string,
-  source: 'rule' | 'llm' | 'human',
+  source: 'rule' | 'llm' | 'human' | 'host_llm',
 ): boolean {
   const info = db
     .prepare(

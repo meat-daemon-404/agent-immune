@@ -24,6 +24,8 @@ import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
 import { auditHistory, renderAuditReport } from '../../core/audit.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
+import { REWRITE_PROMPT } from '../../core/rewrite.js';
+import { HOST_REWRITE_BATCH, applyHostRewrites, hostRewriteCandidates } from '../../core/host-rewrite.js';
 import { packageVersion } from '../../core/version.js';
 const SERVER_INFO = { name: 'dsh-immune-system', version: packageVersion() };
 const TOOLS = [
@@ -116,6 +118,32 @@ const TOOLS = [
         inputSchema: {
             type: 'object',
             properties: { limit: { type: 'number', description: 'Rows to show. Default 20.' } },
+        },
+    },
+    {
+        name: 'immune_rewrite_candidates',
+        description: 'Read-only: echo-grade rules waiting to be rewritten into advice (most-delivered first). You are the model — rewrite each currentPrescription into ONE imperative sentence (see the returned prompt) and call immune_rewrite_apply with the results. Decision #28: a model writes advice; here that model is YOU.',
+        inputSchema: {
+            type: 'object',
+            properties: { limit: { type: 'number', description: 'Candidates to show. Default 3, max 10.' } },
+        },
+    },
+    {
+        name: 'immune_rewrite_apply',
+        description: 'Apply host-delegated rewrites: [{ id, prescription }] from your immune_rewrite_candidates pass. Guards: one pass per 12h, at most 3 rules, the rule must still be echo-grade, and the replacement wording must be advice (a command dump is refused). Provenance records host_llm.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                rewrites: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: { id: { type: 'number' }, prescription: { type: 'string' } },
+                        required: ['id', 'prescription'],
+                    },
+                },
+            },
+            required: ['rewrites'],
         },
     },
 ];
@@ -233,6 +261,45 @@ export function callTool(store, name, args) {
                 return `${when}  ${String(row.probes).padStart(2)} probes  ${row.signature}`;
             });
             return `convergent detours (telemetry — \`immune rewrite\` is the minting path):\n${lines.join('\n')}`;
+        }
+        case 'immune_rewrite_candidates': {
+            // You are the model: hand the host the same contract the endpoint-LLM
+            // rewrite path uses (Decision #28), with the candidates attached.
+            const limit = typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+                ? Math.min(10, Math.trunc(args.limit))
+                : HOST_REWRITE_BATCH;
+            const candidates = hostRewriteCandidates(store, limit);
+            if (candidates.length === 0) {
+                return 'no echo-grade rules are waiting — the library is clean.';
+            }
+            return [
+                REWRITE_PROMPT,
+                '',
+                'Rewrite EACH of the following, then call immune_rewrite_apply with',
+                '[{ "id": <id>, "prescription": "<your one imperative sentence>" }]:',
+                JSON.stringify(candidates, null, 1),
+            ].join('\n');
+        }
+        case 'immune_rewrite_apply': {
+            const raw = Array.isArray(args.rewrites) ? args.rewrites : [];
+            const rewrites = raw
+                .filter((item) => typeof item === 'object' && item !== null &&
+                typeof item.id === 'number' &&
+                typeof item.prescription === 'string')
+                .map((item) => ({ id: item.id, prescription: item.prescription }));
+            if (rewrites.length === 0) {
+                return 'error: rewrites must be [{ id, prescription }] with both fields present.';
+            }
+            const outcome = applyHostRewrites(store, rewrites);
+            const lines = outcome.results.map((result) => {
+                if (result.status === 'rewritten') {
+                    return `#${result.id} rewritten: "${result.from.slice(0, 60)}" -> "${result.to.slice(0, 60)}"`;
+                }
+                return `#${result.id} ${result.status}: ${result.detail}`;
+            });
+            return `applied ${outcome.appliedCount}/${rewrites.length}` +
+                (outcome.cooldownUntil ? ` · next delegated pass after ${new Date(outcome.cooldownUntil).toISOString()}` : '') +
+                `\n${lines.join('\n')}`;
         }
         default:
             return `error: unknown tool ${name}`;

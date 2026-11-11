@@ -92,7 +92,7 @@ function cmdList(store: ImmuneStore, includeRetired: boolean): void {
     if ((ab.parent_id ?? 0) > 0) marks.push(`mutated from #${ab.parent_id}`);
     if ((ab.probation_at ?? 0) > 0 && ab.status === 'active') marks.push('env probation');
     if (ab.retire_reason) marks.push(ab.retire_reason);
-    if (ab.prescription_source === 'llm' || ab.prescription_source === 'human') {
+    if (ab.prescription_source === 'llm' || ab.prescription_source === 'human' || ab.prescription_source === 'host_llm') {
       marks.push(`prescription: ${ab.prescription_source}`);
     }
     if (marks.length > 0) process.stdout.write(`${indent}— ${marks.join(' · ')}\n`);

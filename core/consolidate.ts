@@ -22,6 +22,14 @@ import { prescriptionSimilarity } from './similarity.js';
  */
 export const CONSOLIDATE_SIMILARITY = 0.7;
 
+/**
+ * ROADMAP 2.4b: the pairwise similarity sample size for findLessonGroups.
+ * Measured on a worst-case 300-member single group: full pairwise = 616 ms,
+ * sampled (top-20 members, <=190 pairs) = single-digit ms. The apply path is
+ * unaffected.
+ */
+export const MAX_SIMILARITY_SAMPLE = 20;
+
 export interface ConsolidationCandidate {
   keepId: number;
   retireId: number;
@@ -129,12 +137,21 @@ export function findLessonGroups(store: ImmuneStore): LessonGroup[] {
   const out: LessonGroup[] = [];
   for (const [key, rules] of groups) {
     if (rules.length < 2) continue;
+    // ROADMAP 2.4b guard, measured: the FULL pairwise similarity over one
+    // 300-member group costs 616 ms — too big for the turn boundary the sleep
+    // scan and doctor ride. maxSimilarity is computed over the most-delivered
+    // MAX_SIMILARITY_SAMPLE members; it is a sampling (said so here), and the
+    // consolidation apply path still does its own exact pairwise.
+    const sampled = rules
+      .slice()
+      .sort((a, b) => b.hit_count - a.hit_count || a.id - b.id)
+      .slice(0, MAX_SIMILARITY_SAMPLE);
     let best = 0;
-    for (let i = 0; i < rules.length; i += 1) {
-      for (let j = i + 1; j < rules.length; j += 1) {
+    for (let i = 0; i < sampled.length; i += 1) {
+      for (let j = i + 1; j < sampled.length; j += 1) {
         best = Math.max(
           best,
-          prescriptionSimilarity(rules[i]!.prescription, rules[j]!.prescription),
+          prescriptionSimilarity(sampled[i]!.prescription, sampled[j]!.prescription),
         );
       }
     }

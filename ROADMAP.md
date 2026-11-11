@@ -118,6 +118,29 @@
     out — it breaks the zero-dependency contract for a measured-small recall
     gap. Revisit only when the #19 re-entry condition (value counter showing
     suppression outliving rule quality) is met by data.
+- [x] **2.6 Host-Delegated Rewrite Loop (`core/host-rewrite.ts`,
+      `zcode/src/mcp-server.ts`)** — shipped in 1.1.5.
+  - **Target**: close the measured 47% echo backlog WITHOUT an external API
+    key: the host agent running this plugin IS the model, so the MCP tools
+    hand it the rewrite contract — `immune_rewrite_candidates` (read-only,
+    the #28 prompt plus the candidates) and `immune_rewrite_apply` (guarded:
+    one pass per 12h, max 3 rules, the rule must still be echo-grade, and the
+    replacement wording must be advice — a dump is refused). Provenance
+    records `host_llm` so captured evidence, endpoint-LLM wording and
+    host-LLM wording stay distinguishable (#28).
+  - **Acceptance**: mcp tests (candidates -> apply -> stored wording, second
+    pass inside the window holds) and core tests (dump refusal, duplicate id,
+    missing rule, no-clobber, cooldown enforcement).
+- [x] **2.7 Sleep-scan cost guard (`core/consolidate.ts`)** — shipped in
+  1.1.5. MEASURED on a worst-case 300-member single lesson group: full
+  pairwise similarity = 616 ms, riding the Stop hook's turn boundary.
+  `maxSimilarity` is now computed over the top-20 most-delivered members
+  (<=190 pairs): **616 ms -> 7 ms**. The sampling is documented at the
+  constant; the consolidation apply path still does its own exact pairwise.
+  Deferred with reason: the `doc_synced` priming-dedup idea — it couples
+  sync-doc state to injection state for a token saving the suppression
+  window already bounds; revisit only if priming tokens are measured as a
+  real cost.
 
 ### Locked by AGENTS.md Decision #19 (do not re-propose without new evidence)
 

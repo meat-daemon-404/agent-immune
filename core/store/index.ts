@@ -497,7 +497,7 @@ export class ImmuneStore {
   }
 
   /** Replace a prescription's wording, keeping the rule and its counters. */
-  setPrescription(id: number, prescription: string, source: 'rule' | 'llm' | 'human'): boolean {
+  setPrescription(id: number, prescription: string, source: 'rule' | 'llm' | 'human' | 'host_llm'): boolean {
     return setAntibodyPrescription(this.db, id, prescription, source);
   }
 

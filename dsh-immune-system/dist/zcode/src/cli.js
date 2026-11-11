@@ -86,7 +86,7 @@ function cmdList(store, includeRetired) {
             marks.push('env probation');
         if (ab.retire_reason)
             marks.push(ab.retire_reason);
-        if (ab.prescription_source === 'llm' || ab.prescription_source === 'human') {
+        if (ab.prescription_source === 'llm' || ab.prescription_source === 'human' || ab.prescription_source === 'host_llm') {
             marks.push(`prescription: ${ab.prescription_source}`);
         }
         if (marks.length > 0)

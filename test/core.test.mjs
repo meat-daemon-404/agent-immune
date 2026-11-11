@@ -811,15 +811,72 @@ test('doctor reports the new lifecycle subsystems without turning red', async ()
     assert.match(lifecycle.detail, /probation/, 'probation surfaces');
     assert.match(lifecycle.detail, /detour/, 'detour telemetry surfaces');
 
-    // An empty library reads as the plain nothing-to-report line.
-    const empty = store();
-    const bare = runDoctor(empty, { pluginRoot: join(import.meta.dirname, '..', 'dsh-immune-system') });
-    assert.match(bare.find((row) => row.name === 'lifecycle').detail, /no probation/);
-    empty.close();
-    s.close();
+  // An empty library reads as the plain nothing-to-report line.
+  const empty = store();
+  const bare = runDoctor(empty, { pluginRoot: join(import.meta.dirname, '..', 'dsh-immune-system') });
+  assert.match(bare.find((row) => row.name === 'lifecycle').detail, /no probation/);
+  empty.close();
+  s.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('2.6 host rewrite: guards refuse clobbers, dumps and duplicates; provenance lands', async () => {
+  const { hostRewriteCandidates, applyHostRewrites } = await import(
+    '../dsh-immune-system/dist/core/host-rewrite.js'
+  );
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  const echoId = s.insert({
+    trigger_pattern: 'echo kw',
+    symptom: 'dump',
+    prescription: 'Bash: npm install --legacy-peer-deps --force --no-audit --verbose-long',
+  });
+  assert.ok(echoId);
+
+  // Candidates: the echo rule is listed, advice-grade rules are not.
+  s.insert({ trigger_pattern: 'clean kw', symptom: 'fine', prescription: 'read the file first' });
+  const candidates = hostRewriteCandidates(s);
+  assert.deepEqual(
+    candidates.map((c) => c.id),
+    [echoId],
+    'only the echo rule is a candidate',
+  );
+
+  // Guard 1: the replacement must be advice, not another dump.
+  const dumpAttempt = applyHostRewrites(s, [{ id: echoId, prescription: 'Bash: npm ci --also-mine --verbose' }]);
+  assert.equal(dumpAttempt.results[0].status, 'failed', 'a command dump is refused');
+  assert.match(dumpAttempt.results[0].detail, /command dump/);
+
+  // Guard 2 (on the same pass, since the dump failed): good advice lands with
+  // host_llm provenance and the cooldown is set.
+  const pass = applyHostRewrites(s, [
+    { id: echoId, prescription: 'point the install at the workspace binary' },
+    { id: echoId, prescription: 'duplicate id in one batch' },
+    { id: 9999, prescription: 'advice for a missing rule' },
+  ]);
+  assert.equal(pass.appliedCount, 1);
+  assert.equal(pass.results.find((r) => r.id === echoId)?.status, 'rewritten');
+  assert.equal(pass.results.find((r) => r.status === 'failed' && r.detail.includes('duplicate'))?.id, echoId);
+  assert.ok(pass.results.some((r) => r.status === 'failed' && /no active rule/.test(r.detail)));
+  assert.ok(pass.cooldownUntil, 'the pass set the cooldown');
+  const row = s.byId(echoId);
+  assert.equal(row?.prescription_source, 'host_llm', 'provenance says who wrote it');
+  assert.equal(s.exportable(0).some((r) => r.id === echoId), true, 'the rewritten rule ships');
+
+  // Guard 3: a second pass inside the window is refused wholesale.
+  const blocked = applyHostRewrites(s, [{ id: echoId, prescription: 'yet another advice line' }]);
+  assert.equal(blocked.appliedCount, 0);
+  assert.match(blocked.results[0].detail, /cooldown/);
+  assert.notEqual(s.byId(echoId)?.prescription, 'yet another advice line', 'nothing was written');
+
+  // Guard 4: an already-advice rule is skipped, not clobbered.
+  const meta = s.metaValue('host_rewrite_last_run');
+  s.setMetaValue('host_rewrite_last_run', meta - 13 * 60 * 60 * 1000); // expire the cooldown
+  const clobber = applyHostRewrites(s, [{ id: echoId, prescription: 'honest advice, different words' }]);
+  assert.equal(clobber.results[0].status, 'skipped', 'the rule no longer being echo-grade protects it');
+  assert.match(clobber.results[0].detail, /no longer echo-grade/);
+  s.close();
 });
 
 test('doctor runs the marker check in a real project layout (ESM require crash)', async () => {
