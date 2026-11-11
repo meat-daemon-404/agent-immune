@@ -126,14 +126,16 @@
   parking a good rule) is worse than an occasional weak injection. Current
   retirement is ALREADY a rate gate, not a flat 3-strike (Decision #36:
   `fails >= 3 && fails >= 25% of deliveries`).
-- **Re-entry condition, measured 2026-11-11**: the condition is "suppression
-  outliving rule quality". On every library reachable from this checkout
-  (project db, its shared library, `~/.dsh-immune`): `suppressedRepeats = 0`
-  and total deliveries = 0 — there is no suppression growth at all, so the
-  condition is NOT met; the production library that drove the original
-  decision lives outside this checkout. Measured again if that library is
-  ever placed where the checkout can read it; until then both items stay
-  locked, now by data rather than by silence.
+- **Re-entry condition, measured 2026-11-11 against the PRODUCTION library**
+  (the marker-resolved plugin data db, 45 rules / 6,694 deliveries): the
+  condition is "suppression outliving rule quality". Suppression =
+  `suppressedRepeats = 0` — there is NO suppression to outlive anything;
+  rules hold up (3% blamed). Quality is the weak side (7/15 active rules are
+  echo-grade), and the answer to that is the 1.1.4 share bar plus
+  `immune rewrite` — not a fitness tunable. Condition NOT met; 2.1 and
+  2.5-vector stay locked, now by production data. The actionable echo
+  backlog (`immune rewrite --dry-run`, read-only): rules #68 #75 #76 #78 #79
+  #82 #83.
 
 ## Phase 3: v2.0 — Team Immunity, CI Gate & Evolution Telemetry
 
