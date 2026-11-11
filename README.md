@@ -232,6 +232,8 @@ immune rewrite --id 49,50    # re-do specific rules
 
 Rewritten rules carry `prescription_source = 'llm'`, so captured evidence and model-written wording stay distinguishable in the database. A model will sometimes follow a stale symptom instead of the command — several production rules shared one generic symptom — so the prompt says the command wins, and a rule whose purpose cannot be told from its input is skipped rather than guessed. Rewriting needs a model by design; there is nothing deterministic to say that the original pass did not already say.
 
+**No API key? The host agent is a model.** From any MCP-capable host, `immune_rewrite_candidates` returns the echo-grade rules plus the rewrite contract, and `immune_rewrite_apply` takes your one-sentence rewrites back — guarded (one pass per 12h, at most 3 rules, the rule must still be a dump, and your replacement must be advice or it is refused). Those rules land with `prescription_source = 'host_llm'` and immediately become priming- and export-eligible: on the maintainer's production library this loop retired the three highest-delivered command dumps (6,694 lifetime deliveries between them) without a single endpoint call.
+
 ### When the same lesson exists twice
 
 Near-identical rules are merged on insert, but a rewrite or a model switch can leave two wordings of one lesson apart. `immune consolidate` finds pairs that share a normalized symptom, a tool and a trigger token and whose prescriptions are ≥70% similar; it previews before touching anything:
