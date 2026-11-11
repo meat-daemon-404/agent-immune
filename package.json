@@ -1,6 +1,6 @@
 {
   "name": "dsh-immune-system",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "description": "Self-evolving pitfall immunity for coding agents (Claude Code, Codex, Cursor, ZCode, DSH): capture failed-then-fixed tool episodes as SQLite+FTS5 antibodies and inject them before the agent repeats the mistake. Zero runtime dependencies.",
   "type": "module",
   "license": "MIT",
@@ -27,7 +27,7 @@
   "dsh": {
     "id": "dsh-immune-system",
     "name": "DSH Immune System",
-    "version": "1.1.3",
+    "version": "1.1.4",
     "repo": "meat-daemon-404/agent-immune",
     "permissions": "读取工具调用结果与斜杠命令输入；在本机写 SQLite 抗体库（默认落在 $DSH_HOME/storages/dsh-immune-system/ 下按项目隔离）；仅在显式配置 IMMUNE_LLM_BASE_URL 与 IMMUNE_LLM_MODEL 时才向该端点发起请求；不读取其它插件的配置，不执行任意命令",
     "bundle": {

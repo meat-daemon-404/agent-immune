@@ -1,3 +1,4 @@
+import { looksEchoPrescription } from '../rewrite.js';
 import { buildFtsQuery, cjkBigrams } from './tokenize.js';
 import { isRelated } from '../relevance.js';
 import { prescriptionSimilarity } from '../similarity.js';
@@ -367,7 +368,14 @@ export function exportableAntibodies(db, minHits) {
         WHERE status = 'active' AND hit_count >= ?
         ORDER BY hit_count DESC, created_at DESC`)
         .all(minHits);
-    return raw.map(rowToAntibody);
+    // The share quality bar (#39's line, extended to the two ship surfaces): a
+    // rule whose prescription is a raw command dump does not travel — not into
+    // the managed AGENTS.md block, not into a team SKILL.md. `immune rewrite`
+    // is how an echo graduates onto these surfaces; the evidence suffix (#40)
+    // counts as advice and keeps its eligibility.
+    return raw
+        .map(rowToAntibody)
+        .filter((ab) => !looksEchoPrescription(ab.prescription));
 }
 /**
  * Replace one rule's prescription in place, keeping trigger, symptom and the

@@ -1303,6 +1303,19 @@ test('exports only proven antibodies as SKILL.md', () => {
   const md = renderSkillMarkdown(s.exportable(3), { minHits: 3 });
   assert.match(md, /^---\nname: project-pitfalls/);
   assert.match(md, /\| a\.ts \| bad \| good \| 3 \|/);
+
+  // The share quality bar (#39 extended to the ship surfaces): an echo-grade
+  // prescription does not travel, even proven; `immune rewrite` is how it
+  // graduates. The #40 evidence suffix keeps its eligibility.
+  const echoId = s.insert({
+    trigger_pattern: 'b.ts npm install',
+    symptom: 'wrong installer',
+    prescription: 'Bash: npm install --legacy-peer-deps --force --no-audit',
+  });
+  for (let i = 0; i < 3; i += 1) s.match('b.ts npm install');
+  assert.equal(s.exportable(3).some((r) => r.id === echoId), false, 'echo never ships');
+  s.setPrescription(echoId, 'point the install at the workspace binary', 'llm');
+  assert.equal(s.exportable(3).some((r) => r.id === echoId), true, 'rewritten wording ships');
   s.close();
 });
 

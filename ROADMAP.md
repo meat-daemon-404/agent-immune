@@ -126,6 +126,14 @@
   parking a good rule) is worse than an occasional weak injection. Current
   retirement is ALREADY a rate gate, not a flat 3-strike (Decision #36:
   `fails >= 3 && fails >= 25% of deliveries`).
+- **Re-entry condition, measured 2026-11-11**: the condition is "suppression
+  outliving rule quality". On every library reachable from this checkout
+  (project db, its shared library, `~/.dsh-immune`): `suppressedRepeats = 0`
+  and total deliveries = 0 — there is no suppression growth at all, so the
+  condition is NOT met; the production library that drove the original
+  decision lives outside this checkout. Measured again if that library is
+  ever placed where the checkout can read it; until then both items stay
+  locked, now by data rather than by silence.
 
 ## Phase 3: v2.0 — Team Immunity, CI Gate & Evolution Telemetry
 
