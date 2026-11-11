@@ -85,6 +85,8 @@ npx dsh-immune-system@latest connect codex         # 写 ~/.codex/hooks.json
 
 两个提醒：接完重启宿主会话才生效；**Codex 需要先在 Codex 里跑一次 `/hooks` 信任这些命令**，否则不会执行。
 
+Windows 注意：`npx dsh-immune-system@latest <命令>` 走 shell 解析，cmd 的命令搜索会被当前目录下的**同名目录**绊住——在本仓库 checkout 里（根目录就有 `dsh-immune-system/`）请换到别的目录执行，或按路径直调 CLI：`node dsh-immune-system/dist/zcode/src/cli.js <命令>`。用户在自己的项目里不受影响。
+
 ### 体检：用你已有的历史冷启动
 
 刚装完的库是空的。`immune audit` 把活体配对循环原样重放到这台机器已有的会话历史上——ZCode 的会话库、Codex 的 rollout 文件（`~/.codex/sessions`）、Claude Code 的转录（`~/.claude/projects`，含嵌套的子代理转录；工具结果没带 `is_error` 标记时回退读 `Exit code:` 文本标记）——打印一份可截图分享的摘要（按工具的失败计数、最高频的重复坑点、有用量记录时的可省 token 估算），然后把这些历史蒸馏成你自己最早的一批规则：

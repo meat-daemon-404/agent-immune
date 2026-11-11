@@ -115,6 +115,13 @@ themselves.
 Two notes: restart the host session after connecting, and **Codex requires
 running `/hooks` inside Codex once to trust the commands** before they fire.
 
+Windows note: `npx dsh-immune-system@latest <command>` resolves the bin
+through the shell, and cmd's search trips over a SAME-NAMED directory in the
+current one — inside this repo's checkout (`dsh-immune-system/` sits at the
+root) run it from any other directory, or call the CLI by path:
+`node dsh-immune-system/dist/zcode/src/cli.js <command>`. Users in their own
+projects are unaffected.
+
 ### Auditing the history you already have
 
 A fresh install has an empty library. `immune audit` replays the same
