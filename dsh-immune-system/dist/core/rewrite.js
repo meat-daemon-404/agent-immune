@@ -32,6 +32,13 @@ export function looksEchoPrescription(prescription) {
     // the file" is advice and stays, which is why the length guard is here.
     if (/^Bash:\s/.test(bare) && bare.length > 30)
         return true;
+    // A file-tool dump restates the invocation too ("Write: D:\...\a.mjs") —
+    // found live when sync-doc refreshed this repo's managed block. The flag
+    // requires a PATH in the remainder, not just the tool prefix, so genuine
+    // file-tool advice ("Edit: re-read the file first") keeps its eligibility.
+    const fileTool = bare.match(/^(Edit|Write|MultiEdit|NotebookEdit):\s(.+)$/i);
+    if (fileTool && /[A-Za-z]:[\\/]|\/home\/|\/Users\//.test(fileTool[2] ?? ''))
+        return true;
     return p.length > 160;
 }
 /** Active rules whose prescription is a command dump, worst offenders first. */

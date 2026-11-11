@@ -822,6 +822,16 @@ test('doctor reports the new lifecycle subsystems without turning red', async ()
   }
 });
 
+test('echo detector: file-tool dumps are echoes only when they carry a path', async () => {
+  const { looksEchoPrescription } = await import('../dsh-immune-system/dist/core/rewrite.js');
+  // Dumps restating the invocation — found live in this repo's managed block.
+  assert.equal(looksEchoPrescription('Write: D:\\repos\\shop\\worker\\restore-account.test.mjs'), true);
+  assert.equal(looksEchoPrescription('Edit: C:/Users/me/memory/MEMORY.md'), true);
+  // Genuine file-tool advice keeps its eligibility (#39's original note).
+  assert.equal(looksEchoPrescription('Edit: re-read the file first'), false);
+  assert.equal(looksEchoPrescription('Write: the file with the corrected schema'), false);
+});
+
 test('2.6 host rewrite: guards refuse clobbers, dumps and duplicates; provenance lands', async () => {
   const { hostRewriteCandidates, applyHostRewrites } = await import(
     '../dsh-immune-system/dist/core/host-rewrite.js'
