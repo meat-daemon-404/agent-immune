@@ -879,4 +879,21 @@ test('DSH parity: normalises TargetFile repair paths and skips self-noise in dra
   assert.match(skipped[0].note, /self-noise/);
 });
 
+test('DSH /immune-export enforces the share gate when rules leak paths or emails', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const s = new ImmuneStore({ dbPath });
+  const badId = s.insert({
+    trigger_pattern: 'Edit C:\\Users\\alice\\config.ts',
+    symptom: 'edited wrong file',
+    prescription: 'read workspace relative file first',
+  });
+  s['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id = ?').run(badId);
+  s.close();
+
+  const blocked = fx.commands.find((c) => c.name === 'immune-export').handler({ rawInput: '' });
+  assert.equal(blocked.kind, 'error');
+  assert.match(blocked.text, /export blocked by the share gate/);
+});
+
 

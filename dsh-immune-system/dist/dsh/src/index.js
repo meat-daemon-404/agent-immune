@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { ImmuneStore } from '../../core/store/index.js';
 import { stuckHypothesisText } from '../../core/store/stuck.js';
 import { renderSkillMarkdown } from '../../core/export.js';
+import { formatShareViolations, shareSanityCheck } from '../../core/share-guard.js';
 import { distillEpisode, isSubstantiveHint } from '../../core/distiller.js';
 import { applyDistillResult } from '../../core/commit.js';
 import { currentFingerprint } from '../../core/env-fingerprint.js';
@@ -653,6 +654,10 @@ function startPlugin(ctx) {
             const rows = store.exportable(3);
             if (rows.length === 0)
                 return { kind: 'success', text: t.noExport };
+            const violations = shareSanityCheck(rows);
+            if (violations.length > 0) {
+                return { kind: 'error', text: formatShareViolations(violations) };
+            }
             const md = renderSkillMarkdown(rows, { minHits: 3 });
             return { kind: 'success', text: `${t.exported} ${rows.length}\n\n${md}` };
         },

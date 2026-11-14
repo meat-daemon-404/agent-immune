@@ -227,6 +227,15 @@ test('the full learning loop works over MCP tools', async (t) => {
       });
       const directList = callTool(directStore, 'immune_list', {});
       assert.match(directList, /repaired by: Edit tsconfig\.json \| Bash npm run build/);
+
+      const leakId = directStore.insert({
+        trigger_pattern: 'deploy C:\\Users\\alice\\app',
+        symptom: 'wrong target',
+        prescription: 'use workspace relative path',
+      });
+      directStore['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id = ?').run(leakId);
+      const blockedExport = callTool(directStore, 'immune_export', { minHits: 3 });
+      assert.match(blockedExport, /export blocked by the share gate/);
     } finally {
       directStore.close();
     }

@@ -13,6 +13,7 @@
  * pass, at most one pass per 12h — the same shape sleep-consolidation uses.
  */
 import { looksEchoPrescription } from './rewrite.js';
+import { redactOutbound } from './redact.js';
 import type { ImmuneStore } from './store/index.js';
 
 /** At most this many echo rules per delegated pass. */
@@ -46,9 +47,9 @@ export function hostRewriteCandidates(store: ImmuneStore, limit = HOST_REWRITE_B
     .map((rule) => ({
       id: rule.id,
       tool_name: rule.tool_name,
-      trigger_pattern: rule.trigger_pattern,
-      symptom: rule.symptom,
-      prescription: rule.prescription,
+      trigger_pattern: redactOutbound(rule.trigger_pattern),
+      symptom: redactOutbound(rule.symptom),
+      prescription: redactOutbound(rule.prescription),
       hit_count: rule.hit_count,
     }));
 }

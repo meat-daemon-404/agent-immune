@@ -99,17 +99,29 @@ npx dsh-immune-system@latest audit             # 报告 + 蒸馏（配了 LLM �
 
 缺席也是明说的：某个源在这台机器上没有历史，就打印自己那一行。Codex rollout 格式和 ZCode 库结构对过真实文件；Claude Code 转录解析器目前只有夹具测试——等它见过一次真实安装再转正，报告里每次都会注明这一点。跑不了钩子的 agent（Cursor、Cline 等）走 MCP 拿同一份报告：`immune_audit` 是只读预览（写入版留在终端——MCP 宿主没有回合末 drain），`immune_seed_packs` 列出种子包。
 
-### 种子包
+### 种子包与外部 Skill 按需索引
 
-不是每个坑你都踩过。四套手工编写的规则包——与内置通用教训同一信任等级，**不是**模型输出——走正常 insert 路径安装，你已经学过的同文规则会合并而不是重复：
+不是每个坑你都踩过。五套手工编写的规则包——与内置通用教训同一信任等级，**不是**模型输出——走正常 insert 路径安装，你已经学过的同文规则会合并而不是重复：
 
 ```bash
-npx dsh-immune-system@latest seed            # 列出所有包
-npx dsh-immune-system@latest seed git-safety # 装一套（6 条）
+npx dsh-immune-system@latest seed                      # 列出包与当前项目识别到的 Baseline
+npx dsh-immune-system@latest seed git-safety           # 装一套
+npx dsh-immune-system@latest seed modern-web           # 现代 Web 规则（按项目 Baseline 过滤）
+npx dsh-immune-system@latest seed modern-web --baseline widely  # 强制只装广泛兼容子集
 npx dsh-immune-system@latest seed git-safety --remove  # 卸载
 ```
 
-卸载是保守的：agent 已经命中过的、或你改写过措辞的种子规则会被保留——它们现在承载的是你自己的证据。现有包：`git-safety`、`node-ts`、`python-uv`、`docker`。每条发布出去的规则都受 `scripts/bench-seed-recall.mjs`（也在 CI 里）约束：用换过说法的用户提问必须能在 top-3 召回它——当前 R@3 100%、零误报。
+卸载是保守的：agent 已经命中过的、或你改写过措辞的种子规则会被保留——它们现在承载的是你自己的证据。现有包：`git-safety`、`node-ts`、`python-uv`、`docker`、`modern-web`（仅当检测到 Vite/Next/React 或 `index.html` 等前端标志时自动预热，并读取 `.browserslistrc`、`package.json#browserslist` 与 `tsconfig.json` `target`，避免在旧浏览器兼容项目里误推 CSS Anchor Positioning / View Transitions 等 `Newly available` 特性）。每条发布出去的规则都受 `scripts/bench-seed-recall.mjs`（也在 CI 里）约束：用换过说法的用户提问必须能在 top-3 召回它——当前 R@3 100%、零误报。
+
+遇到成百上千条的前端/框架指南（例如 `modern-web-guidance` 或团队自己的 `SKILL.md` / Markdown 手册）时，不需要整份塞进每轮上下文，可用 `ingest-skill` 按章节/表格索引进 FTS5，只在触发相关编辑或报错时按需召回：
+
+```bash
+npx dsh-immune-system@latest ingest-skill ./path/to/guidance --pack web-guidance
+npx dsh-immune-system@latest ingest-skill ./SKILL.md --baseline widely
+npx dsh-immune-system@latest ingest-skill --remove --pack web-guidance
+```
+
+导入的规则同样经过密钥/路径脱敏和项目 Baseline 过滤，零静态 token 占用。
 
 ### 装完先自检：该看到什么，没看到查什么
 
@@ -200,7 +212,7 @@ description: 本仓库踩过的坑 … 11 proven rules.
 | … | … | … | … |
 ```
 
-仪表盘的 `/api/export?format=json` 导出的快照能被 `immune import` 读回，团队可以从某个人的成熟规则起步。导出有闸门：规则里还带着机器路径或密钥形状的文本时**导出直接失败**，而不是把问题带给团队——脱敏在捕获时清洗 trace，这道闸检查的是规则本身。
+仪表盘的 `/api/export?format=json` 导出的快照能被 `immune import` 读回，团队可以从某个人的成熟规则起步。全部导出出口（CLI `export` / `export-json` / `sync-doc`、MCP `immune_export`、DSH `/immune-export` 以及返回 HTTP `422` 的 `/api/export`）均强制经过隐私闸门：落盘、发送外部 LLM 及仪表盘展示前会自动脱敏 JSON 转义凭据、`.npmrc` `_authToken`、URL 查询凭据、敏感请求头、PEM/SSH 私钥、邮箱及本机用户名路径，仍含机器路径或密钥形状文本的规则会被直接拦截，不会流出团队。
 
 ### 遥测：弯路、进化曲线和 CI 闸门
 

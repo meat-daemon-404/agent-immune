@@ -224,3 +224,33 @@ test('shared view filters by query and oversized bodies return 413', async (t) =
   });
   assert.equal(huge.status, 413);
 });
+
+test('dashboard masks OS usernames in rendered HTML and blocks unsafe exports with 422', async (t) => {
+  const { renderPage } = await import('../dsh-immune-system/dist/core/ui/page.js');
+  const html = renderPage({
+    token: 'tok',
+    locale: 'en',
+    dbPath: 'C:\\Users\\alice_private\\.zcode\\immune.sqlite',
+    budgetMs: 12000,
+  });
+  assert.doesNotMatch(html, /alice_private/, 'header badge must mask OS username');
+  assert.match(html, /C:\\Users\\&lt;user&gt;\\\.zcode\\immune\.sqlite/);
+
+  const { handle, token, dbPath } = await boot(t);
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(dbPath);
+  db.prepare(
+    'UPDATE antibodies SET hit_count = 5, trigger_pattern = ? WHERE trigger_pattern = ?',
+  ).run('Edit C:\\Users\\alice_private\\secret.ts', 'vite.config.ts loadEnv');
+  db.close();
+
+  const md = await fetch(`${handle.url}api/export?format=md&t=${token}`);
+  assert.equal(md.status, 422);
+  const mdJson = await md.json();
+  assert.equal(mdJson.violations[0].kind, 'machine-path');
+
+  const json = await fetch(`${handle.url}api/export?format=json&t=${token}`);
+  assert.equal(json.status, 422);
+  const jsonErr = await json.json();
+  assert.equal(jsonErr.violations[0].kind, 'machine-path');
+});

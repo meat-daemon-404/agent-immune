@@ -23,6 +23,7 @@ import { resolveLocale } from '../i18n.js';
 import { applyAction, dashboardStats, evolutionStats, readState, resolveBudgetMs } from './query.js';
 import { exportLibrary, importLibrary } from '../sync.js';
 import { renderSkillMarkdown } from '../export.js';
+import { shareSanityCheck } from '../share-guard.js';
 
 export interface UiServerOptions {
   /** Database to open. Defaults to the host's resolution. */
@@ -109,6 +110,13 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     if (path === '/api/export' && req.method === 'GET') {
       // Token-gated like every /api path: the download link carries it.
       const format = url.searchParams.get('format') === 'json' ? 'json' : 'md';
+      const snapshot = format === 'json' ? exportLibrary(store) : null;
+      const exportRows = snapshot ? snapshot.antibodies : store.exportable(3);
+      const violations = shareSanityCheck(exportRows);
+      if (violations.length > 0) {
+        sendJson(res, 422, { error: 'export blocked by the share gate', violations });
+        return;
+      }
       res.writeHead(200, {
         'content-type':
           format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8',
@@ -117,9 +125,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
         'x-content-type-options': 'nosniff',
       });
       res.end(
-        format === 'json'
-          ? JSON.stringify(exportLibrary(store), null, 2)
-          : renderSkillMarkdown(store.exportable(3)),
+        snapshot ? JSON.stringify(snapshot, null, 2) : renderSkillMarkdown(store.exportable(3)),
       );
       return;
     }

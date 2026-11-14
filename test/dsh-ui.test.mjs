@@ -376,3 +376,29 @@ test('the host route returns evolution stats and the client preserves them in st
     delete globalThis.document;
   }
 });
+
+test('the host export route blocks rules caught by the share gate with 422', async (t) => {
+  const { route, store } = bootRoute(t);
+  const api = '/plugins/dsh-immune-system/api';
+  const id = store.insert({
+    trigger_pattern: 'mail dev@company.example',
+    symptom: 'broken env',
+    prescription: 'read C:\\Users\\alice\\env before running',
+  });
+  store['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id = ?').run(id);
+
+  const md = await callRoute(route, {
+    method: 'GET',
+    url: `${api}/export`,
+    headers: { host: '127.0.0.1:7788' },
+  });
+  assert.equal(md.status, 422);
+  assert.ok(Array.isArray(md.body.violations) && md.body.violations.length >= 1);
+
+  const json = await callRoute(route, {
+    method: 'GET',
+    url: `${api}/export?format=json`,
+    headers: { host: '127.0.0.1:7788' },
+  });
+  assert.equal(json.status, 422);
+});

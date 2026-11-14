@@ -221,3 +221,109 @@ test('the drain only hands the model work the budget can cover', async (t) => {
   assert.equal(calls, 1, 'a covered budget reaches the model');
   assert.equal(store.stats().llmDistilled, 1);
 });
+
+test('outbound LLM prompts are sanitized and upstream errors redact echoed secrets', async (t) => {
+  const { chat, readLlmConfig, assertSafeEndpoint } = await import(mod);
+  const { distillEpisode, distillBatch } = await import(distillerMod);
+  const { rewriteEchoes } = await import('../dsh-immune-system/dist/core/rewrite.js');
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+
+  const receivedBodies = [];
+  let mode = 'distill';
+  const server = await startServer((_req, res, body) => {
+    receivedBodies.push(body);
+    if (mode === 'error-body') {
+      res.writeHead(502, { 'content-type': 'application/json' });
+      res.end('upstream error with leaked Bearer leakedupstreamtoken12345');
+      return;
+    }
+    if (mode === 'batch') {
+      respond(
+        res,
+        JSON.stringify([
+          { id: 1, trigger_pattern: 'build error', symptom: 'wrong flag', prescription: 'pass clean flag' },
+          { id: 2, trigger_pattern: 'lint error', symptom: 'wrong dir', prescription: 'run in workspace root' },
+        ]),
+      );
+      return;
+    }
+    if (mode === 'rewrite') {
+      respond(res, '{"prescription":"read config from workspace env"}');
+      return;
+    }
+    respond(res, '{"trigger_pattern":"config path","symptom":"missing var","prescription":"set env var"}');
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const { port } = server.address();
+  const llm = {
+    ...readLlmConfig({ IMMUNE_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`, IMMUNE_LLM_MODEL: 'm' }),
+    allowPrivate: true,
+    timeoutMs: 5_000,
+  };
+
+  await distillEpisode(
+    'Bash',
+    'tool=Bash input={"api_key":"jsonsecretvalue999"} error=C:\\Users\\alice\\app\\fail.ts alice@company.example',
+    'tool=Bash result=ok on /Users/alice/app',
+    { llm, humanHint: 'Ask bob@company.example or edit /home/bob/.env' },
+  );
+
+  mode = 'batch';
+  await distillBatch(
+    [
+      {
+        id: 1,
+        toolName: 'Bash',
+        failedTrace: 'failed at C:\\Users\\alice\\p1 with {"password":"batchsecretvalue99"}',
+        fixedTrace: 'fixed at /home/alice/p1',
+        humanHint: 'mail carol@company.example',
+        repairs: ['Edit C:\\Users\\alice\\cfg.json'],
+      },
+      {
+        id: 2,
+        toolName: 'Bash',
+        failedTrace: 'failed at /Users/bob/p2',
+        fixedTrace: 'fixed at /Users/bob/p2',
+      },
+    ],
+    { llm },
+  );
+
+  mode = 'rewrite';
+  const s = new ImmuneStore({ dbPath: ':memory:' });
+  // Seed a row whose text simulates a pre-upgrade row containing a path/email/token.
+  const now = Date.now();
+  s['db']
+    .prepare('INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('C:\\Users\\alice\\cmd', 'alice@company.example failed', 'Bash: curl -H "Authorization: Bearer rewritesecret9999"', 'Bash', now, now);
+  await rewriteEchoes(s, { llm });
+  s.close();
+
+  const wireText = receivedBodies.join('\n');
+  for (const leak of [
+    'alice',
+    'bob',
+    'alice@company.example',
+    'bob@company.example',
+    'carol@company.example',
+    'jsonsecretvalue999',
+    'batchsecretvalue99',
+    'rewritesecret9999',
+  ]) {
+    assert.ok(!wireText.includes(leak), `outbound wire payload leaked ${leak}`);
+  }
+
+  mode = 'error-body';
+  await assert.rejects(
+    () => chat(llm, 'sys', 'hello'),
+    (err) => {
+      assert.doesNotMatch(err.message, /leakedupstreamtoken12345/);
+      assert.match(err.message, /Bearer <redacted>/);
+      return true;
+    },
+  );
+  assert.throws(
+    () => assertSafeEndpoint('https://user:secretpass@bad host/v1?api_key=badquery999'),
+    (err) => !err.message.includes('secretpass') && !err.message.includes('badquery999'),
+  );
+});

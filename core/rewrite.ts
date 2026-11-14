@@ -12,6 +12,7 @@
 import type { Antibody } from './types.js';
 import type { LlmConfig } from './llm.js';
 import { chat } from './llm.js';
+import { redactOutbound } from './redact.js';
 import type { ImmuneStore } from './store/index.js';
 
 export const REWRITE_PROMPT = `You rewrite ONE stored pitfall rule so its prescription reads as an action, not a command dump.
@@ -136,9 +137,9 @@ export async function rewriteEchoes(
     }
     const input = JSON.stringify({
       tool: rule.tool_name ?? '',
-      trigger: rule.trigger_pattern,
-      symptom: rule.symptom,
-      currentPrescription: rule.prescription,
+      trigger: redactOutbound(rule.trigger_pattern),
+      symptom: redactOutbound(rule.symptom),
+      currentPrescription: redactOutbound(rule.prescription),
     });
     try {
       const answer = await call(opts.llm, REWRITE_PROMPT, input);

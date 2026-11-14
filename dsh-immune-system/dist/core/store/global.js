@@ -18,7 +18,8 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync as Database } from 'node:sqlite';
 import { SCHEMA_STATEMENTS } from './schema.js';
 import { openDatabase } from './open.js';
-import { findMatches, insertAntibody, bumpHits, listAntibodies, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { findMatches, insertAntibody, bumpHits, listAntibodies, pruneZombieAntibodies, retireZombieAntibodies } from './antibodies.js';
+import { redactEmails } from '../redact.js';
 /** File name of the shared library next to the per-project database. */
 export const GLOBAL_DB_FILE = 'global.sqlite';
 /** Path of the global library that belongs to a given project database. */
@@ -104,7 +105,7 @@ export function isPromotable(antibody, generic) {
         return false;
     const text = `${antibody.trigger_pattern} ${antibody.prescription}`;
     const mentionsPath = /[\\/]|\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|py|go|rs|java|yml|yaml)\b/i.test(text);
-    if (mentionsPath)
+    if (mentionsPath || redactEmails(text) !== text)
         return false;
     return (antibody.hit_count ?? 0) >= 5;
 }

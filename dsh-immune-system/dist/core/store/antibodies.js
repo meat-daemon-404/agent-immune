@@ -1,3 +1,4 @@
+import { redact } from '../redact.js';
 import { looksEchoPrescription } from '../rewrite.js';
 import { buildFtsQuery, cjkBigrams } from './tokenize.js';
 import { isRelated } from '../relevance.js';
@@ -144,17 +145,17 @@ export function mutateRule(db, parentId, incomingTokens, evidence = {}) {
 function toRepairJson(repairPath) {
     const actions = (repairPath ?? [])
         .filter((v) => typeof v === 'string')
-        .map((v) => v.trim().slice(0, 120))
+        .map((v) => redact(v).trim().slice(0, 120))
         .filter(Boolean)
         .slice(-3);
     return JSON.stringify(actions);
 }
 export function insertAntibody(db, ab, options = {}) {
-    // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
-    // Without these, one bloated rule dominates every later injection.
-    const trigger = ab.trigger_pattern.trim().slice(0, 200);
-    const symptom = ab.symptom.trim().slice(0, 160);
-    const prescription = ab.prescription.trim().slice(0, 200);
+    // Defensive caps and capture-time redaction: manual, imported, or LLM-authored
+    // rules must never store unredacted credentials either.
+    const trigger = redact(ab.trigger_pattern).trim().slice(0, 200);
+    const symptom = redact(ab.symptom).trim().slice(0, 160);
+    const prescription = redact(ab.prescription).trim().slice(0, 200);
     if (!trigger || !prescription)
         return null;
     const now = Date.now();
@@ -194,7 +195,7 @@ export function insertAntibody(db, ab, options = {}) {
     const info = db
         .prepare(`INSERT INTO antibodies (trigger_pattern, symptom, prescription, tool_name, repair_path, origin, env_fingerprint, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(trigger, ab.symptom.trim(), prescription, ab.tool_name ?? null, toRepairJson(ab.repair_path), ab.origin ?? '', ab.env_fingerprint ?? '', now, now);
+        .run(trigger, symptom, prescription, ab.tool_name ?? null, toRepairJson(ab.repair_path), ab.origin ?? '', ab.env_fingerprint ?? '', now, now);
     const newId = Number(info.lastInsertRowid);
     // ROADMAP 3.1: the new environment just re-learned this lesson on its own —
     // a same-lesson probation rule is superseded_by_env_upgrade. Exact lesson
@@ -386,7 +387,7 @@ export function setPrescription(db, id, prescription, source) {
     const info = db
         .prepare(`UPDATE antibodies SET prescription = ?, prescription_source = ?, updated_at = ?
         WHERE id = ?`)
-        .run(prescription.trim().slice(0, 200), source, Date.now(), id);
+        .run(redact(prescription).trim().slice(0, 200), source, Date.now(), id);
     return Number(info.changes) > 0;
 }
 /**

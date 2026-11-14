@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { redact } from '../redact.js';
 import { looksEchoPrescription } from '../rewrite.js';
 import type { Antibody, AntibodyStatus, NewAntibody } from '../types.js';
 import { buildFtsQuery, cjkBigrams } from './tokenize.js';
@@ -187,7 +188,7 @@ export function mutateRule(
 function toRepairJson(repairPath?: string[]): string {
   const actions = (repairPath ?? [])
     .filter((v): v is string => typeof v === 'string')
-    .map((v) => v.trim().slice(0, 120))
+    .map((v) => redact(v).trim().slice(0, 120))
     .filter(Boolean)
     .slice(-3);
   return JSON.stringify(actions);
@@ -198,11 +199,11 @@ export function insertAntibody(
   ab: NewAntibody,
   options: InsertOptions = {},
 ): number | null {
-  // Defensive caps: the model path clamps in prompts.ts, the rule path does not.
-  // Without these, one bloated rule dominates every later injection.
-  const trigger = ab.trigger_pattern.trim().slice(0, 200);
-  const symptom = ab.symptom.trim().slice(0, 160);
-  const prescription = ab.prescription.trim().slice(0, 200);
+  // Defensive caps and capture-time redaction: manual, imported, or LLM-authored
+  // rules must never store unredacted credentials either.
+  const trigger = redact(ab.trigger_pattern).trim().slice(0, 200);
+  const symptom = redact(ab.symptom).trim().slice(0, 160);
+  const prescription = redact(ab.prescription).trim().slice(0, 200);
   if (!trigger || !prescription) return null;
 
   const now = Date.now();
@@ -260,7 +261,7 @@ export function insertAntibody(
     )
     .run(
       trigger,
-      ab.symptom.trim(),
+      symptom,
       prescription,
       ab.tool_name ?? null,
       toRepairJson(ab.repair_path),
@@ -501,7 +502,7 @@ export function setPrescription(
       `UPDATE antibodies SET prescription = ?, prescription_source = ?, updated_at = ?
         WHERE id = ?`,
     )
-    .run(prescription.trim().slice(0, 200), source, Date.now(), id);
+    .run(redact(prescription).trim().slice(0, 200), source, Date.now(), id);
   return Number(info.changes) > 0;
 }
 

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { ciCheck, parseManagedBlock, shareSanityCheck } from '../dsh-immune-system/dist/core/share-guard.js';
+import { ciCheck, formatShareViolations, parseManagedBlock, shareSanityCheck } from '../dsh-immune-system/dist/core/share-guard.js';
 import { SECTION_START, SECTION_END } from '../dsh-immune-system/dist/core/sync-doc.js';
 
 test('3.2 share gate: machine paths and secret-shaped text block an export', () => {
@@ -94,4 +94,58 @@ test('3.2 share gate + echo detector do not mistake https:// URLs for Windows pa
   assert.equal(looksEchoPrescription(withUrl.prescription), false, 'URL after Edit: is not a local file path');
   assert.equal(looksEchoPrescription('Edit: C:\\repo\\secret.ts'), true, 'real Windows drive path is still flagged');
   assert.equal(looksEchoPrescription('bash: npm run build -- --mode production'), true, 'lowercase bash: is caught');
+});
+
+test('3.2 share gate catches UNC paths, /root paths, emails, and repair_path leaks', () => {
+  const unc = { trigger_pattern: 'copy file', symptom: 'bad', prescription: 'read \\\\fileserver\\team\\secret.env' };
+  const rootPath = { trigger_pattern: 'fix perms', symptom: 'EACCES', prescription: 'check /root/.ssh/config' };
+  const email = { trigger_pattern: 'git push', symptom: 'wrong author', prescription: 'ask dev@company.example' };
+  const repairLeak = {
+    trigger_pattern: 'clean rule',
+    symptom: 'missing config',
+    prescription: 're-run build',
+    repair_path: ['Edit C:\\Users\\alice\\.env'],
+  };
+
+  assert.equal(shareSanityCheck([unc])[0]?.kind, 'machine-path');
+  assert.equal(shareSanityCheck([rootPath])[0]?.kind, 'machine-path');
+  assert.equal(shareSanityCheck([email])[0]?.kind, 'email');
+  const repairFindings = shareSanityCheck([repairLeak]);
+  assert.equal(repairFindings[0]?.field, 'repair_path');
+  assert.equal(repairFindings[0]?.kind, 'machine-path');
+  assert.match(formatShareViolations(repairFindings), /export blocked by the share gate/);
+});
+
+test('3.2 CLI export-json enforces the share gate before writing snapshot output', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { existsSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+
+  const dir = mkdtempSync(join(tmpdir(), 'immune-cli-gate-'));
+  try {
+    const dbPath = join(dir, 'immune.sqlite');
+    const s = new ImmuneStore({ dbPath });
+    s.insert({
+      trigger_pattern: 'Edit C:\\Users\\alice\\.env',
+      symptom: 'edited private env file',
+      prescription: 'use .env.example instead',
+    });
+    s.close();
+
+    const outJson = join(dir, 'snap.json');
+    let failed = false;
+    try {
+      execFileSync(process.execPath, [resolve('dsh-immune-system/dist/zcode/src/cli.js'), 'export-json', outJson], {
+        env: { ...process.env, IMMUNE_DB_PATH: dbPath },
+        stdio: 'pipe',
+      });
+    } catch (err) {
+      failed = err.status === 1 && /export blocked by the share gate/.test(String(err.stderr ?? ''));
+    }
+    assert.equal(failed, true, 'cli export-json must fail with share gate details');
+    assert.equal(existsSync(outJson), false, 'blocked snapshot must not be written to disk');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+  }
 });

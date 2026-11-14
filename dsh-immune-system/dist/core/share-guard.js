@@ -14,11 +14,11 @@
  *     CI has no immune database, but it has the committed managed section.
  */
 import { readFileSync, existsSync } from 'node:fs';
-import { redact } from './redact.js';
+import { redact, redactEmails } from './redact.js';
 import { signals } from './relevance.js';
 import { SECTION_START, SECTION_END } from './sync-doc.js';
 /** Machine paths that must never leave the machine. */
-const MACHINE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/](?![\\/])[^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120})/;
+const MACHINE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/](?![\\/])[^\s|'"<>]{1,120}|(?<![:\\A-Za-z0-9])\\\\[A-Za-z0-9._-]{2,}\\[^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120}|\/root\/[^\s|'"<>]{1,120})/;
 const TOOL_NAMES = new Set(['bash', 'edit', 'write', 'read', 'multiedit', 'notebookedit', 'grep', 'glob']);
 /**
  * Inspect the rules destined for a shareable artifact. The FIRST violation is
@@ -28,8 +28,15 @@ export function shareSanityCheck(rules) {
     const out = [];
     for (let index = 0; index < rules.length; index += 1) {
         const rule = rules[index];
-        for (const field of ['trigger_pattern', 'symptom', 'prescription']) {
-            const text = String(rule[field] ?? '');
+        const candidates = [
+            ['trigger_pattern', String(rule.trigger_pattern ?? '')],
+            ['symptom', String(rule.symptom ?? '')],
+            ['prescription', String(rule.prescription ?? '')],
+        ];
+        if (Array.isArray(rule.repair_path) && rule.repair_path.length > 0) {
+            candidates.push(['repair_path', rule.repair_path.join(' | ')]);
+        }
+        for (const [field, text] of candidates) {
             const pathMatch = text.match(MACHINE_PATH);
             if (pathMatch) {
                 out.push({ rule: index + 1, field, kind: 'machine-path', sample: redact(pathMatch[0]) });
@@ -37,12 +44,25 @@ export function shareSanityCheck(rules) {
             }
             if (redact(text) !== text) {
                 out.push({ rule: index + 1, field, kind: 'secret-shaped', sample: redact(text).slice(0, 60) });
+                continue;
+            }
+            if (redactEmails(text) !== text) {
+                out.push({ rule: index + 1, field, kind: 'email', sample: redactEmails(text).slice(0, 60) });
             }
             if (out.length >= 20)
                 return out;
         }
     }
     return out;
+}
+/** Consistent human-readable summary shared by every blocked export path. */
+export function formatShareViolations(violations) {
+    const lines = ['export blocked by the share gate:'];
+    for (const violation of violations) {
+        lines.push(`  rule ${violation.rule} ${violation.field}: ${violation.kind} — "${violation.sample}"`);
+    }
+    lines.push('fix or forget those rules, then re-export');
+    return lines.join('\n');
 }
 /**
  * Parse the rules a repository committed into its managed AGENTS.md section.

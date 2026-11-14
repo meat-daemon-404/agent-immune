@@ -22,11 +22,13 @@ import { ROUND_TRIPS_PER_REPEAT, estimateAvoided, formatTokens } from '../../cor
 import { coverage } from '../../core/coverage.js';
 import { echoCandidates, rewriteEchoes } from '../../core/rewrite.js';
 import { auditHistory, renderAuditReport } from '../../core/audit.js';
+import { detectProjectBaselineDetail, filterRulesByBaseline, parseBaselineFlag } from '../../core/baseline.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
+import { ingestSkillPaths, normalizeSkillPackId } from '../../core/skill-ingest.js';
 import { CONSOLIDATE_SIMILARITY, consolidateRules, findConsolidationCandidates, findLessonGroups, } from '../../core/consolidate.js';
 import { sleepReviewGroupsOf } from '../../core/sleep-consolidate.js';
 import { HOSTS, connectAllDetected, connectHost, connectStatus, disconnectHost } from '../../core/connect.js';
-import { ciCheck, parseManagedBlock, shareSanityCheck } from '../../core/share-guard.js';
+import { ciCheck, formatShareViolations, parseManagedBlock, shareSanityCheck } from '../../core/share-guard.js';
 import { startUiServer } from '../../core/ui/server.js';
 import { runDoctor } from './doctor.js';
 import { dshDirOf, selfMarkers } from './root-marker.js';
@@ -57,6 +59,36 @@ function clamp(value, columns) {
         used += w;
     }
     return `${out}…`;
+}
+function parseSeedCliArgs(args, valueFlags) {
+    const valueSet = new Set(valueFlags);
+    const positional = [];
+    const values = new Map();
+    const booleans = new Set();
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === undefined)
+            continue;
+        if (!arg.startsWith('--')) {
+            positional.push(arg);
+            continue;
+        }
+        const eq = arg.indexOf('=');
+        if (eq > 0) {
+            const flag = arg.slice(0, eq);
+            if (valueSet.has(flag))
+                values.set(flag, arg.slice(eq + 1));
+            continue;
+        }
+        if (valueSet.has(arg) && i + 1 < args.length) {
+            const nextVal = args[++i];
+            if (nextVal !== undefined)
+                values.set(arg, nextVal);
+            continue;
+        }
+        booleans.add(arg);
+    }
+    return { positional, values, booleans };
 }
 function cmdList(store, includeRetired) {
     const t = strings();
@@ -165,11 +197,7 @@ function cmdExport(store, args) {
     // at capture time (#10) is the first line; this is the second.
     const violations = shareSanityCheck(rows);
     if (violations.length > 0) {
-        process.stderr.write('export blocked by the share gate:\n');
-        for (const violation of violations) {
-            process.stderr.write(`  rule ${violation.rule} ${violation.field}: ${violation.kind} — "${violation.sample}"\n`);
-        }
-        process.stderr.write('fix or forget those rules, then re-export\n');
+        process.stderr.write(`${formatShareViolations(violations)}\n`);
         process.exitCode = 1;
         return;
     }
@@ -610,34 +638,105 @@ function main(argv) {
                 // Cold-start starter rules. Hand-authored by the maintainers (the
                 // trust class of core/lessons.ts, not model output), installed through
                 // the normal insert path so duplicates merge and removal is tracked.
-                const packId = args.find((arg) => !arg.startsWith('--'));
-                const remove = args.includes('--remove');
+                const flags = parseSeedCliArgs(args, ['--baseline']);
+                const packId = flags.positional[0];
+                const remove = flags.booleans.has('--remove');
+                const baselineRaw = flags.values.get('--baseline');
+                const explicitBaseline = parseBaselineFlag(baselineRaw);
+                if (baselineRaw !== undefined && !explicitBaseline) {
+                    process.stderr.write(`seed: invalid --baseline "${baselineRaw}" (expected widely or newly)\n`);
+                    return 2;
+                }
                 if (!packId) {
                     const counts = store.seededPackCounts();
-                    process.stdout.write('Builtin seed packs (immune seed <id> [--remove]):\n');
+                    const detected = detectProjectBaselineDetail(process.cwd());
+                    process.stdout.write(`Builtin seed packs (immune seed <id> [--baseline widely|newly] [--remove], project baseline: ${detected.level}` +
+                        (detected.source ? ` from ${detected.source}` : '') +
+                        '):\n');
                     for (const pack of BUILTIN_PACKS) {
                         const installed = counts.get(pack.id) ?? 0;
                         process.stdout.write(`  ${pack.id.padEnd(12)} ${String(installed).padStart(2)}/${pack.rules.length} seeded · ` +
                             `${pack.label} — ${pack.description}\n`);
                     }
+                    const skillPacks = [...counts.entries()].filter(([id]) => id.startsWith('skill:'));
+                    if (skillPacks.length > 0) {
+                        process.stdout.write('Ingested skill packs (`immune ingest-skill <path...> [--remove]`):\n');
+                        for (const [id, count] of skillPacks) {
+                            process.stdout.write(`  ${id.padEnd(20)} ${count} rule(s) indexed on demand\n`);
+                        }
+                    }
                     return 0;
                 }
                 const pack = BUILTIN_PACKS.find((candidate) => candidate.id === packId);
-                if (!pack) {
+                if (!pack && !packId.startsWith('skill:')) {
                     process.stderr.write(`seed: unknown pack "${packId}". Builtin packs: ${BUILTIN_PACKS.map((p) => p.id).join(', ')}\n`);
                     return 2;
                 }
                 if (remove) {
-                    const report = store.removeSeedPack(pack.id);
+                    const targetId = pack ? pack.id : packId;
+                    const report = store.removeSeedPack(targetId);
                     const kept = report.keptChanged + report.keptProven;
-                    process.stdout.write(`removed ${report.removed} seeded rule(s) from ${pack.id}` +
+                    process.stdout.write(`removed ${report.removed} seeded rule(s) from ${targetId}` +
                         (kept > 0
                             ? ` · kept ${kept} (changed or proven since seeding, evidence preserved)\n`
                             : '\n'));
                     return 0;
                 }
-                const report = store.seedPack(pack.id, pack.rules);
-                process.stdout.write(`seeded ${pack.id}: ${report.inserted} rule(s) added · ${report.alreadySeeded} already seeded\n`);
+                if (!pack) {
+                    process.stderr.write(`seed: use \`immune ingest-skill <path> --pack ${packId}\` to install external skills\n`);
+                    return 2;
+                }
+                const hasBaselineRules = pack.rules.some((rule) => rule.baseline === 'newly');
+                const activeBaseline = explicitBaseline ?? (hasBaselineRules ? detectProjectBaselineDetail(process.cwd()).level : 'newly');
+                const filteredRules = filterRulesByBaseline(pack.rules, activeBaseline);
+                const skippedBaseline = pack.rules.length - filteredRules.length;
+                const report = store.seedPack(pack.id, filteredRules);
+                const baselineNote = hasBaselineRules || explicitBaseline
+                    ? ` (baseline: ${activeBaseline}${skippedBaseline > 0 ? `, filtered ${skippedBaseline} newly-only` : ''})`
+                    : '';
+                process.stdout.write(`seeded ${pack.id}${baselineNote}: ${report.inserted} rule(s) added · ${report.alreadySeeded} already seeded\n`);
+                return 0;
+            }
+            case 'ingest-skill': {
+                const flags = parseSeedCliArgs(args, ['--pack', '--baseline']);
+                const remove = flags.booleans.has('--remove');
+                const packOpt = flags.values.get('--pack');
+                const baselineRaw = flags.values.get('--baseline');
+                const explicitBaseline = parseBaselineFlag(baselineRaw);
+                if (baselineRaw !== undefined && !explicitBaseline) {
+                    process.stderr.write(`ingest-skill: invalid --baseline "${baselineRaw}" (expected widely or newly)\n`);
+                    return 2;
+                }
+                if (remove) {
+                    const rawPack = packOpt ?? flags.positional[0];
+                    if (!rawPack) {
+                        process.stderr.write('usage: immune ingest-skill --remove --pack <name>\n');
+                        return 2;
+                    }
+                    const packId = normalizeSkillPackId(rawPack);
+                    const report = store.removeSeedPack(packId);
+                    const kept = report.keptChanged + report.keptProven;
+                    process.stdout.write(`removed ${report.removed} ingested rule(s) from ${packId}` +
+                        (kept > 0 ? ` · kept ${kept} (changed or proven, evidence preserved)\n` : '\n'));
+                    return 0;
+                }
+                if (flags.positional.length === 0) {
+                    process.stderr.write('usage: immune ingest-skill <path...> [--pack <name>] [--baseline widely|newly] [--remove]\n');
+                    return 2;
+                }
+                const report = ingestSkillPaths(store, flags.positional, {
+                    ...(packOpt ? { pack: packOpt } : {}),
+                    ...(explicitBaseline ? { baseline: explicitBaseline } : {}),
+                });
+                if (report.filesRead === 0) {
+                    process.stderr.write(`ingest-skill: no readable .md/.mdx/.txt guidance files found in: ${flags.positional.join(', ')}\n`);
+                    return 2;
+                }
+                process.stdout.write(`ingested ${report.packId}: ${report.inserted} rule(s) indexed on demand · ` +
+                    `${report.alreadySeeded} already indexed (${report.parsed} parsed from ${report.filesRead} file(s), ` +
+                    `baseline: ${report.baseline}` +
+                    (report.baselineFiltered > 0 ? `, filtered ${report.baselineFiltered} newly-only` : '') +
+                    ')\n');
                 return 0;
             }
             case 'consolidate': {
@@ -692,6 +791,9 @@ function main(argv) {
                 });
                 process.stdout.write(`${report.file}: ${report.rules} rule(s) written (${report.created ? 'section created' : report.replaced ? 'section replaced' : 'appended'})\n` +
                     'the section is fenced by immune:generated markers and fully managed - edit outside it, never inside.\n');
+                if (report.skipped > 0) {
+                    process.stderr.write(`skipped ${report.skipped} rule(s) withheld by share gate (machine paths, emails, or secrets)\n`);
+                }
                 return 0;
             }
             case 'prune':
@@ -745,6 +847,11 @@ function main(argv) {
                 // teammate without npm, a server, or a shared filesystem.
                 const target = args[0];
                 const snapshot = exportLibrary(store);
+                const violations = shareSanityCheck(snapshot.antibodies);
+                if (violations.length > 0) {
+                    process.stderr.write(`${formatShareViolations(violations)}\n`);
+                    return 1;
+                }
                 const body = JSON.stringify(snapshot, null, 2) + '\n';
                 if (target) {
                     writeFileSync(resolve(target), body, 'utf8');
@@ -825,8 +932,8 @@ function main(argv) {
             }
             default:
                 process.stderr.write('usage: immune <list|stats|coverage|detours|export|search|learn|forget|prune|rewrite|consolidate|' +
-                    'backup|connect|seed|backfill|audit|sync-doc|export-json|import-json|ui|doctor|demo> [...args]\n' +
-                    '  seed / audit / connect: cold start, history health check, and host hooking — see README\n');
+                    'backup|connect|seed|ingest-skill|backfill|audit|sync-doc|export-json|import-json|ui|doctor|demo> [...args]\n' +
+                    '  seed / ingest-skill / audit / connect: cold start, on-demand skill indexing, and host hooking — see README\n');
                 return 2;
         }
     }

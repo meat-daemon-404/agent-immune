@@ -11,6 +11,7 @@
  * (no `http(s)://` anywhere) is right to reject that.
  */
 import type { EvolutionStats } from './query.js';
+import { maskHomePaths } from '../redact.js';
 
 export interface PageOptions {
   token: string;
@@ -329,7 +330,7 @@ export function renderPage(options: PageOptions): string {
   .chip {
     display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
     border: 1px solid var(--line); border-radius: 999px; background: var(--panel);
-    color: var(--muted); font-size: 11.5px; max-width: 46ch; min-width: 0;
+    color: var(--muted); font-size: 11.5px; max-width: 54ch; min-width: 0; white-space: nowrap;
   }
   .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); flex: none; }
   .chip code { color: var(--text); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -537,7 +538,7 @@ export function renderPage(options: PageOptions): string {
       <div class="sub">${esc(t.subtitle)}</div>
     </div>
     <div class="meta">
-      <span class="chip" title="${esc(options.dbPath)}"><span class="dot"></span>${esc(t.localOnly)}<code>${esc(options.dbPath)}</code></span>
+      <span class="chip" title="${esc(maskHomePaths(options.dbPath))}"><span class="dot"></span>${esc(t.localOnly)}<code>${esc(maskHomePaths(options.dbPath))}</code></span>
     </div>
   </div>
 

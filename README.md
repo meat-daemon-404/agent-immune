@@ -150,24 +150,43 @@ cannot run hooks reach the same report over MCP: `immune_audit` is the
 read-only preview (the applying pass stays in the terminal — an MCP-only host
 has no turn-end drain), and `immune_seed_packs` lists the starter packs.
 
-### Starter packs
+### Starter packs & on-demand skill indexing
 
-Not every pitfall has happened to you yet. Four hand-authored packs — the same
+Not every pitfall has happened to you yet. Five hand-authored packs — the same
 trust class as the built-in generic lessons, **not** model output — install
 through the normal insert path, so a rule you already learned merges instead
 of doubling:
 
 ```bash
-npx dsh-immune-system@latest seed            # list the packs
-npx dsh-immune-system@latest seed git-safety # install one (6 rules)
+npx dsh-immune-system@latest seed                      # list packs + detected project Baseline
+npx dsh-immune-system@latest seed git-safety           # install one pack
+npx dsh-immune-system@latest seed modern-web           # modern web APIs scoped to project Baseline
+npx dsh-immune-system@latest seed modern-web --baseline widely  # force legacy-safe subset
 npx dsh-immune-system@latest seed git-safety --remove  # take it back out
 ```
 
 Removal is conservative: a seeded rule the agent has since delivered, or whose
 wording you changed, is kept — it carries your evidence now. Packs: `git-safety`,
-`node-ts`, `python-uv`, `docker`. Every shipped rule is gated by
+`node-ts`, `python-uv`, `docker`, `modern-web` (automatically prewarmed only when
+frontend markers like Vite/Next/React or `index.html` exist, and filtered against
+`.browserslistrc`, `package.json#browserslist`, and `tsconfig.json` `target` so
+`Baseline: Newly available` APIs such as CSS Anchor Positioning or View Transitions
+are not pushed into legacy-target codebases). Every shipped rule is gated by
 `scripts/bench-seed-recall.mjs` (and CI): a paraphrased user prompt must recall
 it in the top-3 — currently R@3 100% with zero false positives.
+
+To index large external guidance files (for example `modern-web-guidance` or
+team `SKILL.md` / Markdown playbooks) **without bloating every turn's context**,
+ingest them into FTS5 for on-demand hook recall:
+
+```bash
+npx dsh-immune-system@latest ingest-skill ./path/to/guidance --pack web-guidance
+npx dsh-immune-system@latest ingest-skill ./SKILL.md --baseline widely
+npx dsh-immune-system@latest ingest-skill --remove --pack web-guidance
+```
+
+Ingested rules are scrubbed through the secret/path redactor, filtered by project
+Baseline, and surfaced only when a matching prompt or tool call fires.
 
 ### After installing: what you should see
 
@@ -208,7 +227,7 @@ description: Pitfalls this project already paid for once … 11 proven rules.
 | … | … | … | … |
 ```
 
-The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules. The export is gated: a rule that still carries a machine path or a secret-shaped string **fails the export** instead of shipping to the team — redaction scrubs traces at capture time, and the gate checks the rules themselves.
+The dashboard's `/api/export?format=json` produces a snapshot that `immune import` reads back, so a team can start from one person's proven rules. Every export surface (CLI `export` / `export-json` / `sync-doc`, MCP `immune_export`, DSH `/immune-export`, and HTTP `/api/export` returning HTTP `422`) is privacy-gated: redaction scrubs JSON-quoted/escaped secrets, `.npmrc` `_authToken`, URL query credentials, secret HTTP headers, PEM/SSH keys, emails, and home paths before disk or outbound LLM/dashboard display, and rules still carrying machine paths or secret-shaped text are blocked rather than shipped.
 
 ### Telemetry: detours, evolution, and a CI gate
 

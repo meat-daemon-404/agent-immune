@@ -8,13 +8,18 @@
  * Windows file:// imports) or a universal, durable pitfall for that stack.
  * Triggers are keyword-rich like live rules, so recall works the same way.
  */
+import type { BaselineLevel } from './baseline.js';
 import type { SeedRule } from './store/seeds.js';
+
+export interface SeedPackRule extends SeedRule {
+  baseline?: BaselineLevel;
+}
 
 export interface SeedPack {
   id: string;
   label: string;
   description: string;
-  rules: SeedRule[];
+  rules: SeedPackRule[];
 }
 
 export const BUILTIN_PACKS: SeedPack[] = [
@@ -193,6 +198,62 @@ export const BUILTIN_PACKS: SeedPack[] = [
         trigger_pattern: 'docker 容器内 localhost 连不到 宿主机服务',
         symptom: '容器里的 localhost 指容器自己，连不到宿主机上的服务',
         prescription: '用 host.docker.internal（Linux 加 --add-host=host.docker.internal:host-gateway）',
+      },
+    ],
+  },
+  {
+    id: 'modern-web',
+    label: 'Modern Web & Baseline',
+    description: 'Prefer native modern Web Platform APIs (dialog, popover, subgrid, INP, anchor positioning) scoped by project Baseline.',
+    rules: [
+      {
+        tool_name: null,
+        baseline: 'widely',
+        trigger_pattern: '弹窗 模态框 modal dialog z-index backdrop 焦点 escape focus trap',
+        symptom: '手写模态框 div + 高 z-index 容易漏掉 Escape 关闭、焦点陷阱与背景滚动锁定',
+        prescription: '优先使用原生 <dialog> + showModal() 与 ::backdrop（top-layer 自动隔离层叠，内置 Escape 与焦点管理），而非手写全屏 portal div',
+      },
+      {
+        tool_name: null,
+        baseline: 'widely',
+        trigger_pattern: '浮层 下拉 菜单 popover dropdown tooltip 点击外部 click outside top-layer',
+        symptom: '浮层下拉菜单手写 document 点击监听与 z-index 堆叠容易漏掉 light-dismiss 和遮挡裁切',
+        prescription: '使用原生 popover 属性 + popovertarget 控制轻量浮层与自动 light-dismiss，避免手写全局 click-outside 监听与魔法数字 z-index',
+      },
+      {
+        tool_name: null,
+        baseline: 'newly',
+        trigger_pattern: '锚点 定位 悬浮 提示 tooltip floating position anchor getBoundingClientRect',
+        symptom: '用 getBoundingClientRect + resize/scroll 监听定位浮层容易闪烁、越界裁切并阻塞主线程',
+        prescription: '在现代基线项目使用 CSS Anchor Positioning（anchor-name / position-anchor / position-try-fallbacks）替代 JS 坐标测量',
+      },
+      {
+        tool_name: null,
+        baseline: 'newly',
+        trigger_pattern: '页面 路由 转场 过渡 动画 page route view transition layout shift',
+        symptom: '手写路由切换定时器 + 双节点克隆做页面转场容易闪白、状态不同步或布局抖动',
+        prescription: '在支持环境使用 View Transitions API（document.startViewTransition 与 view-transition-name），并用 @supports 或能力检测平滑降级',
+      },
+      {
+        tool_name: null,
+        baseline: 'widely',
+        trigger_pattern: '卡片 对齐 网格 父选择器 css grid subgrid :has() parent height',
+        symptom: '嵌套卡片内部标题/页脚对齐与父元素按子状态着色常退化为脆弱的固定高度或 JS ResizeObserver',
+        prescription: '用 CSS Grid subgrid 跨层对齐轨道，并用 :has() 表达父容器状态选择器，减少固定高度和额外 DOM 同步脚本',
+      },
+      {
+        tool_name: null,
+        baseline: 'widely',
+        trigger_pattern: '滚动 输入 卡顿 响应 延迟 scroll input lag inp main thread layout thrashing',
+        symptom: '高频事件内同步读写布局几何或连续触发长任务会拉高 INP 交互延迟',
+        prescription: '高频输入/滚动事件使用 passive 监听并分离读写布局，繁重任务通过 requestAnimationFrame 或分片让出主线程',
+      },
+      {
+        tool_name: null,
+        baseline: 'widely',
+        trigger_pattern: '深拷贝 请求 超时 structuredClone clone fetch abort timeout',
+        symptom: '深拷贝手写 JSON.parse(JSON.stringify) 丢失 Date/Map/Set 且 fetch 缺超时控制易挂起',
+        prescription: '用原生 structuredClone() 做深拷贝、用 AbortSignal.timeout(ms) 给 fetch 加原生超时，避免自造易错兼容封装',
       },
     ],
   },

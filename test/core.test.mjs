@@ -2552,3 +2552,155 @@ test('post-1.1.8 regressions: global repair_path parsing, case-insensitive episo
   assert.equal(isNoiseFailure('Tool execution failed: user rejected tool call'), true);
   assert.equal(isNoiseFailure("EPERM: operation not permitted, mkdir 'C:\\a'"), false);
 });
+
+test('desensitization closes JSON/query/header/key leaks and scrubs outbound payloads', async () => {
+  const {
+    maskHomePaths,
+    redactEmails,
+    redactOutbound,
+    redactUrl,
+  } = await import('../dsh-immune-system/dist/core/redact.js');
+  const { exportLibrary, importLibrary } = await import('../dsh-immune-system/dist/core/sync.js');
+  const { syncDoc } = await import('../dsh-immune-system/dist/core/sync-doc.js');
+  const { hostRewriteCandidates } = await import('../dsh-immune-system/dist/core/host-rewrite.js');
+  const { isPromotable } = await import('../dsh-immune-system/dist/core/store/global.js');
+  const { rmSync } = await import('node:fs');
+
+  // 1. JSON-quoted and escaped JSON secrets keep valid JSON and redact idempotently.
+  const jsonPayload = JSON.stringify({
+    api_key: 'supersecretapikey99',
+    nested: '{"client_secret":"topsecretclient99","command":"npm test"}',
+    npm_config_registry: 'https://registry.npmjs.org',
+  });
+  const redactedJson = redact(jsonPayload);
+  const parsedJson = JSON.parse(redactedJson);
+  assert.equal(parsedJson.api_key, '<redacted>');
+  assert.doesNotMatch(redactedJson, /supersecretapikey99|topsecretclient99/);
+  assert.match(parsedJson.nested, /"client_secret":"<redacted>"/);
+  assert.match(redactedJson, /npm_config_registry/);
+  assert.equal(redact(redactedJson), redactedJson, 'redaction must be idempotent');
+
+  // 2. .npmrc, query params, HTTP headers, PEM/SSH keys, and new provider prefixes.
+  const richSecretText = [
+    '//npm.pkg.github.com/:_authToken=customregistrysecret123',
+    'curl "https://api.example.com/v1/data?access_token=qtoken987654&X-Amz-Signature=deadbeef99&page=2"',
+    'X-Api-Key: headersecret12345',
+    'Cookie: session=abc123456789',
+    '-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAtoken\n-----END RSA PRIVATE KEY-----',
+    'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockPublicKeyMaterialForTest00 user@work',
+    'hf_0123456789abcdefghij01 pypi-0123456789abcdefghij SG.abcdef0123456789.ghijkl0123456789 dckr_pat_0123456789abcdef',
+  ].join('\n');
+  const cleanRich = redact(richSecretText);
+  for (const leaked of [
+    'customregistrysecret123',
+    'qtoken987654',
+    'deadbeef99',
+    'headersecret12345',
+    'abc123456789',
+    'MIIEowIBAAKCAQEAtoken',
+    'AAAAC3NzaC1lZDI1NTE5AAAAIMockPublicKeyMaterialForTest00',
+    'hf_0123456789abcdefghij01',
+    'pypi-0123456789abcdefghij',
+    'SG.abcdef0123456789.ghijkl0123456789',
+    'dckr_pat_0123456789abcdef',
+  ]) {
+    assert.ok(!cleanRich.includes(leaked), `must redact ${leaked}`);
+  }
+  assert.match(cleanRich, /page=2/, 'non-secret query parameters remain readable');
+  assert.equal(redact(cleanRich), cleanRich, 'rich redaction is idempotent');
+
+  // 3. Outbound helpers mask home usernames & emails without harming non-user paths or scoped pkgs.
+  assert.equal(
+    maskHomePaths('C:\\Users\\alice\\repo\\a.ts and /Users/bob/src/b.ts and /home/carol/.bashrc'),
+    'C:\\Users\\<user>\\repo\\a.ts and /Users/<user>/src/b.ts and /home/<user>/.bashrc',
+  );
+  assert.equal(
+    maskHomePaths('https://example.com/Users/public/doc'),
+    'https://example.com/Users/public/doc',
+    'URL paths are not treated as OS user home directories',
+  );
+  assert.equal(redactEmails('contact dev@company.example and @deepseek-ai/dsh and asset@2x.png'), 'contact <redacted-email> and @deepseek-ai/dsh and asset@2x.png');
+  assert.equal(redactUrl('https://user:pass@api.example.com/v1?api_key=secret123'), 'https://api.example.com/v1');
+
+  const out = redactOutbound('C:\\Users\\alice\\.env dev@company.example Bearer secretbearertoken99');
+  assert.doesNotMatch(out, /alice|dev@company\.example|secretbearertoken99/);
+  assert.match(out, /<user>.*<redacted-email>.*<redacted>/);
+
+  // 4. insertAntibody, exportLibrary, importLibrary preserve repair_path and scrub secrets.
+  const s = store();
+  s.insert({
+    trigger_pattern: 'curl "https://api.example.com/u?token=urlsecret999"',
+    symptom: 'Cookie: sid=cookiesecret99 failed',
+    prescription: 'use env config',
+    repair_path: ['Bash X-Api-Key: repairsecret99'],
+  });
+  const stored = s.listAll(true)[0];
+  assert.doesNotMatch(stored.trigger_pattern, /urlsecret999/);
+  assert.doesNotMatch(stored.symptom, /cookiesecret99/);
+  assert.doesNotMatch(stored.repair_path.join(' '), /repairsecret99/);
+
+  // Simulate an older unredacted row in DB and ensure exportLibrary scrubs it anyway.
+  const now = Date.now();
+  s['db']
+    .prepare('INSERT INTO antibodies (trigger_pattern, symptom, prescription, repair_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run('legacy api', 'legacy', 'Bash: api_key=legacysecret999', JSON.stringify(['Bash hf_0123456789abcdefghij01']), now, now);
+  const snap = exportLibrary(s);
+  assert.doesNotMatch(JSON.stringify(snap), /legacysecret999|hf_0123456789abcdefghij01/);
+
+  const targetStore = store();
+  targetStore.insert({
+    trigger_pattern: 'with repair',
+    symptom: 'broken',
+    prescription: 'fixed rule wording',
+    repair_path: ['Edit tsconfig.json', 'Bash npm test'],
+  });
+  const snapWithRepair = exportLibrary(targetStore);
+  targetStore.close();
+  const importTarget = store();
+  importLibrary(importTarget, snapWithRepair);
+  assert.deepEqual(importTarget.listAll(true)[0].repair_path, ['Edit tsconfig.json', 'Bash npm test']);
+  importTarget.close();
+
+  // 5. hostRewriteCandidates scrubs outbound candidate data.
+  const echoStore = store();
+  echoStore.insert({
+    trigger_pattern: 'C:\\Users\\alice\\app\\index.ts failed',
+    symptom: 'contact alice@company.example failed',
+    prescription: 'Bash: cat C:\\Users\\alice\\.env dev@company.example',
+  });
+  const candidates = hostRewriteCandidates(echoStore, 3);
+  assert.equal(candidates.length, 1);
+  assert.doesNotMatch(JSON.stringify(candidates), /alice|dev@company\.example/);
+  echoStore.close();
+
+  // 6. syncDoc skips unsafe proven rules instead of writing paths/emails to AGENTS.md.
+  const dir = mkdtempSync(join(tmpdir(), 'immune-syncdoc-gate-'));
+  try {
+    const docStore = store();
+    const idClean = docStore.insert({
+      trigger_pattern: 'clean rule',
+      symptom: 'bad habit',
+      prescription: 'better advice for everyone',
+    });
+    const idDirty = docStore.insert({
+      trigger_pattern: 'private build script',
+      symptom: 'fails when run as dev@company.example',
+      prescription: 'run C:\\Users\\alice\\bin\\fix.bat instead',
+    });
+    docStore['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id IN (?, ?)').run(idClean, idDirty);
+    const mdFile = join(dir, 'AGENTS.md');
+    const report = syncDoc(docStore, { file: mdFile, minHits: 3 });
+    assert.equal(report.rules, 1);
+    assert.equal(report.skipped, 1);
+    docStore.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+  }
+
+  // 7. Global library refuses email-bearing rules.
+  assert.equal(
+    isPromotable({ trigger_pattern: 'push mail', prescription: 'ask dev@company.example', hit_count: 10 }, false),
+    false,
+  );
+  s.close();
+});

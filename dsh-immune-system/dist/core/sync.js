@@ -12,6 +12,7 @@
  *    machine's judgement, not a consensus decision;
  *  - rows missing trigger or prescription are counted invalid, not fatal.
  */
+import { redact } from './redact.js';
 export const SNAPSHOT_FORMAT = 'dsh-immune-library';
 export const SNAPSHOT_VERSION = 1;
 export function exportLibrary(store) {
@@ -22,14 +23,14 @@ export function exportLibrary(store) {
         exported_at: new Date().toISOString(),
         count: rows.length,
         antibodies: rows.map((a) => ({
-            trigger_pattern: a.trigger_pattern,
-            symptom: a.symptom,
-            prescription: a.prescription,
+            trigger_pattern: redact(a.trigger_pattern),
+            symptom: redact(a.symptom),
+            prescription: redact(a.prescription),
             hit_count: a.hit_count,
             fail_count: a.fail_count,
             status: a.status,
             tool_name: a.tool_name,
-            repair_path: a.repair_path ?? [],
+            repair_path: (a.repair_path ?? []).map((step) => redact(step)),
             created_at: a.created_at,
         })),
     };
@@ -57,9 +58,12 @@ export function importLibrary(store, snapshot) {
             continue;
         }
         const row = item;
-        const trigger = typeof row.trigger_pattern === 'string' ? row.trigger_pattern.trim() : '';
-        const prescription = typeof row.prescription === 'string' ? row.prescription.trim() : '';
-        const symptom = typeof row.symptom === 'string' ? row.symptom.trim() : '';
+        const trigger = typeof row.trigger_pattern === 'string' ? redact(row.trigger_pattern).trim() : '';
+        const prescription = typeof row.prescription === 'string' ? redact(row.prescription).trim() : '';
+        const symptom = typeof row.symptom === 'string' ? redact(row.symptom).trim() : '';
+        const repairPath = Array.isArray(row.repair_path)
+            ? row.repair_path.filter((v) => typeof v === 'string').map((v) => redact(v).trim()).filter(Boolean)
+            : [];
         if (!trigger || !prescription) {
             report.invalid += 1;
             continue;
@@ -72,6 +76,7 @@ export function importLibrary(store, snapshot) {
             fail_count: Math.max(0, asNumber(row.fail_count, 0)),
             status: asStatus(row.status),
             tool_name: typeof row.tool_name === 'string' ? row.tool_name : null,
+            repair_path: repairPath,
             created_at: asNumber(row.created_at, Date.now()),
         };
         const existing = store
@@ -98,6 +103,7 @@ export function importLibrary(store, snapshot) {
             symptom: incoming.symptom,
             prescription: incoming.prescription,
             tool_name: incoming.tool_name,
+            ...(repairPath.length > 0 ? { repair_path: repairPath } : {}),
         };
         const id = store.insert(created);
         if (id === null) {

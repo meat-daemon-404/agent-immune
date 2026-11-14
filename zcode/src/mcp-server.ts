@@ -22,6 +22,7 @@ import { createInterface } from 'node:readline';
 import { pathToFileURL } from 'node:url';
 import { ImmuneStore } from '../../core/store/index.js';
 import { renderSkillMarkdown } from '../../core/export.js';
+import { formatShareViolations, shareSanityCheck } from '../../core/share-guard.js';
 import { resolveDbPath } from '../../core/store/path.js';
 import { auditHistory, renderAuditReport } from '../../core/audit.js';
 import { BUILTIN_PACKS } from '../../core/packs.js';
@@ -118,7 +119,7 @@ const TOOLS = [
   {
     name: 'immune_seed_packs',
     description:
-      'List the builtin seed packs (git-safety, node-ts, python-uv, docker) with per-pack seeded counts. Install with `immune seed <id>` in a terminal; this tool never writes.',
+      'List the builtin seed packs (git-safety, node-ts, python-uv, docker, modern-web) and any on-demand ingested `skill:*` packs with per-pack seeded counts. Install with `immune seed <id>` or `immune ingest-skill <path>` in a terminal; this tool never writes.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -218,6 +219,10 @@ export function callTool(store: ImmuneStore, name: string, args: Record<string, 
       if (rows.length === 0) {
         return `No rule has reached ${minHits} hits yet; nothing worth sharing.`;
       }
+      const violations = shareSanityCheck(rows);
+      if (violations.length > 0) {
+        return formatShareViolations(violations);
+      }
       const md = renderSkillMarkdown(rows, { minHits, title });
       return `Exported ${rows.length} rules as SKILL.md:\n\n${md}`;
     }
@@ -276,7 +281,11 @@ export function callTool(store: ImmuneStore, name: string, args: Record<string, 
         const installed = counts.get(pack.id) ?? 0;
         return `${pack.id.padEnd(12)} ${String(installed).padStart(2)}/${pack.rules.length} seeded · ${pack.label} — ${pack.description}`;
       });
-      return `Builtin seed packs (install with \`immune seed <id>\` in a terminal; this tool never writes):\n${lines.join('\n')}`;
+      const skillLines = [...counts.entries()]
+        .filter(([id]) => id.startsWith('skill:'))
+        .map(([id, n]) => `${id.padEnd(20)} ${n} rule(s) indexed on demand`);
+      const extra = skillLines.length > 0 ? `\n\nIngested skill packs:\n${skillLines.join('\n')}` : '';
+      return `Builtin seed packs (install with \`immune seed <id>\` in a terminal; this tool never writes):\n${lines.join('\n')}${extra}`;
     }
 
     case 'immune_detours': {

@@ -43,6 +43,14 @@ const QUESTIONS = [
   ['docker', 'alpine musl', '小镜像里原生模块编译不过'],
   ['docker', 'compose up 配置没生效', '改完 Dockerfile 服务还是跑旧镜像'],
   ['docker', '容器内 localhost', '容器里连不上宿主机开的服务'],
+  // modern-web
+  ['modern-web', 'modal dialog', '弹窗总被别的 z-index 挡住怎么原生实现模态框'],
+  ['modern-web', 'popover dropdown', '下拉浮层点击外部关闭手写事件太乱怎么办'],
+  ['modern-web', 'anchor getBoundingClientRect', '悬浮提示坐标测量定位总闪怎么替代 getBoundingClientRect'],
+  ['modern-web', 'view transition', '单页应用路由切换怎么流畅做页面转场过渡动画'],
+  ['modern-web', 'subgrid :has()', '卡片列表网格对齐还得写死高度或监听子状态吗'],
+  ['modern-web', 'inp main thread', '页面滚动输入卡顿、INP 交互延迟很高怎么优化'],
+  ['modern-web', 'structuredClone', '深拷贝不想用 JSON.parse 且请求要加 AbortSignal 超时'],
 ];
 
 /** Unrelated prompts — gram-clean enough that no seed rule should surface. */

@@ -1,3 +1,4 @@
+import { redactOutbound } from './redact.js';
 export const DISTILL_PROMPT = `You extract one reusable rule from a coding agent's failed-then-fixed attempt.
 
 You are given a FAILED tool call and a later SUCCESSFUL tool call of the same tool.
@@ -64,10 +65,12 @@ Every input id must appear exactly once in the output.`;
 export function buildBatchInput(episodes) {
     return JSON.stringify(episodes.map((episode) => ({
         id: episode.id,
-        failedTrace: episode.failedTrace,
-        fixedTrace: episode.fixedTrace,
-        ...(episode.humanHint ? { humanHint: episode.humanHint } : {}),
-        ...(episode.repairs && episode.repairs.length > 0 ? { repairs: episode.repairs } : {}),
+        failedTrace: redactOutbound(episode.failedTrace),
+        fixedTrace: redactOutbound(episode.fixedTrace),
+        ...(episode.humanHint ? { humanHint: redactOutbound(episode.humanHint) } : {}),
+        ...(episode.repairs && episode.repairs.length > 0
+            ? { repairs: episode.repairs.map((step) => redactOutbound(step)) }
+            : {}),
     })), null, 1);
 }
 /**
@@ -123,19 +126,22 @@ function resultFromObject(obj, toolName) {
 }
 /** Build the user-side payload for one failure/success pair. */
 export function buildDistillInput(failureTrace, successTrace, humanHint = '') {
+    const safeFailure = redactOutbound(failureTrace);
+    const safeSuccess = redactOutbound(successTrace);
+    const safeHint = humanHint.trim() ? redactOutbound(humanHint.trim()) : '';
     const parts = [
         '<failed_call>',
-        failureTrace,
+        safeFailure,
         '</failed_call>',
         '',
         '<successful_call>',
-        successTrace,
+        safeSuccess,
         '</successful_call>',
     ];
-    if (humanHint.trim()) {
+    if (safeHint) {
         // The human's correction is the highest-signal input available: it states
         // the rule outright instead of leaving the model to infer it from a diff.
-        parts.push('', '<human_explanation>', humanHint.trim(), '</human_explanation>', 'The human said this after the failure. If it states the actual rule, the', 'prescription must follow it rather than a guess at what changed.');
+        parts.push('', '<human_explanation>', safeHint, '</human_explanation>', 'The human said this after the failure. If it states the actual rule, the', 'prescription must follow it rather than a guess at what changed.');
     }
     return parts.join('\n');
 }

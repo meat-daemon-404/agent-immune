@@ -1,4 +1,5 @@
 import { chat } from './llm.js';
+import { redactOutbound } from './redact.js';
 export const REWRITE_PROMPT = `You rewrite ONE stored pitfall rule so its prescription reads as an action, not a command dump.
 
 Input JSON: { "tool", "trigger", "symptom", "currentPrescription" }
@@ -103,9 +104,9 @@ export async function rewriteEchoes(store, opts, deps = {}) {
         }
         const input = JSON.stringify({
             tool: rule.tool_name ?? '',
-            trigger: rule.trigger_pattern,
-            symptom: rule.symptom,
-            currentPrescription: rule.prescription,
+            trigger: redactOutbound(rule.trigger_pattern),
+            symptom: redactOutbound(rule.symptom),
+            currentPrescription: redactOutbound(rule.prescription),
         });
         try {
             const answer = await call(opts.llm, REWRITE_PROMPT, input);

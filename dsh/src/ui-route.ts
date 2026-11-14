@@ -14,6 +14,7 @@ import type { ImmuneStore } from '../../core/store/index.js';
 import { applyAction, evolutionStats, readState, resolveBudgetMs } from '../../core/ui/query.js';
 import { exportLibrary, importLibrary } from '../../core/sync.js';
 import { renderSkillMarkdown } from '../../core/export.js';
+import { shareSanityCheck } from '../../core/share-guard.js';
 
 /** The slice of the host's `webServer` service this needs. */
 interface WebServerLike {
@@ -98,6 +99,13 @@ export function registerImmuneUiRoute(
         try {
           if (req.method === 'GET' && path.endsWith('/export')) {
             const format = url.searchParams.get('format') === 'json' ? 'json' : 'md';
+            const snapshot = format === 'json' ? exportLibrary(store) : null;
+            const exportRows = snapshot ? snapshot.antibodies : store.exportable(3);
+            const violations = shareSanityCheck(exportRows);
+            if (violations.length > 0) {
+              sendJson(res, 422, { error: 'export blocked by the share gate', violations });
+              return;
+            }
             res.writeHead(200, {
               'content-type': format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8',
               'content-disposition': `attachment; filename="immune-library.${format}"`,
@@ -105,9 +113,7 @@ export function registerImmuneUiRoute(
               'x-content-type-options': 'nosniff',
             });
             res.end(
-              format === 'json'
-                ? JSON.stringify(exportLibrary(store), null, 2)
-                : renderSkillMarkdown(store.exportable(3)),
+              snapshot ? JSON.stringify(snapshot, null, 2) : renderSkillMarkdown(store.exportable(3)),
             );
             return;
           }

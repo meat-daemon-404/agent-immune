@@ -11,6 +11,8 @@
  * IMMUNE_ALLOW_PRIVATE_ENDPOINT=1 to opt in deliberately; the default is deny.
  */
 
+import { redactOutbound, redactUrl } from './redact.js';
+
 export interface LlmConfig {
   endpoint: string;
   apiKey: string;
@@ -95,7 +97,7 @@ export function assertSafeEndpoint(raw: string, allowPrivate = false): URL {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error(`invalid endpoint URL: ${raw}`);
+    throw new Error(`invalid endpoint URL: ${redactUrl(raw)}`);
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -229,7 +231,7 @@ export async function chat(
           cooldownUntil = Date.now() + (backoff[attempt] ?? 60_000);
           continue;
         }
-        throw new Error(`model endpoint error: ${text.slice(0, 200)}`);
+        throw new Error(`model endpoint error: ${redactOutbound(text).slice(0, 200)}`);
       }
       const content = data.choices?.[0]?.message?.content;
       return typeof content === 'string' ? content : '';
@@ -252,6 +254,6 @@ export async function chat(
       await new Promise((resolve) => setTimeout(resolve, backoff[attempt] ?? 12_000));
       continue;
     }
-    throw new Error(`model endpoint returned ${response.status}: ${errBody.slice(0, 200)}`);
+    throw new Error(`model endpoint returned ${response.status}: ${redactOutbound(errBody).slice(0, 200)}`);
   }
 }
