@@ -14,7 +14,7 @@
  * fixture-tested only (no real transcripts existed on the dev machine).
  */
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { BACKFILL_TOOLS, type CallRow, loadCalls, loadParts, pairSession } from './backfill.js';
@@ -31,8 +31,10 @@ export interface AuditOptions {
   claudeProjectsDir?: string;
   /** Override ~/.codex/sessions (tests). */
   codexSessionsDir?: string;
+  /** Override ~/.gemini/antigravity/brain (tests). */
+  antigravityBrainDir?: string;
   /** Restrict to one source; default scans every source found on disk. */
-  source?: 'auto' | 'zcode' | 'codex' | 'claude-code';
+  source?: 'auto' | 'zcode' | 'codex' | 'claude-code' | 'antigravity';
   /** Cap enqueued episodes (quota guard for slow LLM channels). */
   max?: number;
   /** Report only — nothing enqueued, nothing distilled (--dry-run). */
@@ -54,7 +56,7 @@ export interface AuditFailureFamily {
 }
 
 export interface AuditSourceReport {
-  source: 'zcode' | 'codex' | 'claude-code';
+  source: 'zcode' | 'codex' | 'claude-code' | 'antigravity';
   present: boolean;
   note?: string;
   scanned: number;
@@ -216,7 +218,14 @@ function loadZcodeSessions(sourceDb: string, since: number): Session[] {
   const db = new DatabaseSync(sourceDb, { readOnly: true });
   try {
     const calls = loadCalls(db, since);
-    const parts = loadParts(db, [...new Set(calls.map((call) => call.session_id))]);
+    const errorSessions = [
+      ...new Set(
+        calls
+          .filter((call) => call.status === 'error' && BACKFILL_TOOLS.has(call.tool_name))
+          .map((call) => call.session_id),
+      ),
+    ];
+    const parts = loadParts(db, errorSessions);
     const sessions = new Map<string, Session>();
     for (const call of calls) {
       const bucket = sessions.get(call.session_id) ?? { calls: [], parts, tokenSamples: [] };
@@ -523,6 +532,203 @@ function safeJson(text: string): unknown {
 }
 
 /**
+ * Antigravity source: conversation transcripts under
+ * ~/.gemini/antigravity/brain/<conversation-id>/.system_generated/logs/transcript.jsonl.
+ * PLANNER_RESPONSE steps carry tool_calls + token usage; subsequent GENERIC
+ * steps carry status/error or `Command exited with code N.` for run_command.
+ */
+const ANTIGRAVITY_TOOL_MAP: Record<string, string> = {
+  run_command: 'Bash',
+  edit_file: 'Edit',
+  replace_file_content: 'Edit',
+  multi_replace_file_content: 'Edit',
+  write_file: 'Write',
+  write_to_file: 'Write',
+  read_file: 'Read',
+  view_file: 'Read',
+  view_file_outline: 'Read',
+  view_code_item: 'Read',
+  grep_search: 'Grep',
+  find_by_name: 'Glob',
+  list_dir: 'Glob',
+};
+
+function unwrapAntigravityArgs(raw: unknown): Record<string, unknown> {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    let decoded: unknown = value;
+    if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
+      try {
+        decoded = JSON.parse(value);
+      } catch {
+        decoded = value;
+      }
+    }
+    out[key] = decoded;
+  }
+  if (out.command === undefined && typeof out.CommandLine === 'string') out.command = out.CommandLine;
+  if (out.file_path === undefined) {
+    const pathCandidate = out.Path ?? out.TargetFile ?? out.AbsolutePath ?? out.DirectoryPath;
+    if (typeof pathCandidate === 'string') out.file_path = pathCandidate;
+  }
+  if (out.pattern === undefined) {
+    const patCandidate = out.Query ?? out.Pattern;
+    if (typeof patCandidate === 'string') out.pattern = patCandidate;
+  }
+  return out;
+}
+
+function antigravityErrorLine(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        !/^(Created At|Completed At|Command output|Showing lines|Partial read):?/i.test(line),
+    );
+  const body = lines.join('\n').trim();
+  return clampText(body || text.trim() || 'unknown error');
+}
+
+function antigravityVerdictOf(
+  toolName: string,
+  record: { status?: string; error?: unknown; content?: unknown },
+): { ignore?: boolean; status: 'completed' | 'error'; error?: string; output: string } {
+  const content = typeof record.content === 'string' ? record.content : '';
+  const errField = typeof record.error === 'string' ? record.error.trim() : '';
+  if (record.status === 'ERROR' || errField.length > 0) {
+    const rawErr = errField || content;
+    if (/tool call denied by pre-tool hook/i.test(rawErr)) {
+      return { ignore: true, status: 'completed', output: '' };
+    }
+    return { status: 'error', error: antigravityErrorLine(rawErr), output: clampText(content || rawErr) };
+  }
+  if (toolName === 'Bash') {
+    const exitMatch = content.match(/^Command exited with code (-?\d+)\./m);
+    if (exitMatch && Number(exitMatch[1]) !== 0) {
+      const outputMarker = 'Command output:\n';
+      const idx = content.indexOf(outputMarker);
+      const after = idx >= 0 ? content.slice(idx + outputMarker.length) : content.slice((exitMatch.index ?? 0) + exitMatch[0].length);
+      return {
+        status: 'error',
+        error: antigravityErrorLine(after) || `Command exited with code ${exitMatch[1]}`,
+        output: clampText(content),
+      };
+    }
+  }
+  return { status: 'completed', output: clampText(content) };
+}
+
+function parseAntigravityFile(path: string, since: number): Session {
+  const calls: CallRow[] = [];
+  const parts = new Map<string, { input: unknown; output: string }>();
+  const tokenSamples: number[] = [];
+  let lines: string[] = [];
+  try {
+    lines = readFileSync(path, 'utf8').split('\n');
+  } catch {
+    return { calls, parts, tokenSamples };
+  }
+  const pendingCalls: Array<{ tool: string; input: Record<string, unknown>; timestamp: number; callId: string }> = [];
+  let seq = 0;
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let record: {
+      step_index?: number;
+      type?: string;
+      status?: string;
+      error?: unknown;
+      content?: unknown;
+      created_at?: string;
+      input_tokens?: number;
+      cache_read_tokens?: number;
+      output_tokens?: number;
+      tool_calls?: Array<{ name?: string; args?: unknown }>;
+    };
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const timestamp = record.created_at ? Date.parse(record.created_at) : Date.now();
+    if (record.type === 'USER_INPUT') {
+      pendingCalls.length = 0;
+      continue;
+    }
+    if (record.type === 'PLANNER_RESPONSE') {
+      pendingCalls.length = 0;
+      const total =
+        Number(record.input_tokens ?? 0) +
+        Number(record.cache_read_tokens ?? 0) +
+        Number(record.output_tokens ?? 0);
+      if (total > 0 && timestamp >= since) tokenSamples.push(total);
+      if (Array.isArray(record.tool_calls)) {
+        for (const tc of record.tool_calls) {
+          const rawName = typeof tc?.name === 'string' ? tc.name : '';
+          if (!rawName) continue;
+          seq += 1;
+          pendingCalls.push({
+            tool: ANTIGRAVITY_TOOL_MAP[rawName] ?? rawName,
+            input: unwrapAntigravityArgs(tc.args),
+            timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+            callId: `agy-${record.step_index ?? 'x'}-${seq}`,
+          });
+        }
+      }
+      continue;
+    }
+    if (record.type === 'GENERIC' && pendingCalls.length > 0) {
+      const pending = pendingCalls.shift()!;
+      const ts = Number.isFinite(timestamp) ? timestamp : pending.timestamp;
+      if (ts < since) continue;
+      const verdict = antigravityVerdictOf(pending.tool, record);
+      if (verdict.ignore) continue;
+      calls.push({
+        session_id: path,
+        tool_call_id: pending.callId,
+        tool_name: pending.tool,
+        status: verdict.status,
+        error_message: verdict.error ?? null,
+        started_at: ts,
+      });
+      parts.set(pending.callId, { input: pending.input, output: verdict.output });
+    }
+  }
+  calls.sort((a, b) => a.started_at - b.started_at);
+  return { calls, parts, tokenSamples };
+}
+
+function loadAntigravitySessions(
+  dir: string,
+  since: number,
+): { sessions: Session[]; present: boolean; note?: string } {
+  if (!existsSync(dir)) return { sessions: [], present: false, note: 'no ~/.gemini/antigravity/brain directory' };
+  const sessions: Session[] = [];
+  let entries: Array<{ name: string; isDirectory: () => boolean }> = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return { sessions: [], present: true, note: 'unreadable ~/.gemini/antigravity/brain directory' };
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const transcript = join(dir, entry.name, '.system_generated', 'logs', 'transcript.jsonl');
+    if (!existsSync(transcript)) continue;
+    try {
+      if (statSync(transcript).mtimeMs < since - 86_400_000) continue;
+    } catch {
+      continue;
+    }
+    const parsed = parseAntigravityFile(transcript, since);
+    if (parsed.calls.length > 0) sessions.push(parsed);
+  }
+  return { sessions, present: true, ...(sessions.length === 0 ? { note: 'no tool calls in transcripts' } : {}) };
+}
+
+/**
  * Scan every available source, replay pairing over its sessions, and enqueue
  * episodes for distillation (unless dryRun). Sources absent from this machine
  * are reported as absent rather than skipped silently.
@@ -539,6 +745,7 @@ export function auditHistory(store: ImmuneStore, opts: AuditOptions = {}): Audit
   const zcodeDb = opts.sourceDb ?? `${homedir()}/.zcode/cli/db/db.sqlite`.replace(/\\/g, '/');
   const codexDir = opts.codexSessionsDir ?? join(homedir(), '.codex', 'sessions');
   const claudeDir = opts.claudeProjectsDir ?? join(homedir(), '.claude', 'projects');
+  const antigravityDir = opts.antigravityBrainDir ?? join(homedir(), '.gemini', 'antigravity', 'brain');
   const sources: AuditSourceReport[] = [];
 
   if (wanted === 'auto' || wanted === 'zcode') {
@@ -577,6 +784,20 @@ export function auditHistory(store: ImmuneStore, opts: AuditOptions = {}): Audit
       sources.push(report);
     } else {
       sources.push(emptySource('claude-code', note));
+    }
+  }
+
+  if (wanted === 'auto' || wanted === 'antigravity') {
+    const { sessions, present, note } = loadAntigravitySessions(antigravityDir, since);
+    if (present) {
+      const report = runSource('antigravity', sessions, store, { cap, dryRun, selfMarkers });
+      if (note) report.note = note;
+      const median = medianOf(sessions.flatMap((session) => session.tokenSamples));
+      report.medianRequestTokens = median?.median ?? null;
+      report.medianSamples = median?.samples ?? 0;
+      sources.push(report);
+    } else {
+      sources.push(emptySource('antigravity', note));
     }
   }
 

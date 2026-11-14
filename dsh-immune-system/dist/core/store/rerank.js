@@ -43,13 +43,14 @@ export function rerank(candidates, opts) {
     const now = opts.now ?? Date.now();
     const sharedIds = opts.sharedIds;
     const scored = candidates.map((antibody) => {
-        const relevance = opts.relevance?.get(antibody.id);
+        const relevance = opts.relevanceByRule?.get(antibody) ?? opts.relevance?.get(antibody.id);
         let score = relevance !== undefined
             ? relevance * (1 + Math.log1p(Math.max(0, antibody.hit_count)))
             : 1 + Math.log1p(Math.max(0, antibody.hit_count));
         if (hasPathAffinity(antibody.trigger_pattern, tokens))
             score *= 1.5;
-        if (sharedIds?.has(antibody.id))
+        const isShared = opts.sharedSet ? opts.sharedSet.has(antibody) : Boolean(sharedIds?.has(antibody.id));
+        if (isShared)
             score *= 0.85;
         const stamp = antibody.updated_at || antibody.created_at || now;
         score *= timeDecay(now - stamp);

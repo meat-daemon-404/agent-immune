@@ -286,3 +286,93 @@ test('the host route exports and imports library snapshots', async (t) => {
   });
   assert.equal(bad.status, 200, 'unknown format reports through the merge report, not a crash');
 });
+
+test('the host route returns evolution stats and the client preserves them in state', async (t) => {
+  const { route } = bootRoute(t);
+  const list = await callRoute(route, {
+    method: 'GET',
+    url: '/plugins/dsh-immune-system/api?view=project',
+    headers: { host: '127.0.0.1:7788' },
+  });
+  assert.equal(list.status, 200);
+  assert.ok(list.body.evolution && Array.isArray(list.body.evolution.newRules), 'route returns evolution payload');
+
+  // Mount ImmuneTab -> ImmunePanel with a stateful hook harness to prove the
+  // client stores `body.evolution` rather than dropping it in `setData`.
+  const states = new Map();
+  let renderSeq = 0;
+  let capturedPanelFn = null;
+  const fakeSlotNode = {
+    shadowRoot: null,
+    attachShadow() {
+      const children = [];
+      this.shadowRoot = {
+        querySelector: () => null,
+        appendChild: (el) => children.push(el),
+      };
+      return this.shadowRoot;
+    },
+  };
+  const reactHarness = {
+    createElement(type, props, ...children) {
+      if (typeof type === 'function') capturedPanelFn = capturedPanelFn || (type.name === 'ImmunePanel' ? type : null);
+      return { type, props, children };
+    },
+    useRef: () => ({ current: fakeSlotNode }),
+    useCallback: (fn) => fn,
+    useState(initial) {
+      const idx = renderSeq++;
+      if (!states.has(idx)) states.set(idx, initial);
+      return [
+        states.get(idx),
+        (next) => {
+          const val = typeof next === 'function' ? next(states.get(idx)) : next;
+          states.set(idx, val);
+        },
+      ];
+    },
+    useEffect(fn) {
+      fn();
+    },
+  };
+  globalThis.document = { createElement: () => ({ setAttribute: () => {} }) };
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => list.body,
+  });
+  try {
+    let loaded = null;
+    globalThis.window = { __ModuleLoader__: { load: (entry) => (loaded = entry) } };
+    await import(`${CLIENT.href}?evol=${Date.now()}`);
+    const exports = loaded.factory((name) => {
+      if (name === 'react') return reactHarness;
+      if (name === 'react-dom') return { createPortal: (node) => node };
+      throw new Error(`unexpected require: ${name}`);
+    });
+    let TabComponent = null;
+    exports.apply({
+      slots: {
+        inject: (_n, fn) => fn(),
+        register: (_opts, comp) => (TabComponent = comp),
+      },
+    });
+    renderSeq = 0;
+    TabComponent();
+    renderSeq = 0;
+    const portal = TabComponent();
+    assert.ok(portal && portal.children.some((c) => c?.type?.name === 'ImmunePanel'), 'portal renders ImmunePanel');
+    renderSeq = 100;
+    const panelComp = portal.children.find((c) => c?.type?.name === 'ImmunePanel').type;
+    panelComp();
+    await new Promise((r) => setTimeout(r, 10));
+    renderSeq = 100;
+    const tree = panelComp();
+    const hasEvoClass = JSON.stringify(tree).includes('"className":"evo"');
+    assert.equal(hasEvoClass, true, 'ImmunePanel must render .evo when body.evolution is returned');
+  } finally {
+    globalThis.fetch = prevFetch;
+    delete globalThis.window;
+    delete globalThis.document;
+  }
+});

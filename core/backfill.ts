@@ -13,7 +13,7 @@ import { homedir } from 'node:os';
 import { canCloseEpisode, targetSignature } from './pairing.js';
 import { isSelfEpisode } from './selfnoise.js';
 import { redactAndClamp } from './redact.js';
-import { REPAIR_TOOLS } from './repair-tools.js';
+import { isRepairTool } from './repair-tools.js';
 import type { ImmuneStore } from './store/index.js';
 import type { TargetSignature } from './pairing.js';
 
@@ -70,7 +70,7 @@ export function loadCalls(db: DatabaseSync, since: number, sessionId?: string): 
 
 /** Tools whose episodes can produce a meaningful rule; protocol tools are excluded. */
 export const BACKFILL_TOOLS = new Set([
-  'Bash', 'bash', 'Edit', 'Write', 'MultiEdit', 'Read', 'Grep', 'Glob', 'NotebookEdit',
+  'Bash', 'bash', 'Edit', 'edit', 'Write', 'write', 'MultiEdit', 'multiedit', 'Read', 'read', 'Grep', 'grep', 'Glob', 'glob', 'NotebookEdit', 'notebookedit',
 ]);
 
 /**
@@ -148,22 +148,34 @@ export function pairSession(
       pending.set(`${signature.signature}`, { call, signature, repairs: [] });
       continue;
     }
-    if (REPAIR_TOOLS.has(call.tool_name)) {
-      const part = parts.get(call.tool_call_id);
-      const raw = (part?.input ?? {}) as Record<string, unknown>;
-      const target = String(raw.file_path ?? raw.path ?? call.tool_name);
-      const entry = `${call.tool_name} ${target.split(/[\\/]/).pop() ?? target}`;
-      for (const p of pending.values()) p.repairs.push(entry);
-      continue;
-    }
-    // A success closes every pending failure of the same family.
+    if (pending.size === 0) continue;
     const signature = signatureOf(call);
+    let closedOwnFailure = false;
+    // A success closes every pending failure of the same family.
     for (const [key, entry] of pending) {
       if (canCloseEpisode(entry.signature.signature, signature)) {
         pending.delete(key);
         paired += 1;
         emit(entry.call, call, entry.repairs.slice(-3));
+        if (isRepairTool(call.tool_name)) closedOwnFailure = true;
       }
+    }
+    // Action diff: only when this write did not close its own open episode
+    // does it annotate other still-pending tool failures as a repair step.
+    if (!closedOwnFailure && isRepairTool(call.tool_name) && pending.size > 0) {
+      const part = parts.get(call.tool_call_id);
+      const raw = (part?.input ?? {}) as Record<string, unknown>;
+      const target = String(
+        raw.file_path ??
+          raw.path ??
+          raw.notebook_path ??
+          raw.TargetFile ??
+          raw.AbsolutePath ??
+          raw.Path ??
+          call.tool_name,
+      );
+      const entry = `${call.tool_name} ${target.split(/[\\/]/).pop() ?? target}`;
+      for (const p of pending.values()) p.repairs.push(entry);
     }
   }
   return { failures, paired, superseded };
@@ -177,7 +189,14 @@ export function backfill(store: ImmuneStore, opts: BackfillOptions = {}): Backfi
   const db = new DatabaseSync(source, { readOnly: true });
   try {
     const calls = loadCalls(db, since, opts.sessionId);
-    const parts = loadParts(db, [...new Set(calls.map((c) => c.session_id))]);
+    const errorSessions = [
+      ...new Set(
+        calls
+          .filter((c) => c.status === 'error' && BACKFILL_TOOLS.has(c.tool_name))
+          .map((c) => c.session_id),
+      ),
+    ];
+    const parts = loadParts(db, errorSessions);
     const report: BackfillReport = {
       scanned: calls.length,
       failures: 0,

@@ -33,9 +33,12 @@ await runHook('PostToolUseFailure', (event) => {
     // a related rule (AGENTS.md #33's isRelated bar), in which case a
     // hypothesis would be noise on covered ground. Probe-class failures never
     // count: a nonzero exit can BE the answer (AGENTS.md #25).
+    // Wait-free coverage check: `peek` is read-only (Decision #9) so a failure
+    // never bumps `hit_count` or overwrites `session_injections` right before
+    // `penalize(snapshot.injected_ids)`.
     if (!target.probeOnly) {
       const covered = store
-        .match(snapshot.trace, { limit: 1, sessionId, toolName })
+        .peek(snapshot.trace, 3)
         .some((row) => isRelated(row.trigger_pattern, snapshot.trace, toolName));
       if (!covered) store.recordStuckFailure(sessionId, target.signature);
     }

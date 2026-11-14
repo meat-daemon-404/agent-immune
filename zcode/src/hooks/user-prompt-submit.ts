@@ -15,6 +15,10 @@ import { runHook, sessionIdOf } from '../hook-io.js';
 import { formatImmuneContext } from '../format.js';
 
 await runHook('UserPromptSubmit', (event) => {
+  // Antigravity PreInvocation fires before every model call in a turn; only
+  // the initial step attaches the human prompt / injects once per turn.
+  if (typeof event.invocationNum === 'number' && event.invocationNum > 1) return null;
+
   const prompt = typeof event.prompt === 'string' ? event.prompt : '';
   if (!prompt.trim()) return null;
 

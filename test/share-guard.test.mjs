@@ -78,3 +78,20 @@ test('3.2 ci-check: a diff line touching a managed trigger is a finding', () => 
   assert.ok(report.findings[0].text.includes('npm run build'));
   assert.equal(ciCheck(diff, []).findings.length, 0, 'no rules, no findings');
 });
+
+test('3.2 share gate + echo detector do not mistake https:// URLs for Windows paths', async () => {
+  const { looksEchoPrescription } = await import('../dsh-immune-system/dist/core/rewrite.js');
+  const withUrl = {
+    trigger_pattern: 'Bash curl bilibili',
+    symptom: 'HTTP 412 precondition failed on https://www.bilibili.com/video/BV1',
+    prescription: 'Edit: pass explicit headers before requesting https://www.bilibili.com/api',
+  };
+  assert.deepEqual(
+    shareSanityCheck([withUrl]),
+    [],
+    'https:// must not trigger Windows drive-letter detection (s://)',
+  );
+  assert.equal(looksEchoPrescription(withUrl.prescription), false, 'URL after Edit: is not a local file path');
+  assert.equal(looksEchoPrescription('Edit: C:\\repo\\secret.ts'), true, 'real Windows drive path is still flagged');
+  assert.equal(looksEchoPrescription('bash: npm run build -- --mode production'), true, 'lowercase bash: is caught');
+});

@@ -13,6 +13,7 @@
  * downstream consumer parses).
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 export const SECTION_START = '<!-- immune:generated start -->';
 export const SECTION_END = '<!-- immune:generated end -->';
 function stripAngle(value) {
@@ -76,7 +77,8 @@ export function maybeSyncDocAfterDrain(store, env = process.env) {
     const raw = env.IMMUNE_SYNC_DOC?.trim();
     if (!raw)
         return null;
-    const file = raw === '1' || raw.toLowerCase() === 'true' ? 'AGENTS.md' : raw;
+    const defaultFile = env.ZCODE_PROJECT_DIR ? join(env.ZCODE_PROJECT_DIR, 'AGENTS.md') : 'AGENTS.md';
+    const file = raw === '1' || raw.toLowerCase() === 'true' ? defaultFile : raw;
     const minHitsRaw = Number(env.IMMUNE_SYNC_DOC_MIN_HITS ?? '');
     try {
         return syncDoc(store, {

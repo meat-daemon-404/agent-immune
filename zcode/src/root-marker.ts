@@ -16,6 +16,7 @@ export function projectDirOf(): string {
   return (
     process.env.ZCODE_PROJECT_DIR?.trim() ||
     process.env.CLAUDE_PROJECT_DIR?.trim() ||
+    process.env.ANTIGRAVITY_PROJECT_DIR?.trim() ||
     process.cwd()
   );
 }
@@ -42,9 +43,16 @@ export function selfMarkers(): string[] {
     process.env.ZCODE_PLUGIN_DATA ?? '',
     process.env.CLAUDE_PLUGIN_ROOT ?? '',
     process.env.CLAUDE_PLUGIN_DATA ?? '',
+    process.env.PLUGIN_ROOT ?? '',
+    process.env.PLUGIN_DATA ?? '',
   ].filter((p) => p.trim().length > 0);
 
-  const root = (process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT ?? '')
+  const root = (
+    process.env.ZCODE_PLUGIN_ROOT ??
+    process.env.CLAUDE_PLUGIN_ROOT ??
+    process.env.PLUGIN_ROOT ??
+    ''
+  )
     .trim()
     .toLowerCase();
   const project = projectDirOf().toLowerCase();
@@ -53,7 +61,10 @@ export function selfMarkers(): string[] {
 }
 
 export function rememberPluginRoot(): void {
-  const root = process.env.ZCODE_PLUGIN_ROOT?.trim() || process.env.CLAUDE_PLUGIN_ROOT?.trim();
+  const root =
+    process.env.ZCODE_PLUGIN_ROOT?.trim() ||
+    process.env.CLAUDE_PLUGIN_ROOT?.trim() ||
+    process.env.PLUGIN_ROOT?.trim();
   if (!root) return;
   try {
     const dir = dshDirOf();

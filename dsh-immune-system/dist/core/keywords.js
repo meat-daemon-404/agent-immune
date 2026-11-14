@@ -15,6 +15,10 @@ const STOP = new Set([
     'USERPROFILE', 'HOMEPATH', 'COMSPEC', 'PATH', 'HOME', 'USERS',
     'WINDOWS', 'SYSTEM32', 'EXE', 'DLL', 'LOG', 'LOGS', 'OUT', 'BIN',
     'NODE_MODULES',
+    'SELECT', 'FROM', 'WHERE', 'AND', 'INSERT', 'INTO', 'VALUES', 'UPDATE',
+    'SET', 'DELETE', 'LIMIT', 'ORDER', 'GROUP', 'TABLE', 'JOIN', 'CREATE',
+    'DROP', 'INDEX', 'EXISTS', 'DEFAULT', 'PRIMARY', 'KEY', 'FOREIGN',
+    'REFERENCES', 'GET', 'POST', 'PUT', 'HEAD',
 ]);
 /** Short flag-shaped tokens (`-i`, `//F`, `--f`) are not keywords. */
 const FLAG = /^[-/][A-Za-z]{1,3}$/;

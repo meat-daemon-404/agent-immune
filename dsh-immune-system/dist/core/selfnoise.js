@@ -110,20 +110,68 @@ export function moduleRoot() {
     }
     return cachedModuleRoot;
 }
-/** Push every quoted path-ish value out of a trace. */
+const PATH_FIELD_PATTERN = /"(?:file_path|path|notebook_path|TargetFile|AbsolutePath|Path|old_string|content)"\s*:\s*"((?:[^"\\]|\\.){3,300})"/g;
+const COMMAND_FIELD_PATTERN = /"(?:command|cmd|CommandLine)"\s*:\s*"((?:[^"\\]|\\.){3,600})"/g;
+function unescapeTraceString(raw) {
+    return raw.replace(/\\([\\"/nrt])/g, (_, ch) => {
+        if (ch === 'n' || ch === 'r' || ch === 't')
+            return ' ';
+        return ch;
+    });
+}
+function collectCommandPaths(command, found) {
+    const pushCandidate = (candidate) => {
+        const trimmed = candidate.replace(/^['"]+|['"]+$/g, '');
+        if (trimmed.length < 3 || /^https?:\/\//i.test(trimmed))
+            return;
+        if (/[\\/]/.test(trimmed) && !found.includes(trimmed)) {
+            found.push(trimmed);
+        }
+    };
+    for (const q of command.matchAll(/"([^"\r\n]{3,300})"|'([^'\r\n]{3,300})'/g)) {
+        const inner = q[1] ?? q[2];
+        if (inner)
+            pushCandidate(inner);
+        if (found.length >= MAX_PATHS)
+            return;
+    }
+    for (const tok of command.matchAll(/[^\s"'`<>|;&()]+/g)) {
+        const raw = tok[0];
+        if (!raw || raw.length < 3)
+            continue;
+        pushCandidate(raw);
+        const eq = raw.indexOf('=');
+        if (eq > 0 && eq < raw.length - 3) {
+            pushCandidate(raw.slice(eq + 1));
+        }
+        if (found.length >= MAX_PATHS)
+            return;
+    }
+}
+/** Push every quoted path-ish value (and path tokens in shell commands) out of a trace. */
 function collectPaths(trace) {
     const found = [];
-    const pattern = /"(?:file_path|path|old_string|content)"\s*:\s*"((?:[^"\\]|\\.){3,300})"/g;
-    for (const match of trace.matchAll(pattern)) {
+    for (const match of trace.matchAll(PATH_FIELD_PATTERN)) {
         const raw = match[1];
         if (!raw)
             continue;
-        const unescaped = raw.replace(/\\\\/g, '\\').replace(/\\"/g, '"');
+        const unescaped = unescapeTraceString(raw);
         if (!/[\\/]/.test(unescaped))
             continue;
-        found.push(unescaped);
+        if (!found.includes(unescaped))
+            found.push(unescaped);
         if (found.length >= MAX_PATHS)
             break;
+    }
+    if (found.length < MAX_PATHS) {
+        for (const match of trace.matchAll(COMMAND_FIELD_PATTERN)) {
+            const raw = match[1];
+            if (!raw)
+                continue;
+            collectCommandPaths(unescapeTraceString(raw), found);
+            if (found.length >= MAX_PATHS)
+                break;
+        }
     }
     return found;
 }

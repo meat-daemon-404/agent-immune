@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -253,4 +253,104 @@ test('audit dry-run enqueues nothing; max caps the enqueue', () => {
   s.close();
   s2.close();
   s3.close();
+});
+
+test('audit parses Antigravity transcripts: PLANNER_RESPONSE + GENERIC, plan denial skip, and token median', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'immune-audit-agy-'));
+  try {
+    const logsDir = join(dir, 'conv-1', '.system_generated', 'logs');
+    mkdirSync(logsDir, { recursive: true });
+    const t = Date.now() - 60_000;
+    const iso = (ms) => new Date(ms).toISOString();
+    const row = (obj) => `${JSON.stringify(obj)}\n`;
+    const lines = [
+      row({ step_index: 0, type: 'USER_INPUT', created_at: iso(t), content: 'fix build' }),
+      row({
+        step_index: 1,
+        type: 'PLANNER_RESPONSE',
+        created_at: iso(t + 100),
+        input_tokens: 1000,
+        cache_read_tokens: 500,
+        output_tokens: 100,
+        tool_calls: [{ name: 'run_command', args: { CommandLine: '"npm run build"' } }],
+      }),
+      row({
+        step_index: 2,
+        type: 'GENERIC',
+        status: 'DONE',
+        created_at: iso(t + 200),
+        content: 'Created At: ...\nCommand exited with code 1.\n\nCommand output:\nerror TS2304: Cannot find name foo',
+      }),
+      row({
+        step_index: 3,
+        type: 'PLANNER_RESPONSE',
+        created_at: iso(t + 300),
+        tool_calls: [{ name: 'edit_file', args: { Path: '"d:\\\\repo\\\\a.ts"' } }],
+      }),
+      row({
+        step_index: 4,
+        type: 'GENERIC',
+        status: 'ERROR',
+        error: 'tool call denied by pre-tool hook: Plan mode is on',
+        created_at: iso(t + 400),
+      }),
+      row({
+        step_index: 5,
+        type: 'PLANNER_RESPONSE',
+        created_at: iso(t + 500),
+        tool_calls: [{ name: 'edit_file', args: { Path: '"d:\\\\repo\\\\a.ts"' } }],
+      }),
+      row({
+        step_index: 6,
+        type: 'GENERIC',
+        status: 'DONE',
+        created_at: iso(t + 600),
+        content: 'Made 1 replacement in a.ts',
+      }),
+      row({
+        step_index: 7,
+        type: 'PLANNER_RESPONSE',
+        created_at: iso(t + 700),
+        tool_calls: [{ name: 'run_command', args: { CommandLine: '"npm run build"' } }],
+      }),
+      row({
+        step_index: 8,
+        type: 'GENERIC',
+        status: 'DONE',
+        created_at: iso(t + 800),
+        content: 'Command exited with code 0.\n',
+      }),
+    ];
+    // Add 29 more token samples across PLANNER_RESPONSE steps so medianRequestTokens >= 30 samples computes.
+    for (let i = 0; i < 29; i += 1) {
+      lines.push(
+        row({
+          step_index: 9 + i,
+          type: 'PLANNER_RESPONSE',
+          created_at: iso(t + 900 + i * 10),
+          input_tokens: 1000 + i * 10,
+          cache_read_tokens: 500,
+          output_tokens: 100,
+        }),
+      );
+    }
+    writeFileSync(join(logsDir, 'transcript.jsonl'), lines.join(''), 'utf8');
+
+    const s = store();
+    try {
+      const report = auditHistory(s, { days: 30, source: 'antigravity', antigravityBrainDir: dir });
+      const agy = report.sources.find((src) => src.source === 'antigravity');
+      assert.equal(agy.present, true);
+      assert.equal(agy.scanned, 3, 'plan-mode hook denial excluded; 2 Bash + 1 Edit scanned');
+      assert.equal(agy.failures, 1);
+      assert.equal(agy.paired, 1, 'failed run_command, edit_file repair, and clean run_command close the episode');
+      assert.equal(agy.enqueued, 1);
+      assert.equal(agy.medianSamples, 30);
+      assert.ok(agy.medianRequestTokens >= 1600);
+    } finally {
+      s.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -244,7 +244,7 @@ function main(argv: string[]): number {
         const report = connectAllDetected({ refresh: args.includes('--refresh') });
         if (report.detected.length === 0) {
           process.stdout.write(
-            'connect: no supported host detected (~/.claude, ~/.codex). ' +
+            'connect: no supported host detected (~/.claude, ~/.codex, ~/.gemini/antigravity). ' +
               'Install a host first, or wire one explicitly: connect claude-code\n',
           );
           return 0;
@@ -524,14 +524,14 @@ function main(argv: string[]): number {
         const budgetArg = args.indexOf('--budget-ms');
         const dryRun = args.includes('--dry-run');
         const source = sourceArg >= 0 ? (args[sourceArg + 1] ?? 'auto') : 'auto';
-        if (!['auto', 'zcode', 'codex', 'claude-code'].includes(source)) {
+        if (!['auto', 'zcode', 'codex', 'claude-code', 'antigravity'].includes(source)) {
           process.stderr.write(`audit: unknown source "${source}"\n`);
           store.close();
           return 2;
         }
         const report = auditHistory(store, {
           days: daysArg >= 0 ? Number(args[daysArg + 1] ?? '30') : 30,
-          source: source as 'auto' | 'zcode' | 'codex' | 'claude-code',
+          source: source as 'auto' | 'zcode' | 'codex' | 'claude-code' | 'antigravity',
           ...(maxArg >= 0 ? { max: Number(args[maxArg + 1] ?? '0') } : {}),
           dryRun,
           selfMarkers: selfMarkers(),

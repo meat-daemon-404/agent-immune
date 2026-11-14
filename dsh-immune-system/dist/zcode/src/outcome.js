@@ -34,6 +34,7 @@ const FAILURE_MARKERS = /\bexit (?:code|status)\s*[:=]?\s*[1-9]\d*\b|ENOENT|EACC
 export function classifyOutcome(event) {
     const response = event.tool_response ?? event.toolResponse;
     const preview = typeof event.tool_result_preview === 'string' ? event.tool_result_preview : '';
+    const topError = typeof event.error === 'string' ? event.error.trim() : '';
     const body = preview ||
         (typeof response === 'string' ? response : '') ||
         (() => {
@@ -44,6 +45,11 @@ export function classifyOutcome(event) {
                 return '';
             }
         })();
+    // Antigravity PostToolUse carries top-level `error: "..."` when the tool
+    // execution fails, with no `tool_response` wrapper.
+    if (topError.length > 0) {
+        return { failed: true, text: (body && body !== '""' ? body : '') || topError };
+    }
     const exit = exitCodeOf(response);
     if (exit !== null) {
         return { failed: exit !== 0, text: body || `exit code ${exit}` };

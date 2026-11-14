@@ -15,11 +15,14 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { redact } from './redact.js';
+import { signals } from './relevance.js';
 import { SECTION_START, SECTION_END } from './sync-doc.js';
 
 /** Machine paths that must never leave the machine. */
 const MACHINE_PATH =
-  /(?:[A-Za-z]:[\\/][^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120})/;
+  /(?:(?<![A-Za-z])[A-Za-z]:[\\/](?![\\/])[^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120})/;
+
+const TOOL_NAMES = new Set(['bash', 'edit', 'write', 'read', 'multiedit', 'notebookedit', 'grep', 'glob']);
 
 export type ShareViolationKind = 'machine-path' | 'secret-shaped';
 
@@ -134,10 +137,7 @@ export function ciCheck(diffText: string, rules: ReadonlyArray<AntibodyFields>):
   const findings: CiCheckReport['findings'] = [];
   for (const addedLine of added) {
     for (const rule of rules) {
-      const tokens = (rule.trigger_pattern ?? '')
-        .toLowerCase()
-        .split(/\s+/)
-        .filter((token) => token.length >= 3);
+      const tokens = [...signals(rule.trigger_pattern ?? '')].filter((token) => !TOOL_NAMES.has(token));
       if (tokens.length === 0) continue;
       const lower = addedLine.text.toLowerCase();
       // One distinctive token in an added line is enough to name the territory.

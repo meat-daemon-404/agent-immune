@@ -99,7 +99,7 @@ const TOOLS = [
     },
     {
         name: 'immune_audit',
-        description: 'Health check over this machine\'s session history (ZCode db, Codex rollouts, Claude Code transcripts): replays the failed-then-fixed pairing and reports per-tool failures, repeat offenders and the avoidable token estimate. READ-ONLY preview — run `immune audit` in a terminal to actually distil (an MCP-only host has no turn-end drain, so enqueued jobs would sit stuck).',
+        description: 'Health check over this machine\'s session history (ZCode db, Codex rollouts, Claude Code transcripts, Antigravity transcripts): replays the failed-then-fixed pairing and reports per-tool failures, repeat offenders and the avoidable token estimate. READ-ONLY preview — run `immune audit` in a terminal to actually distil (an MCP-only host has no turn-end drain, so enqueued jobs would sit stuck).',
         inputSchema: {
             type: 'object',
             properties: {

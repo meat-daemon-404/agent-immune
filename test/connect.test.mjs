@@ -29,8 +29,8 @@ test('the dist hooks directory has every script the connect table wires', () => 
   for (const host of Object.values(HOSTS)) {
     const table = buildEventTable(host, SCRIPT_DIR);
     for (const [event, groups] of Object.entries(table)) {
-      assert.ok(groups.length === 1 && groups[0].hooks.length === 1, `${event}: one group, one handler`);
-      const hook = groups[0].hooks[0];
+      const hook = 'hooks' in groups[0] ? groups[0].hooks[0] : groups[0];
+      assert.ok(groups.length === 1 && hook, `${event}: one entry, one handler`);
       const script = hook.command.match(/"(.+)"/)?.[1];
       assert.ok(script, `command must carry a quoted script path: ${hook.command}`);
       assert.ok(existsSync(script), `script must exist: ${script}`);
@@ -147,7 +147,7 @@ test('a codex install with the old ZCode-shaped matcher is upgraded in place', (
 test('status reports each host without touching anything', () => {
   const h = home();
   const before = connectStatus({ home: h });
-  assert.deepEqual(before.map((row) => row.state), ['no-config', 'no-config']);
+  assert.deepEqual(before.map((row) => row.state), ['no-config', 'no-config', 'no-config']);
 
   connectHost('claude-code', { home: h });
   const after = connectStatus({ home: h });
@@ -346,4 +346,74 @@ test('the native Claude Code plugin manifests agree with the package', () => {
     const rel = command.match(/dsh-immune-system\/(.+?)"/)?.[1];
     assert.ok(rel && existsSync(join(root, 'dsh-immune-system', rel)), `${event}: script exists in dist`);
   }
+});
+
+test('connect antigravity writes hybrid flat/grouped hooks under "dsh-immune-system", is idempotent, and cleanly disconnects', async () => {
+  const h = home();
+  const cfgPath = join(h, '.gemini', 'config', 'hooks.json');
+  mkdirSync(dirname(cfgPath), { recursive: true });
+  writeFileSync(
+    cfgPath,
+    JSON.stringify({
+      'other-hook': { SessionStart: [{ type: 'command', command: 'echo other', timeout: 5 }] },
+    }),
+    'utf8',
+  );
+
+  const first = connectHost('antigravity', { home: h });
+  assert.equal(first.added, 5, 'antigravity wires 5 events (no PostToolUseFailure)');
+  const parsed = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  assert.ok(parsed['other-hook'], 'unrelated named hooks survive');
+  const pack = parsed['dsh-immune-system'];
+  assert.equal(pack.SessionStart[0].type, 'command', 'SessionStart is a flat handler array');
+  assert.equal(pack.PreInvocation[0].type, 'command', 'PreInvocation maps from UserPromptSubmit and is flat');
+  assert.equal(pack.Stop[0].type, 'command', 'Stop is flat');
+  assert.match(pack.PreToolUse[0].matcher, /run_command/, 'PreToolUse matcher includes run_command');
+  assert.equal(pack.PostToolUse[0].matcher, '*');
+  assert.equal(pack.PostToolUseFailure, undefined);
+
+  const second = connectHost('antigravity', { home: h });
+  assert.equal(second.added, 0);
+  assert.equal(second.alreadyPresent, 5);
+
+  const removed = disconnectHost('antigravity', { home: h });
+  assert.equal(removed.removed, 5);
+  const after = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  assert.equal(after['dsh-immune-system'], undefined, 'empty named hook key is removed cleanly');
+  assert.ok(after['other-hook'], 'other named hook still intact');
+});
+
+test('zero-arg auto-detect discovers ~/.gemini/antigravity and normalises Antigravity tools & args', async () => {
+  const h = home();
+  mkdirSync(join(h, '.gemini', 'antigravity'), { recursive: true });
+  const report = connectAllDetected({ home: h });
+  assert.equal(report.detected.length, 1);
+  assert.equal(report.detected[0].host, 'antigravity');
+  assert.equal(report.wired.length, 1);
+  assert.equal(report.wired[0].host, 'antigravity');
+
+  assert.equal(normaliseToolName('run_command'), 'Bash');
+  assert.equal(normaliseToolName('edit_file'), 'Edit');
+  assert.equal(normaliseToolName('replace_file_content'), 'Edit');
+  assert.equal(normaliseToolName('write_file'), 'Write');
+  assert.equal(normaliseToolName('read_file'), 'Read');
+  assert.equal(normaliseToolName('grep_search'), 'Grep');
+  assert.equal(normaliseToolName('find_by_name'), 'Glob');
+
+  const { normaliseHookEvent, isAntigravityEvent } = await import(
+    '../dsh-immune-system/dist/zcode/src/hook-io.js'
+  );
+  const ev = normaliseHookEvent({
+    conversationId: 'conv-42',
+    workspacePaths: ['/tmp/ws'],
+    lastUserInput: 'fix test',
+    toolCall: { name: 'run_command', args: { CommandLine: 'npm test' } },
+  });
+  assert.equal(isAntigravityEvent(ev), true);
+  assert.equal(ev.session_id, 'conv-42');
+  assert.equal(ev.cwd, '/tmp/ws');
+  assert.equal(ev.prompt, 'fix test');
+  assert.equal(ev.tool_name, 'run_command');
+  assert.equal(ev.tool_input.command, 'npm test');
+  assert.equal(targetSignature(normaliseToolName(ev.tool_name), ev.tool_input).signature, 'Bash:npm:test');
 });

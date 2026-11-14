@@ -81,7 +81,7 @@ function errorTextOf(detail) {
         return detail;
     if (typeof detail === 'object' && detail !== null) {
         const obj = detail;
-        for (const key of ['stderr', 'message', 'error']) {
+        for (const key of ['stderr', 'message', 'error', 'stdout']) {
             const value = obj[key];
             if (typeof value === 'string' && value.trim())
                 return value;

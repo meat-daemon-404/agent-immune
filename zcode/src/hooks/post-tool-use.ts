@@ -15,12 +15,13 @@
  */
 import { ImmuneStore } from '../../../core/store/index.js';
 import { isSelfEpisode } from '../../../core/selfnoise.js';
+import { isRelated } from '../../../core/relevance.js';
 import { normaliseTargetPath, targetSignature } from '../../../core/pairing.js';
 import { runHook, sessionIdOf, toolNameOf } from '../hook-io.js';
 import { summarizeToolCall } from '../format.js';
 import { classifyOutcome } from '../outcome.js';
 import { selfMarkers } from '../root-marker.js';
-import { REPAIR_TOOLS } from '../../../core/repair-tools.js';
+import { isRepairTool } from '../../../core/repair-tools.js';
 
 await runHook('PostToolUse', (event) => {
   const record = event as Record<string, unknown>;
@@ -37,13 +38,14 @@ await runHook('PostToolUse', (event) => {
     // what fixed the problem, not just that the retry succeeded. A tool with
     // its own open episode does not record itself as its own repair.
     if (
-      REPAIR_TOOLS.has(toolName) &&
+      isRepairTool(toolName) &&
       store.hasPendingFailure(sessionId) &&
       !store.hasPendingFailure(sessionId, toolName)
     ) {
       const filePath =
         (event.tool_input as Record<string, unknown> | undefined)?.file_path ??
         (event.tool_input as Record<string, unknown> | undefined)?.path ??
+        (event.tool_input as Record<string, unknown> | undefined)?.notebook_path ??
         '';
       const base =
         typeof filePath === 'string' && filePath.length > 0
@@ -74,6 +76,15 @@ await runHook('PostToolUse', (event) => {
 
     if (outcome.failed) {
       const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
+      // ROADMAP 1.5 stuck detection for non-zero exit tools (Bash returns
+      // through PostToolUse, not PostToolUseFailure — Decision #1). `peek`
+      // keeps the coverage check read-only (Decision #9).
+      if (!target.probeOnly) {
+        const covered = store
+          .peek(snapshot.trace, 3)
+          .some((row) => isRelated(row.trigger_pattern, snapshot.trace, toolName));
+        if (!covered) store.recordStuckFailure(sessionId, target.signature);
+      }
       // Anti-rot retires rules that failed to prevent this; retirement itself
       // is the handling. A failure-only episode has no repair evidence, so
       // re-distilling it only produced literal "previous rule (retired after

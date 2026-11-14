@@ -24,6 +24,9 @@ import { applyDistillResult } from '../../core/commit.js';
 import { currentFingerprint } from '../../core/env-fingerprint.js';
 import { strings } from '../../core/i18n.js';
 import { isSelfEpisode } from '../../core/selfnoise.js';
+import { isRelated } from '../../core/relevance.js';
+import { looksEchoPrescription } from '../../core/rewrite.js';
+import { maybeSleepConsolidate } from '../../core/sleep-consolidate.js';
 import { targetSignature } from '../../core/pairing.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
 import { REPAIR_TOOLS } from '../../core/repair-tools.js';
@@ -318,7 +321,16 @@ function startPlugin(ctx) {
         }
         store.pruneStale();
         const active = store.listAll(false);
-        const block = renderMemory(active.slice(0, 3), t.promptPreamble, 1400);
+        // Priming has no prompt/tool query to match against, so drop echo-grade
+        // command dumps here (`looksEchoPrescription`, Decision #39) while recording
+        // the delivered ids for anti-rot attribution and turn-time deduping.
+        const top = active
+            .filter((a) => !looksEchoPrescription(a.prescription))
+            .slice(0, 3);
+        if (top.length > 0) {
+            store.recordInjection(agent.id, top.map((a) => a.id), top.map((a) => a.prescription));
+        }
+        const block = renderMemory(top, t.promptPreamble, 1400);
         if (block)
             agent.inject(createPluginMessage(block));
         log.info(`[immune] session-start (${source}): ${active.length} active antibody/queries`);
@@ -413,19 +425,24 @@ function startPlugin(ctx) {
         // Action diff (EMG-style): when OTHER tools have open episodes, a write
         // to a file is very often the actual repair. A tool with its own open
         // episode does not record itself as its own repair.
-        if (REPAIR_TOOLS.has(event.toolName) &&
+        if ((REPAIR_TOOLS.has(event.toolName) ||
+            ['write', 'edit', 'multiedit', 'notebookedit'].includes(event.toolName.toLowerCase())) &&
             store.hasPendingFailure(event.sessionId) &&
             !store.hasPendingFailure(event.sessionId, event.toolName)) {
             const raw = (event.toolInput ?? {});
-            const filePath = raw.file_path ?? raw.path ?? '';
+            const filePath = raw.file_path ?? raw.path ?? raw.notebook_path ?? '';
             const base = typeof filePath === 'string' && filePath.length > 0
                 ? filePath.split(/[\\/]/).pop() ?? filePath
                 : event.toolName;
             store.recordRepairAction(event.sessionId, `${event.toolName} ${base}`);
         }
-        // Probe-thrash bookkeeping: a completed probe extends its streak, any
-        // other call resets all streaks for the session.
+        // Probe-thrash bookkeeping & convergent detours (ROADMAP 2.3b).
         const probeSignature = targetSignature(event.toolName, event.toolInput);
+        if (!probeSignature.probeOnly && event.ok) {
+            const detourStreak = store.topProbeStreak(event.sessionId, store.detourMinProbes);
+            if (detourStreak)
+                store.recordDetour(event.sessionId, detourStreak.signature, detourStreak.count);
+        }
         store.recordProbeOutcome(event.sessionId, probeSignature.probeOnly ? probeSignature.signature : null);
         if (!event.ok) {
             // A sandbox file-access denial is a permission negotiation, not a
@@ -436,6 +453,15 @@ function startPlugin(ctx) {
                 return downstream;
             const failedTarget = targetSignature(event.toolName, event.toolInput);
             const snapshot = store.recordFailure(event.sessionId, event.toolName, traceFor(event, `error=${event.errorText}`), failedTarget.signature);
+            // ROADMAP 1.5 stuck detection: count uncovered non-probe failures using
+            // read-only `peek` (Decision #9).
+            if (!failedTarget.probeOnly) {
+                const covered = store
+                    .peek(snapshot.trace, 3)
+                    .some((row) => isRelated(row.trigger_pattern, snapshot.trace, event.toolName));
+                if (!covered)
+                    store.recordStuckFailure(event.sessionId, failedTarget.signature);
+            }
             // Anti-rot retirement is the handling: a failure-only episode has no
             // repair evidence, and re-distilling one produced literal "previous
             // rule (retired after N failures)" prescriptions (production data).
@@ -448,6 +474,8 @@ function startPlugin(ctx) {
         }
         const successTarget = targetSignature(event.toolName, event.toolInput);
         const failure = store.claimFailure(event.sessionId, event.toolName, successTarget);
+        const hypothesized = store.wasHypothesized(event.sessionId, successTarget.signature);
+        store.clearStuck(event.sessionId, successTarget.signature);
         if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
             // The action diff travels with the success trace: keyword extraction
             // picks the repaired files out of it, and the LLM prompt gets the
@@ -456,7 +484,12 @@ function startPlugin(ctx) {
             const successTrace = failure.repair_path.length > 0
                 ? `${baseTrace}\nrepair actions: ${failure.repair_path.join(' | ')}`
                 : baseTrace;
-            store.enqueueJob(event.toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path);
+            const origin = failure.human_hint.trim()
+                ? 'user_correction'
+                : hypothesized
+                    ? 'self_healing_experiment'
+                    : '';
+            store.enqueueJob(event.toolName, failure.trace, successTrace, failure.injected_ids, failure.human_hint, failure.repair_path, origin);
         }
         return downstream;
     });
@@ -470,6 +503,8 @@ function startPlugin(ctx) {
             await drain(store);
         // Opt-in (IMMUNE_SYNC_DOC): the same boundary keeps the agent docs fresh.
         maybeSyncDocAfterDrain(store);
+        // ROADMAP 2.4b: quiet consolidation scan under its 12h cooldown.
+        maybeSleepConsolidate(store);
     });
     ctx.effect(() => () => {
         store.close();
@@ -546,7 +581,7 @@ function startPlugin(ctx) {
             }
             const id = Number(args[0]);
             if (!Number.isInteger(id) || id <= 0) {
-                return { kind: 'error', text: `${t.notFound} — usage: <id> | --last | --prune` };
+                return { kind: 'error', text: `${t.notFound} — usage: <id> | --last | --prune | --purge` };
             }
             return {
                 kind: 'success',

@@ -212,8 +212,10 @@ export class ImmuneStore {
     }
 
     // Shared-library candidates compete on the same terms, with a discount.
+    // Track them by object identity (not numeric id) because project and global
+    // databases have independent AUTOINCREMENT sequences (Decision #7).
     const shared: Antibody[] = [];
-    const sharedIds = new Set<number>();
+    const sharedSet = new Set<Antibody>();
     const delivered = new Set(own.map((r) => r.prescription));
     if (own.length < wide) {
       const global = this.global();
@@ -224,7 +226,7 @@ export class ImmuneStore {
             if (delivered.has(candidate.prescription)) continue;
             if (sent?.has(candidate.prescription)) continue;
             shared.push(candidate);
-            sharedIds.add(candidate.id);
+            sharedSet.add(candidate);
             delivered.add(candidate.prescription);
             if (own.length + shared.length >= wide) break;
           }
@@ -245,10 +247,10 @@ export class ImmuneStore {
     const ordered = merged
       .map((r, i) => ({ r, i }))
       .sort((x, y) => aff(x.r) - aff(y.r) || x.i - y.i);
-    const relevance = new Map(ordered.map((e, i) => [e.r.id, 1 / (1 + i)]));
-    const ranked = rerank(merged, { query: queryText, sharedIds, relevance }).slice(0, limit);
-    const rankedOwn = ranked.filter((r) => !sharedIds.has(r.id));
-    const rankedShared = ranked.filter((r) => sharedIds.has(r.id));
+    const relevanceByRule = new Map(ordered.map((e, i) => [e.r, 1 / (1 + i)]));
+    const ranked = rerank(merged, { query: queryText, sharedSet, relevanceByRule }).slice(0, limit);
+    const rankedOwn = ranked.filter((r) => !sharedSet.has(r));
+    const rankedShared = ranked.filter((r) => sharedSet.has(r));
 
     // ---- Repeat suppression (per turn) -------------------------------------
     // Same set as last turn and fewer than SUPPRESS_WINDOW turns since: say

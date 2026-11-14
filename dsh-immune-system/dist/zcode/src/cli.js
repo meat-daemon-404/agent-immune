@@ -220,7 +220,7 @@ function main(argv) {
             try {
                 const report = connectAllDetected({ refresh: args.includes('--refresh') });
                 if (report.detected.length === 0) {
-                    process.stdout.write('connect: no supported host detected (~/.claude, ~/.codex). ' +
+                    process.stdout.write('connect: no supported host detected (~/.claude, ~/.codex, ~/.gemini/antigravity). ' +
                         'Install a host first, or wire one explicitly: connect claude-code\n');
                     return 0;
                 }
@@ -484,7 +484,7 @@ function main(argv) {
                 const budgetArg = args.indexOf('--budget-ms');
                 const dryRun = args.includes('--dry-run');
                 const source = sourceArg >= 0 ? (args[sourceArg + 1] ?? 'auto') : 'auto';
-                if (!['auto', 'zcode', 'codex', 'claude-code'].includes(source)) {
+                if (!['auto', 'zcode', 'codex', 'claude-code', 'antigravity'].includes(source)) {
                     process.stderr.write(`audit: unknown source "${source}"\n`);
                     store.close();
                     return 2;

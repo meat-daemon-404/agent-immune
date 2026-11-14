@@ -72,6 +72,14 @@ export function applyHostRewrites(store, rewrites, now = Date.now()) {
             results.push({ id: item.id, status: 'failed', detail: 'duplicate id in one batch' });
             continue;
         }
+        if (seen.size >= HOST_REWRITE_BATCH) {
+            results.push({
+                id: item.id,
+                status: 'skipped',
+                detail: `batch cap: at most ${HOST_REWRITE_BATCH} rules per delegated pass`,
+            });
+            continue;
+        }
         seen.add(item.id);
         const rule = store.byId(item.id);
         if (!rule || rule.status !== 'active') {
@@ -87,6 +95,14 @@ export function applyHostRewrites(store, rewrites, now = Date.now()) {
             continue;
         }
         const wording = String(item.prescription ?? '').trim();
+        if (wording.length < 4) {
+            results.push({ id: item.id, status: 'failed', detail: 'replacement wording is too short (< 4 chars)' });
+            continue;
+        }
+        if (wording.length > 120) {
+            results.push({ id: item.id, status: 'failed', detail: 'replacement wording is too long (> 120 chars)' });
+            continue;
+        }
         if (looksEchoPrescription(wording)) {
             results.push({
                 id: item.id,

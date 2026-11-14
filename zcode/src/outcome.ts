@@ -41,6 +41,7 @@ export interface Outcome {
 export function classifyOutcome(event: Record<string, unknown>): Outcome {
   const response = event.tool_response ?? event.toolResponse;
   const preview = typeof event.tool_result_preview === 'string' ? event.tool_result_preview : '';
+  const topError = typeof event.error === 'string' ? event.error.trim() : '';
 
   const body =
     preview ||
@@ -52,6 +53,12 @@ export function classifyOutcome(event: Record<string, unknown>): Outcome {
         return '';
       }
     })();
+
+  // Antigravity PostToolUse carries top-level `error: "..."` when the tool
+  // execution fails, with no `tool_response` wrapper.
+  if (topError.length > 0) {
+    return { failed: true, text: (body && body !== '""' ? body : '') || topError };
+  }
 
   const exit = exitCodeOf(response);
   if (exit !== null) {

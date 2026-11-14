@@ -119,12 +119,12 @@ export function targetSignature(toolName, input, cwd) {
     // casing stays verbatim so stored signatures keep matching their producers.
     const tool = toolName.trim().toLowerCase();
     if (FILE_TOOLS.has(tool)) {
-        const raw = pickString(obj, ['file_path', 'path', 'notebook_path']);
+        const raw = pickString(obj, ['file_path', 'path', 'notebook_path', 'TargetFile', 'AbsolutePath', 'Path']);
         const target = raw ? normaliseTargetPath(raw, cwd) : '';
         return { signature: `${toolName}:${target || '?'}`, probeOnly: tool === 'read' };
     }
     if (tool === 'bash') {
-        const command = pickString(obj, ['command', 'cmd', 'script']) ?? '';
+        const command = pickString(obj, ['command', 'cmd', 'script', 'CommandLine']) ?? '';
         if (!command)
             return { signature: 'Bash:?', probeOnly: false };
         const { program, sub } = parseCommand(command);
@@ -132,7 +132,7 @@ export function targetSignature(toolName, input, cwd) {
         return { signature: `Bash:${program || '?'}:${sub || '-'}`, probeOnly };
     }
     // Unknown tool: fall back to its name plus the first path-ish field.
-    const raw = pickString(obj, ['file_path', 'path', 'command']);
+    const raw = pickString(obj, ['file_path', 'path', 'notebook_path', 'TargetFile', 'AbsolutePath', 'Path', 'command', 'CommandLine']);
     return {
         signature: `${toolName}:${raw ? normaliseTargetPath(raw, cwd) : '?'}`,
         probeOnly: false,
@@ -179,14 +179,18 @@ export function canCloseEpisode(failedSignature, incoming) {
     const incomingParts = incoming.signature.split(':');
     const failedTool = failedParts[0] ?? '';
     const incomingTool = incomingParts[0] ?? '';
-    if (failedTool !== incomingTool)
+    if (failedTool.toLowerCase() !== incomingTool.toLowerCase())
         return false;
-    const failedTarget = failedParts[1] ?? '';
-    const incomingTarget = incomingParts[1] ?? '';
-    if (failedTool === 'Bash') {
-        if (!failedTarget || !incomingTarget)
+    if (failedTool.toLowerCase() === 'bash') {
+        const failedTarget = failedParts[1] ?? '';
+        const incomingTarget = incomingParts[1] ?? '';
+        if (!failedTarget || failedTarget === '?' || !incomingTarget || incomingTarget === '?')
             return true;
         return programFamily(failedTarget) === programFamily(incomingTarget);
     }
+    const failedTarget = failedParts.slice(1).join(':');
+    const incomingTarget = incomingParts.slice(1).join(':');
+    if (failedTarget === incomingTarget)
+        return true;
     return !failedTarget || failedTarget === '?' || !incomingTarget || incomingTarget === '?';
 }

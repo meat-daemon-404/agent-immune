@@ -102,7 +102,7 @@ function errorTextOf(detail: unknown): string {
   if (typeof detail === 'string') return detail;
   if (typeof detail === 'object' && detail !== null) {
     const obj = detail as Record<string, unknown>;
-    for (const key of ['stderr', 'message', 'error']) {
+    for (const key of ['stderr', 'message', 'error', 'stdout']) {
       const value = obj[key];
       if (typeof value === 'string' && value.trim()) return value;
     }

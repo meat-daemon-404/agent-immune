@@ -70,16 +70,26 @@ export function extractError(trace) {
             width = marker.length;
         }
     }
+    // If a trace starts with `tool=<name> input=` but carries no `error=` or
+    // `result=` marker (e.g. a legacy trace truncated inside a large input), the
+    // input prefix is NOT the error — returning it turns `tool=Write input={...`
+    // into the rule's symptom.
+    if (at < 0 && /^tool=\S+\s+input=/.test(trace.trimStart()))
+        return null;
     const raw = (at >= 0 ? trace.slice(at + width) : trace).replace(/\s+/g, ' ').trim();
     if (!raw)
         return null;
-    // Edit/Read results and structured payloads arrive as JSON block arrays; the
-    // human part lives in a string field inside them, not in the JSON wrapper.
-    const unwrapped = jsonStringField(raw, ['message', 'text', 'error', 'stderr']);
+    // Edit/Read results and structured payloads arrive as JSON block arrays or
+    // `{stdout, stderr, ...}` objects; the human part lives in a string field
+    // inside them, not in the JSON wrapper. When a JSON wrapper has only empty
+    // string fields, return null rather than leaking `{"stdout":"","stderr":""}`.
+    const unwrapped = jsonStringField(raw, ['message', 'text', 'error', 'stderr', 'stdout']);
+    if (!unwrapped && (raw.startsWith('{') || raw.startsWith('[')))
+        return null;
     const text = (unwrapped ?? raw).replace(/\s+/g, ' ').trim();
     return text ? text.slice(0, 100) : null;
 }
-const KEYS = ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'script'];
+const KEYS = ['command', 'file_path', 'path', 'notebook_path', 'pattern', 'query', 'url', 'script', 'cmd', 'CommandLine', 'TargetFile', 'AbsolutePath', 'Path'];
 /**
  * The command, path or query that was actually run.
  *

@@ -14,7 +14,7 @@
  * fixture-tested only (no real transcripts existed on the dev machine).
  */
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { BACKFILL_TOOLS, loadCalls, loadParts, pairSession } from './backfill.js';
@@ -135,7 +135,12 @@ function loadZcodeSessions(sourceDb, since) {
     const db = new DatabaseSync(sourceDb, { readOnly: true });
     try {
         const calls = loadCalls(db, since);
-        const parts = loadParts(db, [...new Set(calls.map((call) => call.session_id))]);
+        const errorSessions = [
+            ...new Set(calls
+                .filter((call) => call.status === 'error' && BACKFILL_TOOLS.has(call.tool_name))
+                .map((call) => call.session_id)),
+        ];
+        const parts = loadParts(db, errorSessions);
         const sessions = new Map();
         for (const call of calls) {
             const bucket = sessions.get(call.session_id) ?? { calls: [], parts, tokenSamples: [] };
@@ -445,6 +450,194 @@ function safeJson(text) {
     }
 }
 /**
+ * Antigravity source: conversation transcripts under
+ * ~/.gemini/antigravity/brain/<conversation-id>/.system_generated/logs/transcript.jsonl.
+ * PLANNER_RESPONSE steps carry tool_calls + token usage; subsequent GENERIC
+ * steps carry status/error or `Command exited with code N.` for run_command.
+ */
+const ANTIGRAVITY_TOOL_MAP = {
+    run_command: 'Bash',
+    edit_file: 'Edit',
+    replace_file_content: 'Edit',
+    multi_replace_file_content: 'Edit',
+    write_file: 'Write',
+    write_to_file: 'Write',
+    read_file: 'Read',
+    view_file: 'Read',
+    view_file_outline: 'Read',
+    view_code_item: 'Read',
+    grep_search: 'Grep',
+    find_by_name: 'Glob',
+    list_dir: 'Glob',
+};
+function unwrapAntigravityArgs(raw) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw))
+        return {};
+    const out = {};
+    for (const [key, value] of Object.entries(raw)) {
+        let decoded = value;
+        if (typeof value === 'string' && value.startsWith('"') && value.endsWith('"')) {
+            try {
+                decoded = JSON.parse(value);
+            }
+            catch {
+                decoded = value;
+            }
+        }
+        out[key] = decoded;
+    }
+    if (out.command === undefined && typeof out.CommandLine === 'string')
+        out.command = out.CommandLine;
+    if (out.file_path === undefined) {
+        const pathCandidate = out.Path ?? out.TargetFile ?? out.AbsolutePath ?? out.DirectoryPath;
+        if (typeof pathCandidate === 'string')
+            out.file_path = pathCandidate;
+    }
+    if (out.pattern === undefined) {
+        const patCandidate = out.Query ?? out.Pattern;
+        if (typeof patCandidate === 'string')
+            out.pattern = patCandidate;
+    }
+    return out;
+}
+function antigravityErrorLine(text) {
+    const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 &&
+        !/^(Created At|Completed At|Command output|Showing lines|Partial read):?/i.test(line));
+    const body = lines.join('\n').trim();
+    return clampText(body || text.trim() || 'unknown error');
+}
+function antigravityVerdictOf(toolName, record) {
+    const content = typeof record.content === 'string' ? record.content : '';
+    const errField = typeof record.error === 'string' ? record.error.trim() : '';
+    if (record.status === 'ERROR' || errField.length > 0) {
+        const rawErr = errField || content;
+        if (/tool call denied by pre-tool hook/i.test(rawErr)) {
+            return { ignore: true, status: 'completed', output: '' };
+        }
+        return { status: 'error', error: antigravityErrorLine(rawErr), output: clampText(content || rawErr) };
+    }
+    if (toolName === 'Bash') {
+        const exitMatch = content.match(/^Command exited with code (-?\d+)\./m);
+        if (exitMatch && Number(exitMatch[1]) !== 0) {
+            const outputMarker = 'Command output:\n';
+            const idx = content.indexOf(outputMarker);
+            const after = idx >= 0 ? content.slice(idx + outputMarker.length) : content.slice((exitMatch.index ?? 0) + exitMatch[0].length);
+            return {
+                status: 'error',
+                error: antigravityErrorLine(after) || `Command exited with code ${exitMatch[1]}`,
+                output: clampText(content),
+            };
+        }
+    }
+    return { status: 'completed', output: clampText(content) };
+}
+function parseAntigravityFile(path, since) {
+    const calls = [];
+    const parts = new Map();
+    const tokenSamples = [];
+    let lines = [];
+    try {
+        lines = readFileSync(path, 'utf8').split('\n');
+    }
+    catch {
+        return { calls, parts, tokenSamples };
+    }
+    const pendingCalls = [];
+    let seq = 0;
+    for (const line of lines) {
+        if (!line.trim())
+            continue;
+        let record;
+        try {
+            record = JSON.parse(line);
+        }
+        catch {
+            continue;
+        }
+        const timestamp = record.created_at ? Date.parse(record.created_at) : Date.now();
+        if (record.type === 'USER_INPUT') {
+            pendingCalls.length = 0;
+            continue;
+        }
+        if (record.type === 'PLANNER_RESPONSE') {
+            pendingCalls.length = 0;
+            const total = Number(record.input_tokens ?? 0) +
+                Number(record.cache_read_tokens ?? 0) +
+                Number(record.output_tokens ?? 0);
+            if (total > 0 && timestamp >= since)
+                tokenSamples.push(total);
+            if (Array.isArray(record.tool_calls)) {
+                for (const tc of record.tool_calls) {
+                    const rawName = typeof tc?.name === 'string' ? tc.name : '';
+                    if (!rawName)
+                        continue;
+                    seq += 1;
+                    pendingCalls.push({
+                        tool: ANTIGRAVITY_TOOL_MAP[rawName] ?? rawName,
+                        input: unwrapAntigravityArgs(tc.args),
+                        timestamp: Number.isFinite(timestamp) ? timestamp : Date.now(),
+                        callId: `agy-${record.step_index ?? 'x'}-${seq}`,
+                    });
+                }
+            }
+            continue;
+        }
+        if (record.type === 'GENERIC' && pendingCalls.length > 0) {
+            const pending = pendingCalls.shift();
+            const ts = Number.isFinite(timestamp) ? timestamp : pending.timestamp;
+            if (ts < since)
+                continue;
+            const verdict = antigravityVerdictOf(pending.tool, record);
+            if (verdict.ignore)
+                continue;
+            calls.push({
+                session_id: path,
+                tool_call_id: pending.callId,
+                tool_name: pending.tool,
+                status: verdict.status,
+                error_message: verdict.error ?? null,
+                started_at: ts,
+            });
+            parts.set(pending.callId, { input: pending.input, output: verdict.output });
+        }
+    }
+    calls.sort((a, b) => a.started_at - b.started_at);
+    return { calls, parts, tokenSamples };
+}
+function loadAntigravitySessions(dir, since) {
+    if (!existsSync(dir))
+        return { sessions: [], present: false, note: 'no ~/.gemini/antigravity/brain directory' };
+    const sessions = [];
+    let entries = [];
+    try {
+        entries = readdirSync(dir, { withFileTypes: true });
+    }
+    catch {
+        return { sessions: [], present: true, note: 'unreadable ~/.gemini/antigravity/brain directory' };
+    }
+    for (const entry of entries) {
+        if (!entry.isDirectory())
+            continue;
+        const transcript = join(dir, entry.name, '.system_generated', 'logs', 'transcript.jsonl');
+        if (!existsSync(transcript))
+            continue;
+        try {
+            if (statSync(transcript).mtimeMs < since - 86_400_000)
+                continue;
+        }
+        catch {
+            continue;
+        }
+        const parsed = parseAntigravityFile(transcript, since);
+        if (parsed.calls.length > 0)
+            sessions.push(parsed);
+    }
+    return { sessions, present: true, ...(sessions.length === 0 ? { note: 'no tool calls in transcripts' } : {}) };
+}
+/**
  * Scan every available source, replay pairing over its sessions, and enqueue
  * episodes for distillation (unless dryRun). Sources absent from this machine
  * are reported as absent rather than skipped silently.
@@ -459,6 +652,7 @@ export function auditHistory(store, opts = {}) {
     const zcodeDb = opts.sourceDb ?? `${homedir()}/.zcode/cli/db/db.sqlite`.replace(/\\/g, '/');
     const codexDir = opts.codexSessionsDir ?? join(homedir(), '.codex', 'sessions');
     const claudeDir = opts.claudeProjectsDir ?? join(homedir(), '.claude', 'projects');
+    const antigravityDir = opts.antigravityBrainDir ?? join(homedir(), '.gemini', 'antigravity', 'brain');
     const sources = [];
     if (wanted === 'auto' || wanted === 'zcode') {
         if (existsSync(zcodeDb)) {
@@ -498,6 +692,21 @@ export function auditHistory(store, opts = {}) {
         }
         else {
             sources.push(emptySource('claude-code', note));
+        }
+    }
+    if (wanted === 'auto' || wanted === 'antigravity') {
+        const { sessions, present, note } = loadAntigravitySessions(antigravityDir, since);
+        if (present) {
+            const report = runSource('antigravity', sessions, store, { cap, dryRun, selfMarkers });
+            if (note)
+                report.note = note;
+            const median = medianOf(sessions.flatMap((session) => session.tokenSamples));
+            report.medianRequestTokens = median?.median ?? null;
+            report.medianSamples = median?.samples ?? 0;
+            sources.push(report);
+        }
+        else {
+            sources.push(emptySource('antigravity', note));
         }
     }
     const totals = sources.reduce((acc, source) => ({

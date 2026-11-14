@@ -358,6 +358,132 @@ try {
     !/permissionDecision.*deny/.test(safe.stdout),
     safe.stdout.slice(0, 200),
   );
+
+  // --- Antigravity dialect: camelCase payloads, flat/grouped hooks, strict outputs ---
+  const reportAgy = connectHost('antigravity', { home });
+  check('connect antigravity wires 5 events', reportAgy.added === 5);
+
+  const agyConv = 'agy-conv-1';
+  const agyBase = {
+    conversationId: agyConv,
+    workspacePaths: [project],
+    modelName: 'Gemini 4 Test',
+    lastUserInput: '',
+  };
+  const agyFail = runHook('post-tool-use.js', {
+    ...agyBase,
+    stepIdx: 1,
+    toolCall: { name: 'run_command', args: { CommandLine: 'cargo test' } },
+    error: 'exit status 101',
+  });
+  check(
+    'Antigravity PostToolUse failure (top-level error + CommandLine) exits 0 and emits {}',
+    agyFail.status === 0 && agyFail.stdout.trim() === '{}',
+    agyFail.stdout.slice(0, 200) || agyFail.stderr.slice(0, 200),
+  );
+
+  const agyRepair = runHook('post-tool-use.js', {
+    ...agyBase,
+    stepIdx: 2,
+    toolCall: { name: 'edit_file', args: { Path: join(project, 'src', 'lib.rs') } },
+  });
+  check('Antigravity repairing edit_file completes with {}', agyRepair.status === 0 && agyRepair.stdout.trim() === '{}');
+
+  const agySuccess = runHook('post-tool-use.js', {
+    ...agyBase,
+    stepIdx: 3,
+    toolCall: { name: 'run_command', args: { CommandLine: 'cargo test' } },
+  });
+  check('Antigravity succeeding run_command closes the episode', agySuccess.status === 0 && agySuccess.stdout.trim() === '{}');
+
+  const agyStop = runHook('stop.js', {
+    ...agyBase,
+    executionNum: 1,
+    terminationReason: 'NO_TOOL_CALL',
+    fullyIdle: true,
+  });
+  check(
+    'Antigravity Stop drains episode and emits { decision: "allow" }',
+    (() => {
+      try {
+        return agyStop.status === 0 && JSON.parse(agyStop.stdout).decision === 'allow';
+      } catch {
+        return false;
+      }
+    })(),
+    agyStop.stdout.slice(0, 200),
+  );
+
+  const agyPreInv = runHook('user-prompt-submit.js', {
+    conversationId: 'agy-conv-2',
+    workspacePaths: [project],
+    modelName: 'Gemini 4 Test',
+    lastUserInput: 'how do I fix cargo test failure in lib.rs',
+    invocationNum: 1,
+    initialNumSteps: 1,
+  });
+  check(
+    'Antigravity PreInvocation injects matching rule via injectSteps[].systemMessage.systemMessage',
+    (() => {
+      try {
+        const parsed = JSON.parse(agyPreInv.stdout);
+        const msg = parsed.injectSteps?.[0]?.systemMessage?.systemMessage ?? '';
+        return agyPreInv.status === 0 && /<immune_memory>/.test(msg) && /cargo/.test(msg);
+      } catch {
+        return false;
+      }
+    })(),
+    agyPreInv.stdout.slice(0, 200),
+  );
+
+  const agyPreInv2 = runHook('user-prompt-submit.js', {
+    conversationId: 'agy-conv-2',
+    workspacePaths: [project],
+    lastUserInput: 'how do I fix cargo test failure in lib.rs',
+    invocationNum: 2,
+    initialNumSteps: 1,
+  });
+  check(
+    'Antigravity PreInvocation invocationNum > 1 returns {} cleanly',
+    (() => {
+      try {
+        const parsed = JSON.parse(agyPreInv2.stdout);
+        return agyPreInv2.status === 0 && Object.keys(parsed).length === 0;
+      } catch {
+        return false;
+      }
+    })(),
+    agyPreInv2.stdout.slice(0, 200),
+  );
+
+  const agyDeny = runHook(
+    'pre-tool-use.js',
+    {
+      conversationId: 'agy-conv-2',
+      workspacePaths: [project],
+      stepIdx: 4,
+      toolCall: { name: 'run_command', args: { CommandLine: 'git push --force origin main' } },
+    },
+    { IMMUNE_GUARD: 'deny' },
+  );
+  check(
+    'Antigravity PreToolUse guard deny emits { decision: "deny", reason }',
+    (() => {
+      try {
+        const parsed = JSON.parse(agyDeny.stdout);
+        return agyDeny.status === 0 && parsed.decision === 'deny' && typeof parsed.reason === 'string';
+      } catch {
+        return false;
+      }
+    })(),
+    agyDeny.stdout.slice(0, 200),
+  );
+  {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const hits = db.prepare("SELECT * FROM model_hits WHERE model = 'Gemini 4 Test'").all();
+    db.close();
+    check('Antigravity modelName attributed injections in model_hits', hits.length >= 1, `rows=${hits.length}`);
+  }
 } finally {
   rmSync(home, { recursive: true, force: true });
   rmSync(project, { recursive: true, force: true });

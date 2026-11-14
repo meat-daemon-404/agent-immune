@@ -786,4 +786,52 @@ test('1.5-DSH: an undelivered stuck hypothesis rides the turn-start injection on
   assert.doesNotMatch(secondText, /连续失败两次/, 'no repeat delivery');
 });
 
+test('DSH parity: postToolExecute records stuck failures; sessionStart skips echo dumps & records injections', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+
+  const s = new ImmuneStore({ dbPath });
+  const echoId = s.insert({
+    trigger_pattern: 'Bash long echo dump',
+    symptom: 'long cmd failed',
+    prescription: 'Bash: npx vite build --mode production --sourcemap --emptyOutDir',
+    tool_name: 'Bash',
+  });
+  const adviceId = s.insert({
+    trigger_pattern: 'Bash real advice rule',
+    symptom: 'wrong pkg manager',
+    prescription: 'Use pnpm instead of npm in this workspace',
+    tool_name: 'Bash',
+  });
+  // Make the echo rule have higher hit_count so an unfiltered slice(0, 3) would prefer it.
+  s['db'].prepare('UPDATE antibodies SET hit_count = 20 WHERE id = ?').run(echoId);
+  s['db'].prepare('UPDATE antibodies SET hit_count = 5 WHERE id = ?').run(adviceId);
+  s.close();
+
+  const agent = makeAgent('sess-parity');
+  fx.emit(DSH_EVENTS.sessionStart, { agent, source: 'startup' });
+  assert.equal(agent.inbox.length, 1, 'sessionStart primes advice rule');
+  const primeText = messageText(agent.inbox[0]);
+  assert.match(primeText, /Use pnpm instead of npm/);
+  assert.doesNotMatch(primeText, /--emptyOutDir/, 'echo-grade command dump is filtered from priming');
+
+  const injected = queryAll(dbPath, 'SELECT ids FROM session_injections WHERE session_id = ?', agent.id);
+  assert.equal(injected.length, 1);
+  assert.deepEqual(
+    JSON.parse(injected[0].ids),
+    [adviceId],
+    'sessionStart records primed antibody ids for anti-rot attribution',
+  );
+
+  // Drive two consecutive uncovered non-zero Bash failures through postToolExecute -> preStepAt sees hypothesis.
+  const failExec1 = makeExec(agent, { arguments: { command: 'cargo build --release' } });
+  const failExec2 = makeExec(agent, { arguments: { command: 'cargo build --release' } });
+  await postTool(fx, failExec1, bashResult({ exitCode: 101, text: 'error[E0432]: unresolved import' }));
+  await postTool(fx, failExec2, bashResult({ exitCode: 101, text: 'error[E0432]: unresolved import' }));
+
+  const decision = await preStepAt(fx, agent, [userMessage('m-stuck', 'fix cargo build')], 2, 1);
+  const injectedTurn = decision.messages.map((m) => messageText(m)).join('\n');
+  assert.match(injectedTurn, /连续失败两次/, 'postToolExecute -> topStuck loop fires automatically on DSH');
+});
+
 

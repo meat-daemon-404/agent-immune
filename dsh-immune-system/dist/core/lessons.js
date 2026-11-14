@@ -19,10 +19,22 @@ export const GENERIC_LESSONS = [
         prescription: 'Edit: 先重新 Read 拿到当前内容再提交修改 / re-read, then edit with fresh content',
     },
     {
-        match: /string to replace not found/i,
+        match: /(?:string to replace|target content) not found/i,
         trigger: 'Edit old_string-not-found 精确匹配 exact-match',
         symptom: 'old_string 与文件实际内容不一致 / old_string did not match the file',
         prescription: 'Edit: 重新 Read 后精确复制待替换文本 / re-read and copy the exact text',
+    },
+    {
+        match: /file has not been read yet/i,
+        trigger: 'Write Edit file-not-read-yet 先读后写 read-first',
+        symptom: '写入或编辑前未读取目标文件 / file has not been read yet in this session',
+        prescription: 'Write/Edit: 修改已有文件前先调用 Read 读取最新内容 / Read the file first before writing or editing it',
+    },
+    {
+        match: /found \d+ matches of the string to replace, but replace_all is false/i,
+        trigger: 'Edit multiple-matches replace_all 多处匹配 unique-context',
+        symptom: 'old_string 在文件中匹配多处且未开启 replace_all / multiple matches found with replace_all=false',
+        prescription: 'Edit: 扩大 old_string 上下文使其唯一，或显式设置 replace_all: true / include more surrounding lines or set replace_all: true',
     },
 ];
 /** The first generic lesson matching `symptomText`, or null. */

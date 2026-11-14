@@ -20,10 +20,17 @@ export function resolveDbPath(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env.IMMUNE_DB_PATH?.trim();
   if (explicit) return resolve(explicit);
 
-  const pluginData = env.ZCODE_PLUGIN_DATA?.trim() || env.CLAUDE_PLUGIN_DATA?.trim();
+  const pluginData =
+    env.ZCODE_PLUGIN_DATA?.trim() ||
+    env.CLAUDE_PLUGIN_DATA?.trim() ||
+    env.PLUGIN_DATA?.trim();
   if (pluginData) return resolve(pluginData, 'immune.sqlite');
 
-  const project = env.ZCODE_PROJECT_DIR?.trim() || env.CLAUDE_PROJECT_DIR?.trim() || process.cwd();
+  const project =
+    env.ZCODE_PROJECT_DIR?.trim() ||
+    env.CLAUDE_PROJECT_DIR?.trim() ||
+    env.ANTIGRAVITY_PROJECT_DIR?.trim() ||
+    process.cwd();
   const marker = resolve(project, '.dsh', ROOT_MARKER);
   if (existsSync(marker)) {
     const line2 = readFileSync(marker, 'utf8').split('\n')[1]?.trim();

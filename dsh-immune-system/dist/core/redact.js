@@ -54,5 +54,19 @@ export function redactAndClamp(input, max = 1200) {
     if (text === undefined)
         text = '';
     const clean = redact(text).replace(/\s+/g, ' ').trim();
-    return clean.length > max ? `${clean.slice(0, max)}…` : clean;
+    if (clean.length <= max)
+        return clean;
+    if (max >= 120) {
+        const errAt = clean.lastIndexOf(' error=');
+        const resAt = clean.lastIndexOf(' result=');
+        const markerAt = Math.max(errAt, resAt);
+        if (markerAt > 16) {
+            const tailBudget = Math.max(240, Math.floor(max * 0.4));
+            const rawTail = clean.slice(markerAt + 1);
+            const tail = rawTail.length > tailBudget ? `${rawTail.slice(0, tailBudget)}…` : rawTail;
+            const headBudget = Math.max(16, max - tail.length - 2);
+            return `${clean.slice(0, headBudget)}… ${tail}`;
+        }
+    }
+    return `${clean.slice(0, max)}…`;
 }

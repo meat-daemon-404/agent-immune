@@ -1917,8 +1917,8 @@ test('turn-end auto sync is opt-in, resolves the path, and never throws', async 
     assert.equal(maybeSyncDocAfterDrain(s, {}), null, 'off unless IMMUNE_SYNC_DOC is set');
     assert.equal(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: '' }), null);
 
-    // "1" resolves to AGENTS.md; a real path is used verbatim.
-    assert.equal(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: '1' })?.rules, 1);
+    // "1" resolves to AGENTS.md under ZCODE_PROJECT_DIR; a real path is used verbatim.
+    assert.equal(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: '1', ZCODE_PROJECT_DIR: dir })?.rules, 1);
     assert.ok(maybeSyncDocAfterDrain(s, { IMMUNE_SYNC_DOC: file }), 'explicit path syncs');
     const text = readFileSync(file, 'utf8');
     assert.match(text, /auto sync probe/);
@@ -2147,4 +2147,307 @@ test('3.1 env metabolism: lockfile change puts rules on probation; re-learn reti
     rmSync(dirA, { recursive: true, force: true });
     rmSync(dirB, { recursive: true, force: true });
   }
+});
+
+test('redactAndClamp preserves trailing error= and extractError unwraps stdout', async () => {
+  const { redactAndClamp } = await import('../dsh-immune-system/dist/core/redact.js');
+  const { extractError } = await import('../dsh-immune-system/dist/core/trace.js');
+  const { ruleDistill } = await import('../dsh-immune-system/dist/core/distiller.js');
+
+  const bigInput = 'x'.repeat(1500);
+  const rawTrace = `tool=Write input={"file_path":"src/app.ts","content":"${bigInput}"} error=ENOENT: parent missing`;
+  const clamped = redactAndClamp(rawTrace, 1200);
+  assert.ok(clamped.length <= 1205, 'clamped trace stays bounded');
+  assert.ok(clamped.includes('error=ENOENT: parent missing'), 'trailing error= survives large input clamping');
+  assert.equal(extractError(clamped), 'ENOENT: parent missing');
+
+  // Legacy trace truncated inside input= never emits tool=... as symptom.
+  const truncatedOnly = `tool=Write input={"file_path":"src/app.ts","content":"${bigInput}"}`;
+  assert.equal(extractError(truncatedOnly), null);
+  const distilled = ruleDistill(
+    'Write',
+    truncatedOnly,
+    'tool=Write input={"file_path":"src/app.ts"} result=ok',
+  );
+  assert.equal(distilled.ok, true);
+  if (distilled.ok) {
+    assert.ok(!distilled.antibody.symptom.startsWith('tool='), 'symptom must not leak tool=Write input=');
+  }
+
+  // Bash stdout JSON wrapper is unwrapped cleanly, and empty wrappers return null.
+  assert.equal(
+    extractError('tool=Bash input={"command":"npm test"} result={"stdout":"FAIL test/x.mjs","stderr":""}'),
+    'FAIL test/x.mjs',
+  );
+  assert.equal(
+    extractError('tool=Bash input={"command":"true"} result={"stdout":"","stderr":""}'),
+    null,
+  );
+});
+
+test('match() tracks shared candidates by identity, not colliding numeric id (Decision #7)', async () => {
+  const { GlobalStore } = await import('../dsh-immune-system/dist/core/store/global.js');
+  const { rmSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'immune-id-collision-'));
+  let g = null;
+  let s = null;
+  try {
+    const projectPath = join(dir, 'project.sqlite');
+    const globalPath = join(dir, 'global.sqlite');
+
+    g = new GlobalStore(globalPath);
+    g.insert({
+      trigger_pattern: 'sqlite wal collision tokenz',
+      symptom: 'shared symptom',
+      prescription: 'shared prescription different wording',
+      tool_name: 'Bash',
+    });
+    g.close();
+    g = null;
+
+    s = new ImmuneStore({ dbPath: projectPath });
+    const ownId = s.insert({
+      trigger_pattern: 'sqlite wal collision tokenz',
+      symptom: 'own symptom',
+      prescription: 'own prescription unique wording',
+      tool_name: 'Bash',
+    });
+    assert.equal(ownId, 1, 'both project and global start at AUTOINCREMENT id=1');
+
+    const hits = s.match('sqlite wal collision tokenz', { limit: 3, toolName: 'Bash' });
+    assert.equal(hits.length, 2, 'returns both project and shared rule');
+    assert.equal(s.byId(ownId)?.hit_count, 1, 'project rule hit_count must bump despite id === 1 collision');
+    s.close();
+    s = null;
+  } finally {
+    try { g?.close(); } catch {}
+    try { s?.close(); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('generic lessons match unread-file and multiple-replace errors; host rewrite enforces bounds', async () => {
+  const { matchGenericLesson } = await import('../dsh-immune-system/dist/core/lessons.js');
+  const { applyHostRewrites, HOST_REWRITE_BATCH } = await import('../dsh-immune-system/dist/core/host-rewrite.js');
+
+  assert.ok(matchGenericLesson('File has not been read yet. Read it first before writing to it.'));
+  assert.ok(matchGenericLesson('Found 3 matches of the string to replace, but replace_all is false'));
+
+  const s = store();
+  const cases = [
+    { trigger: 'alpha webpack bundle', prescription: 'Bash: npx webpack --mode production --analyze --progress' },
+    { trigger: 'beta rustc borrow', prescription: 'Bash: cargo clippy --all-targets --workspace -- -D warnings' },
+    { trigger: 'gamma pytest fixture', prescription: 'Bash: pytest tests/integration --maxfail=1 --tb=short -q' },
+    { trigger: 'delta docker compose', prescription: 'Bash: docker compose -f docker-compose.ci.yml up --build -d' },
+  ];
+  const ids = cases.map((c, idx) =>
+    s.insert({
+      trigger_pattern: c.trigger,
+      symptom: `distinct sym ${idx + 1}`,
+      prescription: c.prescription,
+      tool_name: 'Bash',
+    }),
+  );
+  assert.deepEqual(ids, [1, 2, 3, 4], 'disjoint triggers/prescriptions must stay 4 distinct rows');
+
+  const res = applyHostRewrites(s, [
+    { id: ids[0], prescription: 'ok' },
+    { id: ids[1], prescription: 'a'.repeat(125) },
+    { id: ids[2], prescription: 'Run clippy on all workspace targets cleanly' },
+    { id: ids[3], prescription: 'Run pytest with --maxfail=1 on integration suite' },
+  ]);
+  assert.equal(res.results[0].status, 'failed', 'short wording (< 4) rejected');
+  assert.equal(res.results[1].status, 'failed', 'over-long wording (> 120) rejected');
+  assert.equal(res.results[2].status, 'rewritten');
+  assert.equal(res.results[3].status, 'skipped', `4th distinct id skips past batch cap ${HOST_REWRITE_BATCH}`);
+  assert.equal(res.appliedCount, 1);
+  s.close();
+});
+
+test('resolveDbPath honours PLUGIN_DATA and ANTIGRAVITY_PROJECT_DIR fallback', async () => {
+  const { resolveDbPath } = await import('../dsh-immune-system/dist/core/store/path.js');
+  const fromPluginData = resolveDbPath({ PLUGIN_DATA: '/tmp/agy-data' });
+  assert.ok(fromPluginData.endsWith('immune.sqlite') && fromPluginData.includes('agy-data'));
+
+  const fromProject = resolveDbPath({ ANTIGRAVITY_PROJECT_DIR: '/tmp/agy-proj' });
+  assert.ok(fromProject.endsWith('immune.sqlite') && fromProject.includes('agy-proj'));
+});
+
+
+test('guard patterns match JSON-wrapped tool arguments and end-to-end PreToolUse hook denies safely', async () => {
+  const { rmSync } = await import('node:fs');
+  const { spawnSync } = await import('node:child_process');
+  const { resolve } = await import('node:path');
+  const { findGuardHit } = await import('../dsh-immune-system/dist/core/guards.js');
+
+  for (const dangerous of [
+    JSON.stringify({ command: 'git checkout .' }),
+    JSON.stringify({ CommandLine: 'git restore -- .' }),
+    JSON.stringify({ command: 'git checkout . && git status' }),
+    JSON.stringify({ command: 'git restore .; echo done' }),
+    JSON.stringify({ command: 'rm -rf /' }),
+    JSON.stringify({ command: 'rm -rf ~' }),
+    JSON.stringify({ command: 'rm -rf $HOME' }),
+  ]) {
+    const hit = findGuardHit(dangerous);
+    assert.ok(hit, `expected guard hit for ${dangerous}`);
+  }
+
+  for (const safe of [
+    JSON.stringify({ command: 'git checkout ./src' }),
+    JSON.stringify({ command: 'git checkout .gitignore' }),
+    JSON.stringify({ command: 'git restore src/app.ts' }),
+    JSON.stringify({ command: 'rm -rf ./build' }),
+    JSON.stringify({ command: 'rm -rf /tmp/scratch' }),
+    JSON.stringify({ command: 'rm -rf ~/tmp' }),
+  ]) {
+    assert.equal(findGuardHit(safe), null, `did not expect guard hit for ${safe}`);
+  }
+
+  const tmp = mkdtempSync(join(tmpdir(), 'immune-guard-json-'));
+  try {
+    const hookPath = resolve('dsh-immune-system/dist/zcode/src/hooks/pre-tool-use.js');
+    const env = { ...process.env, IMMUNE_DB_PATH: join(tmp, 'test.sqlite'), IMMUNE_GUARD: 'deny' };
+
+    const zcodeDeny = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        session_id: 's-guard-1',
+        tool_name: 'Bash',
+        tool_input: { command: 'git checkout .' },
+      }),
+      env,
+      cwd: tmp,
+      encoding: 'utf8',
+    });
+    assert.equal(zcodeDeny.status, 0);
+    const zcodeOut = JSON.parse(zcodeDeny.stdout.trim());
+    assert.equal(zcodeOut.hookSpecificOutput.permissionDecision, 'deny');
+    assert.match(zcodeOut.hookSpecificOutput.permissionDecisionReason, /git-discard-worktree/);
+
+    const agyDeny = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        agent_event_name: 'pre_tool_use',
+        conversationId: 'conv-guard-1',
+        toolCall: { name: 'run_command', args: { CommandLine: 'git restore .' } },
+      }),
+      env,
+      cwd: tmp,
+      encoding: 'utf8',
+    });
+    assert.equal(agyDeny.status, 0);
+    const agyOut = JSON.parse(agyDeny.stdout.trim());
+    assert.equal(agyOut.decision, 'deny');
+    assert.match(agyOut.reason, /git-discard-worktree/);
+
+    const zcodeAllow = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        hook_event_name: 'PreToolUse',
+        session_id: 's-guard-1',
+        tool_name: 'Bash',
+        tool_input: { command: 'git checkout ./src' },
+      }),
+      env,
+      cwd: tmp,
+      encoding: 'utf8',
+    });
+    assert.equal(zcodeAllow.status, 0);
+    assert.equal(zcodeAllow.stdout.trim(), '');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('generic edit-mismatch lesson, trace keys, repair tools, pairing casing, and command self-noise', async () => {
+  const { rmSync } = await import('node:fs');
+  const { matchGenericLesson } = await import('../dsh-immune-system/dist/core/lessons.js');
+  const { ruleDistill, extractKeywords } = await import('../dsh-immune-system/dist/core/distiller.js');
+  const { extractInvocation } = await import('../dsh-immune-system/dist/core/trace.js');
+  const { targetSignature, canCloseEpisode } = await import('../dsh-immune-system/dist/core/pairing.js');
+  const { isRepairTool } = await import('../dsh-immune-system/dist/core/repair-tools.js');
+  const { isSelfEpisode } = await import('../dsh-immune-system/dist/core/selfnoise.js');
+
+  // 1. Antigravity Edit target-content-not-found matches exact-match lesson
+  const agyErr = 'target content not found in the file; the Target must exactly match existing file text';
+  const lesson = matchGenericLesson(agyErr);
+  assert.ok(lesson);
+  assert.match(lesson.trigger, /exact-match/);
+  const distilled = ruleDistill('Edit', `Edit {"file_path":"a.ts"} error=${agyErr}`, 'Edit {"file_path":"a.ts"} result=ok');
+  assert.equal(distilled.ok, true);
+  if (distilled.ok) {
+    assert.equal(distilled.antibody.prescription, lesson.prescription);
+  }
+
+  // 2. Extended keys across trace, distiller, pairing, and repair tools
+  assert.equal(extractInvocation('Edit {"TargetFile":"src/app.ts"} error=fail'), 'src/app.ts');
+  assert.equal(extractInvocation('Bash {"CommandLine":"npm test"} error=fail'), 'npm test');
+  const nbKeywords = extractKeywords('NotebookEdit {"notebook_path":"notebooks/eval.ipynb"}');
+  assert.ok(nbKeywords.some((k) => k.includes('eval.ipynb')), `expected eval.ipynb in ${JSON.stringify(nbKeywords)}`);
+  const cmdKeywords = extractKeywords('Bash {"CommandLine":"pytest integration-suite"}');
+  assert.ok(cmdKeywords.some((k) => k.includes('pytest') || k.includes('integration-suite')));
+
+  assert.equal(targetSignature('Edit', { TargetFile: '/repo/src/app.ts' }, '/repo').signature, 'Edit:src/app.ts');
+  assert.equal(targetSignature('Bash', { CommandLine: 'npm run build' }).signature, 'Bash:npm:run');
+  assert.equal(
+    canCloseEpisode('Edit:src/app.ts', { signature: 'edit:src/app.ts', probeOnly: false }),
+    true,
+    'closing check must ignore tool-name casing differences',
+  );
+  assert.equal(isRepairTool('edit'), true);
+  assert.equal(isRepairTool('Write'), true);
+  assert.equal(isRepairTool('NotebookEdit'), true);
+  assert.equal(isRepairTool('Bash'), false);
+
+  // 3. Self-noise catches external dev clone paths inside shell command arguments without corrupting Windows \n / \t
+  const tmp = mkdtempSync(join(tmpdir(), 'immune-selfnoise-cmd-'));
+  try {
+    const cloneDir = join(tmp, 'agent-immune-clone');
+    const otherDir = join(tmp, 'normal-project');
+    mkdirSync(join(cloneDir, 'scripts'), { recursive: true });
+    mkdirSync(otherDir, { recursive: true });
+    writeFileSync(join(cloneDir, 'package.json'), JSON.stringify({ name: 'agent-immune' }), 'utf8');
+    writeFileSync(join(otherDir, 'package.json'), JSON.stringify({ name: 'user-app' }), 'utf8');
+
+    const bashTrace = `Bash ${JSON.stringify({ command: `node "${join(cloneDir, 'scripts', 'run.js')}"` })} error=boom`;
+    assert.equal(isSelfEpisode(bashTrace, []), true, 'should detect self clone referenced inside Bash command');
+
+    const flagTrace = `run_command ${JSON.stringify({ CommandLine: `node --loader=${join(cloneDir, 'dist', 'cli.js')}` })} error=boom`;
+    assert.equal(isSelfEpisode(flagTrace, []), true, 'should detect self clone in --flag=path inside CommandLine');
+
+    const nbTrace = `NotebookEdit ${JSON.stringify({ notebook_path: join(cloneDir, 'eval.ipynb') })} error=boom`;
+    assert.equal(isSelfEpisode(nbTrace, []), true, 'should detect self clone in notebook_path');
+
+    const cleanTrace = `Bash ${JSON.stringify({ command: `https://example.com/a/b node "${join(otherDir, 'new', 'test.js')}"` })} error=boom`;
+    assert.equal(isSelfEpisode(cleanTrace, []), false, 'unrelated user project + URL must not trigger self-noise');
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('pairSession closes Edit/Write failures while still recording repair actions for other pending tools', async () => {
+  const { pairSession } = await import('../dsh-immune-system/dist/core/backfill.js');
+  const calls = [
+    { session_id: 's1', tool_call_id: 'c1', tool_name: 'Bash', status: 'error', error_message: 'tsc failed', started_at: 1 },
+    { session_id: 's1', tool_call_id: 'c2', tool_name: 'Edit', status: 'error', error_message: 'target content not found', started_at: 2 },
+    { session_id: 's1', tool_call_id: 'c3', tool_name: 'Edit', status: 'completed', error_message: null, started_at: 3 },
+    { session_id: 's1', tool_call_id: 'c4', tool_name: 'Write', status: 'completed', error_message: null, started_at: 4 },
+    { session_id: 's1', tool_call_id: 'c5', tool_name: 'Bash', status: 'completed', error_message: null, started_at: 5 },
+  ];
+  const parts = new Map([
+    ['c1', { input: { command: 'npx tsc --noEmit' }, output: '' }],
+    ['c2', { input: { file_path: 'src/a.ts' }, output: '' }],
+    ['c3', { input: { file_path: 'src/a.ts' }, output: '' }],
+    ['c4', { input: { file_path: 'src/b.ts' }, output: '' }],
+    ['c5', { input: { command: 'npx tsc --noEmit' }, output: '' }],
+  ]);
+  const paired = [];
+  const stats = pairSession(calls, parts, (fail, success, repairs) => {
+    paired.push({ fail: fail.tool_name, success: success.tool_name, repairs });
+  });
+  assert.equal(stats.failures, 2);
+  assert.equal(stats.paired, 2);
+  assert.deepEqual(paired, [
+    { fail: 'Edit', success: 'Edit', repairs: [] },
+    { fail: 'Bash', success: 'Bash', repairs: ['Write b.ts'] },
+  ]);
 });

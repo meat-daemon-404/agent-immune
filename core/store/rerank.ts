@@ -19,6 +19,8 @@ export interface RerankOptions {
   cwd?: string;
   /** Ids that came from the shared library (they get a discount). */
   sharedIds?: ReadonlySet<number>;
+  /** Shared-library candidates by object identity (safe across colliding DB ids, Decision #7). */
+  sharedSet?: ReadonlySet<Antibody>;
   /**
    * Retriever relevance as id → score in (0, 1], built from retrieval order.
    * When present it is the score's base (retrieval decided relevance; the
@@ -26,6 +28,8 @@ export interface RerankOptions {
    * as before. Tool affinity is folded into this order by the caller.
    */
   relevance?: ReadonlyMap<number, number>;
+  /** Retriever relevance by candidate object identity (safe across colliding DB ids). */
+  relevanceByRule?: ReadonlyMap<Antibody, number>;
   /** Injected by the caller for tests. */
   now?: number;
 }
@@ -75,13 +79,14 @@ export function rerank(candidates: Antibody[], opts: RerankOptions): Antibody[] 
   const sharedIds = opts.sharedIds;
 
   const scored = candidates.map((antibody) => {
-    const relevance = opts.relevance?.get(antibody.id);
+    const relevance = opts.relevanceByRule?.get(antibody) ?? opts.relevance?.get(antibody.id);
     let score =
       relevance !== undefined
         ? relevance * (1 + Math.log1p(Math.max(0, antibody.hit_count)))
         : 1 + Math.log1p(Math.max(0, antibody.hit_count));
     if (hasPathAffinity(antibody.trigger_pattern, tokens)) score *= 1.5;
-    if (sharedIds?.has(antibody.id)) score *= 0.85;
+    const isShared = opts.sharedSet ? opts.sharedSet.has(antibody) : Boolean(sharedIds?.has(antibody.id));
+    if (isShared) score *= 0.85;
     const stamp = antibody.updated_at || antibody.created_at || now;
     score *= timeDecay(now - stamp);
     return { antibody, score };

@@ -13,6 +13,7 @@ export { ROOT_MARKER };
 export function projectDirOf() {
     return (process.env.ZCODE_PROJECT_DIR?.trim() ||
         process.env.CLAUDE_PROJECT_DIR?.trim() ||
+        process.env.ANTIGRAVITY_PROJECT_DIR?.trim() ||
         process.cwd());
 }
 /** Directory holding the marker; also the natural place for the CLI's output. */
@@ -36,8 +37,13 @@ export function selfMarkers() {
         process.env.ZCODE_PLUGIN_DATA ?? '',
         process.env.CLAUDE_PLUGIN_ROOT ?? '',
         process.env.CLAUDE_PLUGIN_DATA ?? '',
+        process.env.PLUGIN_ROOT ?? '',
+        process.env.PLUGIN_DATA ?? '',
     ].filter((p) => p.trim().length > 0);
-    const root = (process.env.ZCODE_PLUGIN_ROOT ?? process.env.CLAUDE_PLUGIN_ROOT ?? '')
+    const root = (process.env.ZCODE_PLUGIN_ROOT ??
+        process.env.CLAUDE_PLUGIN_ROOT ??
+        process.env.PLUGIN_ROOT ??
+        '')
         .trim()
         .toLowerCase();
     const project = projectDirOf().toLowerCase();
@@ -46,7 +52,9 @@ export function selfMarkers() {
     return markers;
 }
 export function rememberPluginRoot() {
-    const root = process.env.ZCODE_PLUGIN_ROOT?.trim() || process.env.CLAUDE_PLUGIN_ROOT?.trim();
+    const root = process.env.ZCODE_PLUGIN_ROOT?.trim() ||
+        process.env.CLAUDE_PLUGIN_ROOT?.trim() ||
+        process.env.PLUGIN_ROOT?.trim();
     if (!root)
         return;
     try {

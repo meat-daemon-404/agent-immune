@@ -23,7 +23,7 @@ const TRANSIENT =
 
 const FILE_RE = /[\w@./\\-]+\.(?:ts|tsx|js|jsx|mjs|cjs|json|md|py|go|rs|java|kt|yml|yaml|toml|css|scss|html|vue|svelte)\b/g;
 const ENV_RE = /\b[A-Z][A-Z0-9_]{2,}\b/g;
-const ARG_RE = /"(?:command|file_path|path|pattern|query|url|script)"\s*:\s*"((?:[^"\\]|\\.){2,200})"/g;
+const ARG_RE = /"(?:command|file_path|path|notebook_path|pattern|query|url|script|cmd|CommandLine|TargetFile|AbsolutePath|Path)"\s*:\s*"((?:[^"\\]|\\.){2,200})"/g;
 
 /** POSIX-style errno and package-manager codes worth matching exactly. */
 const ERRNOS = new Set([
@@ -146,9 +146,14 @@ export function ruleDistill(
   const trigger = `${toolName} ${keywords.join(' ')}`.trim().slice(0, 160);
 
   // Symptom is the error itself; prescription is the invocation that worked.
-  // Keeping these two clean is what makes the injected block readable.
+  // Keeping these two clean is what makes the injected block readable. Never
+  // fall back to the `tool=<name> input=...` preamble when a trace had no
+  // extractable error text.
   const error = extractError(failureTrace);
-  const rawSymptom = error || firstLine(failureTrace, 80) || 'the first attempt failed';
+  const fallbackSymptom = failureTrace.trimStart().startsWith('tool=')
+    ? ''
+    : firstLine(failureTrace, 80);
+  const rawSymptom = error || fallbackSymptom || 'the first attempt failed';
 
   // A generic pitfall (edit conflicts, stale reads) is stored with a generic
   // trigger so every instance merges into one rule instead of one-per-file.

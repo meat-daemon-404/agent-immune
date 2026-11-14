@@ -15,9 +15,11 @@
  */
 import { readFileSync, existsSync } from 'node:fs';
 import { redact } from './redact.js';
+import { signals } from './relevance.js';
 import { SECTION_START, SECTION_END } from './sync-doc.js';
 /** Machine paths that must never leave the machine. */
-const MACHINE_PATH = /(?:[A-Za-z]:[\\/][^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120})/;
+const MACHINE_PATH = /(?:(?<![A-Za-z])[A-Za-z]:[\\/](?![\\/])[^\s|'"<>]{1,120}|\/home\/[^\s|'"<>]{1,120}|\/Users\/[^\s|'"<>]{1,120})/;
+const TOOL_NAMES = new Set(['bash', 'edit', 'write', 'read', 'multiedit', 'notebookedit', 'grep', 'glob']);
 /**
  * Inspect the rules destined for a shareable artifact. The FIRST violation is
  * enough to stop the export; the list lets the operator fix everything at once.
@@ -113,10 +115,7 @@ export function ciCheck(diffText, rules) {
     const findings = [];
     for (const addedLine of added) {
         for (const rule of rules) {
-            const tokens = (rule.trigger_pattern ?? '')
-                .toLowerCase()
-                .split(/\s+/)
-                .filter((token) => token.length >= 3);
+            const tokens = [...signals(rule.trigger_pattern ?? '')].filter((token) => !TOOL_NAMES.has(token));
             if (tokens.length === 0)
                 continue;
             const lower = addedLine.text.toLowerCase();

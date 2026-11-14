@@ -164,7 +164,7 @@ window.__ModuleLoader__.load({
     }
 
     function ImmunePanel() {
-      var state = React.useState({ loading: true, error: '', stats: null, rows: [], budgetMs: null });
+      var state = React.useState({ loading: true, error: '', stats: null, evolution: null, rows: [], budgetMs: null });
       var view = React.useState('project');
       var query = React.useState('');
       var order = React.useState('recent');
@@ -193,6 +193,7 @@ window.__ModuleLoader__.load({
                 loading: false,
                 error: '',
                 stats: body.stats,
+                evolution: body.evolution || null,
                 rows: body.antibodies,
                 budgetMs: body.budgetMs,
               });
@@ -202,6 +203,7 @@ window.__ModuleLoader__.load({
                 loading: false,
                 error: String(error.message || error),
                 stats: null,
+                evolution: null,
                 rows: [],
                 budgetMs: null,
               });

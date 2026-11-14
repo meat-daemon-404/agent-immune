@@ -26,7 +26,7 @@
 
 工具调用报错、下一次调用修好，这两条会被存成一条规则。之后遇到类似场景，匹配上的规则先一步进入上下文，agent 就不会在同一个地方摔第二遍。
 
-只有一个 `core/`：**DSH** 和 **ZCode** 以插件形式原生安装（按真实宿主契约验证过），`immune connect` 还能把同一个引擎以普通 hook 的方式接进 **Claude Code** 和 **Codex CLI**——不依赖任何插件系统。
+只有一个 `core/`：**DSH** 和 **ZCode** 以插件形式原生安装（按真实宿主契约验证过），`immune connect` 还能把同一个引擎以普通 hook 的方式接进 **Claude Code**、**Codex CLI** 和 **Google Antigravity**——不依赖任何插件系统。
 
 <div align="center">
   <img src="docs/hero.svg" alt="免疫系统：蒸馏、召回、注入" width="720">
@@ -71,17 +71,18 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 
 装完开新任务；老任务还拿着它启动时的能力清单。
 
-### 接入 Claude Code 和 Codex
+### 接入 Claude Code、Codex 与 Antigravity
 
-原生插件安装只覆盖 DSH 和 ZCode。Claude Code 和 Codex CLI 走的是普通 hook——同一个引擎，不依赖插件系统：
+原生插件安装只覆盖 DSH 和 ZCode。Claude Code、Codex CLI 和 Google Antigravity 走的是普通 hook——同一个引擎，不依赖插件系统：
 
 ```bash
 npx dsh-immune-system@latest connect               # 自动探测本机装了哪些宿主并逐一接入
 npx dsh-immune-system@latest connect claude-code   # 写 ~/.claude/settings.json
 npx dsh-immune-system@latest connect codex         # 写 ~/.codex/hooks.json
+npx dsh-immune-system@latest connect antigravity   # 写 ~/.gemini/config/hooks.json
 ```
 
-它做的事：把引擎复制到固定的 `~/.dsh-immune/` 安装位（这样钩子不随 npx 缓存清理或包升级而失效），往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个）并指向该固定副本，用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作（`--refresh` 强制重灌）；旧版 connect 留下的 npx 缓存路径会被原地升级；`connect <host> --remove` 只摘走 immune 的条目，最后一个宿主卸载时顺带删除 `~/.dsh-immune/`。不带宿主参数的 `connect` 会探测这台机器实际装了哪些宿主（`~/.claude`、`~/.codex`）并逐一幂等接入——ZCode 也会被探测到，但只报告不写入，因为 ZCode 走自己的插件市场安装。`connect --status` 保留只读巡检；`immune doctor` 会对失效的钩子路径报警并给出修复命令。hook 载荷契约就是 ZCode 适配器已经在说的那套（同样的 `hookSpecificOutput` 注入格式），所以不需要按宿主另写适配代码——而且 vendor 运行时已在**零宿主环境变量**下端到端验证过（`scripts/verify-connected-runtime.mjs`）：库经回退链落位、事件在回合末蒸馏、新会话拿到注入；连 Codex 原生的 `shell_command` / `apply_patch` 工具名序列（映射回引擎的 Bash/Edit 词汇）也跑过；六个 hook 事件、人工纠偏挂载、注入分隔符对伪造闭合标签的隔离、guard deny 分支，以及**一个会话踩的坑由新会话在项目 30 分钟窗口内闭合**，都在 `scripts/verify-connected-runtime.mjs` 的 25 条断言里。仍未覆盖的：真实宿主 CLI 自身的分发。
+它做的事：把引擎复制到固定的 `~/.dsh-immune/` 安装位（这样钩子不随 npx 缓存清理或包升级而失效），往宿主自己的配置里合并 hook 条目（Codex 五个——它没有 `PostToolUseFailure` 事件，Claude Code 六个，Antigravity 四个：按 `dsh-immune-system` 插件节接入 `PreToolUse` / `PostToolUse` / `BeforeAgent` / `AfterAgent`）并指向该固定副本，用户的其它配置一概不动；首次写入前留一份 `.bak-immune` 备份；重复执行是空操作（`--refresh` 强制重灌）；旧版 connect 留下的 npx 缓存路径会被原地升级；`connect <host> --remove` 只摘走 immune 的条目，最后一个宿主卸载时顺带删除 `~/.dsh-immune/`。不带宿主参数的 `connect` 会探测这台机器实际装了哪些宿主（`~/.claude`、`~/.codex`、`~/.gemini/antigravity`）并逐一幂等接入——ZCode 也会被探测到，但只报告不写入，因为 ZCode 走自己的插件市场安装。Antigravity 适配器会自动解包 `toolCall` / `workspacePaths` 等驼峰字段，通过 `invocationNum` 避免同回合内部子调用重复注入，并将 `run_command` / `edit_file` / `write_file` / `read_file` / `grep_search` 等工具名映射回引擎核心词汇；其余宿主沿用 ZCode 同款 `hookSpecificOutput` 注入契约。vendor 运行时已在**零宿主环境变量**下端到端验证过（`scripts/verify-connected-runtime.mjs`）：库经回退链落位、事件在回合末蒸馏、新会话拿到注入；Codex 原生 `shell_command` / `apply_patch` 与 Antigravity 驼峰事件（含 `invocationNum` 门控与拦截拒绝格式）也已跑通；六个 hook 事件、人工纠偏挂载、注入分隔符对伪造闭合标签的隔离、guard deny 分支，以及**一个会话踩的坑由新会话在项目 30 分钟窗口内闭合**，都在 `scripts/verify-connected-runtime.mjs` 的断言里。仍未覆盖的：真实宿主 CLI 自身的分发。
 
 两个提醒：接完重启宿主会话才生效；**Codex 需要先在 Codex 里跑一次 `/hooks` 信任这些命令**，否则不会执行。
 
@@ -89,7 +90,7 @@ Windows 注意：`npx dsh-immune-system@latest <命令>` 走 shell 解析，cmd 
 
 ### 体检：用你已有的历史冷启动
 
-刚装完的库是空的。`immune audit` 把活体配对循环原样重放到这台机器已有的会话历史上——ZCode 的会话库、Codex 的 rollout 文件（`~/.codex/sessions`）、Claude Code 的转录（`~/.claude/projects`，含嵌套的子代理转录；工具结果没带 `is_error` 标记时回退读 `Exit code:` 文本标记）——打印一份可截图分享的摘要（按工具的失败计数、最高频的重复坑点、有用量记录时的可省 token 估算），然后把这些历史蒸馏成你自己最早的一批规则：
+刚装完的库是空的。`immune audit` 把活体配对循环原样重放到这台机器已有的会话历史上——ZCode 的会话库、Codex 的 rollout 文件（`~/.codex/sessions`）、Claude Code 的转录（`~/.claude/projects`，含嵌套的子代理转录；工具结果没带 `is_error` 标记时回退读 `Exit code:` 文本标记），以及 Antigravity 的对话日志（`~/.gemini/antigravity/brain/*/.system_generated/logs/transcript.jsonl`，可用 `--source antigravity` 单独扫描）——打印一份可截图分享的摘要（按工具的失败计数、最高频的重复坑点、有用量记录时的可省 token 估算），然后把这些历史蒸馏成你自己最早的一批规则：
 
 ```bash
 npx dsh-immune-system@latest audit --dry-run   # 只出报告，不写库
@@ -246,7 +247,7 @@ immune sync-doc --out CLAUDE.md --min-hits 5
 | 存什么 | 失败→成功的配对，蒸馏成规则 | 完整会话记录 | 对话里的事实 | 编译好的 skill 文件 |
 | 怎么用上 | 靠 hook，在重蹈之前注入 | 需要时搜索（MCP / TUI） | SDK 层召回 | 模型得主动去读 |
 | 依赖 | 无（`node:sqlite` FTS5） | 一个 Go 二进制 | Python + 向量库 | Node |
-| 宿主 | DSH、ZCode 原生；Claude Code 与 Codex 走 `connect` | Claude Code、Codex、Cursor 等 36+ | 走 SDK 都行 | Claude Code |
+| 宿主 | DSH、ZCode 原生；Claude Code、Codex 与 Antigravity 走 `connect` | Claude Code、Codex、Cursor 等 36+ | 走 SDK 都行 | Claude Code |
 
 其实是两件不同的事：deja-vu 把你做过的全量索引起来供搜索，这里只留教训，然后不请自来地塞进上下文。
 

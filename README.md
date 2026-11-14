@@ -26,7 +26,7 @@
 
 When a tool call fails and the next attempt fixes it, the plugin saves that pair as a rule. Rules that match the current work get injected into context on later runs, before the agent repeats the same mistake.
 
-One `core/` engine: **DSH** and **ZCode** install natively (plugin bundles, checked against the real host contracts), and `immune connect` wires the same engine into **Claude Code** and **Codex CLI** as plain hooks — no plugin system required.
+One `core/` engine: **DSH** and **ZCode** install natively (plugin bundles, checked against the real host contracts), and `immune connect` wires the same engine into **Claude Code**, **Codex CLI**, and **Google Antigravity** as plain hooks — no plugin system required.
 
 <div align="center">
   <img src="docs/hero.svg" alt="immune demo: distill, recall, inject" width="720">
@@ -73,27 +73,31 @@ node "<zcode.cjs>" plugins install dsh-immune-system@dev-dsh-plugin-immune
 
 Start a new task afterwards; existing tasks keep the capability catalog they started with.
 
-### Hooking Claude Code & Codex
+### Hooking Claude Code, Codex & Antigravity
 
-Native plugin installs are for DSH and ZCode. For Claude Code and Codex CLI the
-same engine installs as plain hooks — no plugin system required:
+Native plugin installs are for DSH and ZCode. For Claude Code, Codex CLI, and
+Google Antigravity the same engine installs as plain hooks — no plugin system
+required:
 
 ```bash
 npx dsh-immune-system@latest connect               # auto-detect and wire every installed host
 npx dsh-immune-system@latest connect claude-code   # writes ~/.claude/settings.json
 npx dsh-immune-system@latest connect codex         # writes ~/.codex/hooks.json
+npx dsh-immune-system@latest connect antigravity   # writes ~/.gemini/config/hooks.json
 ```
 
 What it does: copies the engine into a fixed `~/.dsh-immune/` install (so the
 hooks survive npx-cache cleanups and package upgrades), merges six hook
-entries (five on Codex, which has no `PostToolUseFailure` event) into the
+entries (five on Codex and Antigravity, which have no `PostToolUseFailure` event;
+Antigravity uses `PreInvocation`, camelCase payloads, and `injectSteps` /
+`decision` responses under `"dsh-immune-system"`) into the
 host's own config pointing **there**, leaving every other setting alone;
 keeps a one-time `.bak-immune` backup before the first write; re-running is a
 no-op (`--refresh` forces a re-copy); a stale install — an npx cache path from
 an older connect — is upgraded in place; `connect <host> --remove` takes only
 the immune entries back out and deletes `~/.dsh-immune/` when no host remains.
 With no host argument, `connect` detects which hosts this machine actually
-has (`~/.claude`, `~/.codex`) and wires each one idempotently — ZCode is
+has (`~/.claude`, `~/.codex`, `~/.gemini/antigravity`) and wires each one idempotently — ZCode is
 detected too but reported rather than written, because ZCode installs immune
 through its own plugin marketplace. `connect --status` keeps the read-only
 survey. `immune doctor` reports broken

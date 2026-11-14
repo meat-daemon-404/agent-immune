@@ -93,24 +93,42 @@ export const HOSTS = {
             'takes effect from the next Codex session (重启会话后生效)',
         ],
     },
+    antigravity: {
+        id: 'antigravity',
+        label: 'Antigravity',
+        relativeConfigPath: join('.gemini', 'config', 'hooks.json'),
+        eventsKey: 'dsh-immune-system',
+        includesFailureHook: false,
+        dialect: 'antigravity',
+        notes: [
+            'takes effect from the next Antigravity session or invocation (重启或新开对话后生效)',
+        ],
+    },
 };
 /** Events in wiring order; timeouts in seconds (ZCode's manifest uses ms). */
 const HOOK_SPECS = [
-    { event: 'SessionStart', script: 'session-start.js', timeout: 20 },
-    { event: 'UserPromptSubmit', script: 'user-prompt-submit.js', timeout: 5 },
+    { event: 'SessionStart', script: 'session-start.js', timeout: 20, antigravityFlat: true },
+    {
+        event: 'UserPromptSubmit',
+        antigravityEvent: 'PreInvocation',
+        script: 'user-prompt-submit.js',
+        timeout: 5,
+        antigravityFlat: true,
+    },
     {
         event: 'PreToolUse',
         script: 'pre-tool-use.js',
         timeout: 4,
         // Codex names its tools differently: shell_command / apply_patch. A
         // ZCode-shaped matcher would never fire there, silently killing recall
-        // and guards on that host. Claude Code uses the ZCode vocabulary.
+        // and guards on that host. Antigravity names them run_command / edit_file / etc.
         matcher: 'Bash|Edit|Write|MultiEdit|Read|Grep|Glob',
         codexMatcher: 'shell_command|exec_command|shell|local_shell|apply_patch',
+        antigravityMatcher: 'run_command|edit_file|write_file|read_file|replace_file_content|multi_replace_file_content|write_to_file|view_file|grep_search|find_by_name|list_dir',
     },
-    { event: 'PostToolUse', script: 'post-tool-use.js', timeout: 5 },
+    { event: 'PostToolUse', script: 'post-tool-use.js', timeout: 5, antigravityMatcher: '*' },
     { event: 'PostToolUseFailure', script: 'post-tool-use-failure.js', timeout: 5 },
-    { event: 'Stop', script: 'stop.js', timeout: 30 },
+    { event: 'Stop', script: 'stop.js', timeout: 30, antigravityFlat: true },
 ];
 /**
  * Matches every command layout this module has ever written: the npm/repo
@@ -148,22 +166,47 @@ function eventTableOf(host, config) {
 function specsFor(host) {
     return HOOK_SPECS.filter((spec) => host.includesFailureHook || spec.event !== 'PostToolUseFailure');
 }
+function isFlatHandler(entry) {
+    return (typeof entry === 'object' &&
+        entry !== null &&
+        typeof entry.command === 'string' &&
+        !Array.isArray(entry.hooks));
+}
+function entryHandlers(entry) {
+    if (isFlatHandler(entry))
+        return [entry];
+    return Array.isArray(entry?.hooks) ? entry.hooks : [];
+}
 /** Build the event table this module would write — exported for tests. */
 export function buildEventTable(host, scriptDir) {
     const table = {};
     for (const spec of specsFor(host)) {
-        const matcher = host.id === 'codex' ? (spec.codexMatcher ?? spec.matcher) : spec.matcher;
-        table[spec.event] = [
+        const eventName = host.dialect === 'antigravity' ? (spec.antigravityEvent ?? spec.event) : spec.event;
+        const handler = {
+            type: 'command',
+            command: commandFor(scriptDir, spec.script),
+            timeout: spec.timeout,
+        };
+        if (host.dialect === 'antigravity' && spec.antigravityFlat) {
+            table[eventName] = [handler];
+            continue;
+        }
+        const matcher = host.id === 'codex'
+            ? (spec.codexMatcher ?? spec.matcher)
+            : host.dialect === 'antigravity'
+                ? (spec.antigravityMatcher ?? spec.matcher)
+                : spec.matcher;
+        table[eventName] = [
             {
                 ...(matcher ? { matcher } : {}),
-                hooks: [{ type: 'command', command: commandFor(scriptDir, spec.script), timeout: spec.timeout }],
+                hooks: [handler],
             },
         ];
     }
     return table;
 }
-function isImmuneGroup(group) {
-    return Array.isArray(group?.hooks) && group.hooks.some((hook) => IMMUNE_COMMAND.test(hook?.command ?? ''));
+function isImmuneEntry(entry) {
+    return entryHandlers(entry).some((hook) => IMMUNE_COMMAND.test(hook?.command ?? ''));
 }
 function readConfig(configPath) {
     if (!existsSync(configPath))
@@ -227,21 +270,24 @@ export function connectHost(hostId, options) {
     let upgraded = 0;
     const eventsWired = [];
     const wanted = buildEventTable(host, scriptDir);
-    for (const [event, groups] of Object.entries(wanted)) {
+    for (const [event, entries] of Object.entries(wanted)) {
         const current = Array.isArray(table[event]) ? table[event] : [];
-        const wantedCommand = groups[0]?.hooks[0]?.command ?? '';
-        const wantedMatcher = groups[0]?.matcher;
-        // Stale means the command OR the matcher no longer matches what this
-        // connect would write: an npx cache path, an old vendor root, a dev
-        // checkout, or a dialect whose tool-name matcher was wrong (the Codex
-        // PreToolUse matcher fix). Upgrading in place is what actually reaches
-        // users who connected with the broken layout.
-        const stale = current.filter((group) => isImmuneGroup(group) &&
-            (group.hooks[0]?.command !== wantedCommand || group.matcher !== wantedMatcher));
-        const currentHasWanted = current.some((group) => isImmuneGroup(group) &&
-            group.hooks[0]?.command === wantedCommand &&
-            group.matcher === wantedMatcher);
-        const kept = current.filter((group) => !stale.includes(group));
+        const wantedEntry = entries[0];
+        const wantedCommand = entryHandlers(wantedEntry)[0]?.command ?? '';
+        const wantedMatcher = isFlatHandler(wantedEntry) ? undefined : wantedEntry.matcher;
+        const wantFlat = isFlatHandler(wantedEntry);
+        // Stale means the command, matcher, or handler layout (flat vs grouped)
+        // no longer matches what this connect would write: an npx cache path, an
+        // old vendor root, a dev checkout, or a dialect whose tool-name matcher
+        // was wrong (the Codex PreToolUse matcher fix). Upgrading in place is what
+        // actually reaches users who connected with the broken layout.
+        const matchesWanted = (entry) => isImmuneEntry(entry) &&
+            isFlatHandler(entry) === wantFlat &&
+            entryHandlers(entry)[0]?.command === wantedCommand &&
+            (wantFlat || entry.matcher === wantedMatcher);
+        const stale = current.filter((entry) => isImmuneEntry(entry) && !matchesWanted(entry));
+        const currentHasWanted = current.some(matchesWanted);
+        const kept = current.filter((entry) => !stale.includes(entry));
         if (currentHasWanted) {
             alreadyPresent += 1;
             table[event] = kept.length > 0 ? kept : current;
@@ -249,10 +295,10 @@ export function connectHost(hostId, options) {
         else if (stale.length > 0) {
             // A stale install on this event is an upgrade, not a new wiring.
             upgraded += stale.length;
-            table[event] = [...kept, ...groups];
+            table[event] = [...kept, ...entries];
         }
         else {
-            table[event] = [...current, ...groups];
+            table[event] = [...current, ...entries];
             added += 1;
         }
         eventsWired.push(event);
@@ -289,13 +335,13 @@ export function listImmuneCommands(hostId, home) {
     try {
         const table = eventTableOf(host, readConfig(configPath).config);
         const commands = [];
-        for (const groups of Object.values(table)) {
-            if (!Array.isArray(groups))
+        for (const entries of Object.values(table)) {
+            if (!Array.isArray(entries))
                 continue;
-            for (const group of groups) {
-                if (!isImmuneGroup(group))
+            for (const entry of entries) {
+                if (!isImmuneEntry(entry))
                     continue;
-                for (const hook of group.hooks)
+                for (const hook of entryHandlers(entry))
                     commands.push(hook.command);
             }
         }
@@ -370,22 +416,29 @@ export function disconnectHost(hostId, options) {
     const table = eventTableOf(host, config);
     let removed = 0;
     for (const event of Object.keys(table)) {
-        const groups = table[event];
-        if (!Array.isArray(groups))
+        const entries = table[event];
+        if (!Array.isArray(entries))
             continue;
-        const kept = groups
-            .map((group) => {
-            if (!isImmuneGroup(group))
-                return group;
-            const hooks = group.hooks.filter((hook) => !IMMUNE_COMMAND.test(hook?.command ?? ''));
-            removed += group.hooks.length - hooks.length;
-            return hooks.length > 0 ? { ...group, hooks } : null;
+        const kept = entries
+            .map((entry) => {
+            if (!isImmuneEntry(entry))
+                return entry;
+            if (isFlatHandler(entry)) {
+                removed += 1;
+                return null;
+            }
+            const hooks = entry.hooks.filter((hook) => !IMMUNE_COMMAND.test(hook?.command ?? ''));
+            removed += entry.hooks.length - hooks.length;
+            return hooks.length > 0 ? { ...entry, hooks } : null;
         })
-            .filter((group) => group !== null);
+            .filter((entry) => entry !== null);
         if (kept.length > 0)
             table[event] = kept;
         else
             delete table[event];
+    }
+    if (host.dialect === 'antigravity' && host.eventsKey !== null && Object.keys(table).length === 0) {
+        delete config[host.eventsKey];
     }
     const backupPath = removed > 0 ? writeConfig(configPath, config, existed) : null;
     const vendorRemoved = removed > 0 ? maybeCleanupVendor(home) : false;
@@ -416,7 +469,7 @@ export function connectStatus(options) {
         try {
             const table = eventTableOf(host, readConfig(configPath).config);
             const events = Object.entries(table)
-                .filter(([, groups]) => Array.isArray(groups) && groups.some(isImmuneGroup))
+                .filter(([, entries]) => Array.isArray(entries) && entries.some(isImmuneEntry))
                 .map(([event]) => event);
             return {
                 host: host.id,
@@ -438,6 +491,14 @@ export function detectHosts(home) {
     }
     if (existsSync(join(home, '.codex'))) {
         detected.push({ host: 'codex', label: 'Codex CLI', marker: '~/.codex', wired: true });
+    }
+    if (existsSync(join(home, '.gemini', 'antigravity')) || existsSync(join(home, '.gemini', 'config'))) {
+        detected.push({
+            host: 'antigravity',
+            label: 'Antigravity',
+            marker: existsSync(join(home, '.gemini', 'antigravity')) ? '~/.gemini/antigravity' : '~/.gemini/config',
+            wired: true,
+        });
     }
     if (existsSync(join(home, '.zcode'))) {
         detected.push({

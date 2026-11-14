@@ -13,6 +13,7 @@
  * downstream consumer parses).
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Antibody } from './types.js';
 import type { ImmuneStore } from './store/index.js';
 
@@ -106,7 +107,8 @@ export function maybeSyncDocAfterDrain(
 ): SyncDocReport | null {
   const raw = env.IMMUNE_SYNC_DOC?.trim();
   if (!raw) return null;
-  const file = raw === '1' || raw.toLowerCase() === 'true' ? 'AGENTS.md' : raw;
+  const defaultFile = env.ZCODE_PROJECT_DIR ? join(env.ZCODE_PROJECT_DIR, 'AGENTS.md') : 'AGENTS.md';
+  const file = raw === '1' || raw.toLowerCase() === 'true' ? defaultFile : raw;
   const minHitsRaw = Number(env.IMMUNE_SYNC_DOC_MIN_HITS ?? '');
   try {
     return syncDoc(store, {

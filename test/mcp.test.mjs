@@ -10,9 +10,9 @@ import { resolve } from 'node:path';
 const SERVER = resolve('dsh-immune-system/dist/zcode/src/mcp-server.js');
 
 /** One MCP server process, driven line by line. */
-function startServer(dbPath) {
+function startServer(dbPath, homeDir) {
   const child = spawn(process.execPath, [SERVER], {
-    env: { ...process.env, IMMUNE_DB_PATH: dbPath },
+    env: { ...process.env, IMMUNE_DB_PATH: dbPath, HOME: homeDir, USERPROFILE: homeDir },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const pending = new Map();
@@ -69,7 +69,7 @@ function startServer(dbPath) {
 async function withServer(t, fn) {
   const dir = mkdtempSync(join(tmpdir(), 'immune-mcp-'));
   const dbPath = join(dir, 'immune.sqlite');
-  const server = startServer(dbPath);
+  const server = startServer(dbPath, dir);
   t.after(async () => {
     await server.stop();
     rmSync(dir, { recursive: true, force: true });

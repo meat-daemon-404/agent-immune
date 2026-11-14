@@ -1,6 +1,6 @@
 {
   "name": "dsh-immune-system",
   "description": "Hook-based immune system for coding agents — turns failed-then-fixed tool episodes into injected antibodies (trigger -> avoid -> do). Zero runtime dependencies.",
-  "version": "1.1.6",
+  "version": "1.1.8",
   "keywords": ["hooks", "agents", "memory", "self-improvement"]
 }

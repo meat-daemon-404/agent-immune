@@ -42,15 +42,16 @@ export function looksEchoPrescription(prescription: string): boolean {
   // before the dump checks so an evidence-bearing prescription is judged on
   // the command it carries, not punished for its provenance.
   const bare = p.replace(/\s*\(after: .+\)$/, '');
-  // A leading "Bash:" with a real command after it is a dump. "Edit: re-read
-  // the file" is advice and stays, which is why the length guard is here.
-  if (/^Bash:\s/.test(bare) && bare.length > 30) return true;
+  // A leading "Bash:" / "bash:" / "mcp__...:" with a real command after it is a
+  // dump. "Edit: re-read the file" is advice and stays, which is why the
+  // length guard is here.
+  if ((/^bash:\s/i.test(bare) || /^mcp__[\w-]+:\s/i.test(bare)) && bare.length > 30) return true;
   // A file-tool dump restates the invocation too ("Write: D:\...\a.mjs") —
   // found live when sync-doc refreshed this repo's managed block. The flag
   // requires a PATH in the remainder, not just the tool prefix, so genuine
   // file-tool advice ("Edit: re-read the file first") keeps its eligibility.
   const fileTool = bare.match(/^(Edit|Write|MultiEdit|NotebookEdit):\s(.+)$/i);
-  if (fileTool && /[A-Za-z]:[\\/]|\/home\/|\/Users\//.test(fileTool[2] ?? '')) return true;
+  if (fileTool && /(?<![A-Za-z])[A-Za-z]:[\\/](?![\\/])|\/home\/|\/Users\//.test(fileTool[2] ?? '')) return true;
   return p.length > 160;
 }
 
@@ -98,7 +99,9 @@ export function parseRewrite(raw: string): { ok: true; prescription: string } | 
   if (text.length < 4) return { ok: false, reason: 'empty' };
   if (text.length > 120) return { ok: false, reason: 'too long' };
   // A model that hands back another command dump has not done the job.
-  if (text.startsWith('tool=') || /^Bash:\s/.test(text)) return { ok: false, reason: 'still a command' };
+  if (text.startsWith('tool=') || /^bash:\s/i.test(text) || /^mcp__[\w-]+:\s/i.test(text)) {
+    return { ok: false, reason: 'still a command' };
+  }
   return { ok: true, prescription: text };
 }
 

@@ -46,7 +46,7 @@ export const GUARD_RULES: readonly GuardRule[] = [
   {
     id: 'rm-rf-root',
     what: '递归删除根目录或家目录不可逆',
-    pattern: /\brm\s+(?:-[a-zA-Z]*[rf][a-zA-Z]*\s+)+(?:\/|~|\$HOME)\s*(?:$|[;&|])/i,
+    pattern: /\brm\s+(?:-[a-zA-Z]*[rf][a-zA-Z]*\s+)+(?:\/|~|\$HOME)\s*(?=$|[;&|"'])/i,
     instead: '把目标收窄到具体子目录，并先 ls 确认',
   },
   {
@@ -64,7 +64,7 @@ export const GUARD_RULES: readonly GuardRule[] = [
   {
     id: 'git-discard-worktree',
     what: 'git checkout/restore . 会丢弃整个工作区的未提交改动',
-    pattern: /\bgit\s+(?:checkout|restore)(?:\s+--)?\s+\.(?:\s|$)/i,
+    pattern: /\bgit\s+(?:checkout|restore)(?:\s+--)?\s+\.(?=\s|$|["'&;|])/i,
     instead: '先 git stash 暂存，或只还原具体文件 git restore <file>',
   },
 ];
