@@ -18,13 +18,19 @@ await runHook('PostToolUseFailure', (event) => {
   const sessionId = sessionIdOf(event);
   const toolName = toolNameOf(event);
   const target = targetSignature(toolName, event.tool_input);
+  const failureTrace = summarizeFailure(event);
+  // A sandbox file-access denial is a permission negotiation, not a project
+  // pitfall (AGENTS.md #12): report nothing, learn nothing, and do not penalise.
+  if (/\[sandbox:\s*file access denied under [^\]\n]+ mode\]/i.test(failureTrace)) {
+    return null;
+  }
 
   const store = new ImmuneStore();
   try {
     const snapshot = store.recordFailure(
       sessionId,
       toolName,
-      summarizeFailure(event),
+      failureTrace,
       target.signature,
     );
 

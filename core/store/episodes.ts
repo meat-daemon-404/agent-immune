@@ -153,7 +153,7 @@ export function attachHumanHint(db: DatabaseSync, sessionId: string, hint: unkno
 export function hasPendingFailure(db: DatabaseSync, sessionId: string, toolName?: string): boolean {
   const row = toolName
     ? db
-        .prepare('SELECT 1 FROM pending_failures WHERE session_id = ? AND tool_name = ? LIMIT 1')
+        .prepare('SELECT 1 FROM pending_failures WHERE session_id = ? AND LOWER(tool_name) = LOWER(?) LIMIT 1')
         .get(sessionId, toolName)
     : db.prepare('SELECT 1 FROM pending_failures WHERE session_id = ? LIMIT 1').get(sessionId);
   return row !== undefined;
@@ -288,16 +288,20 @@ export function claimFailure(
     created_at: number;
   };
   let row = db
-    .prepare('SELECT * FROM pending_failures WHERE session_id = ? AND tool_name = ?')
-    .get(sessionId, toolName) as PendingRow | undefined;
+    .prepare(
+      `SELECT * FROM pending_failures
+        WHERE session_id = ? AND LOWER(tool_name) = LOWER(?)
+        ORDER BY CASE WHEN tool_name = ? THEN 0 ELSE 1 END, created_at DESC LIMIT 1`,
+    )
+    .get(sessionId, toolName, toolName) as PendingRow | undefined;
   if (!row) {
     row = db
       .prepare(
         `SELECT * FROM pending_failures
-          WHERE tool_name = ? AND session_id != ?
-          ORDER BY created_at DESC LIMIT 1`,
+          WHERE LOWER(tool_name) = LOWER(?) AND session_id != ?
+          ORDER BY CASE WHEN tool_name = ? THEN 0 ELSE 1 END, created_at DESC LIMIT 1`,
       )
-      .get(toolName, sessionId) as PendingRow | undefined;
+      .get(toolName, sessionId, toolName) as PendingRow | undefined;
   }
   if (!row) return null;
 

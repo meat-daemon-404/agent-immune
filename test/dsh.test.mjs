@@ -834,4 +834,49 @@ test('DSH parity: postToolExecute records stuck failures; sessionStart skips ech
   assert.match(injectedTurn, /连续失败两次/, 'postToolExecute -> topStuck loop fires automatically on DSH');
 });
 
+test('DSH parity: normalises TargetFile repair paths and skips self-noise in drain', async (t) => {
+  const { fx, dbPath } = await bootstrap(t);
+  const agent = makeAgent('sess-repair-rel');
+
+  await postTool(
+    fx,
+    makeExec(agent, { arguments: { command: 'npm run lint' } }),
+    thrownResult('config error in src/sub/config.json'),
+  );
+  await postTool(
+    fx,
+    makeExec(agent, {
+      name: 'edit',
+      arguments: { TargetFile: join(process.cwd(), 'src', 'sub', 'config.json') },
+    }),
+    { isError: false, content: [{ type: 'text', text: 'updated' }], value: { ok: true } },
+  );
+  await postTool(
+    fx,
+    makeExec(agent, { arguments: { command: 'npm run lint' } }),
+    bashResult({ exitCode: 0, text: 'lint ok' }),
+  );
+  await runTurnStopping(fx, agent, 1);
+
+  const jobs = queryAll(dbPath, "SELECT status, repair_path FROM distill_jobs WHERE status = 'done'");
+  assert.equal(jobs.length, 1);
+  assert.deepEqual(JSON.parse(jobs[0].repair_path), ['edit src/sub/config.json']);
+
+  // Self-noise job whose success trace touches the plugin itself is skipped at drain time
+  const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const s = new ImmuneStore({ dbPath });
+  const jobId = s.enqueueJob(
+    'Bash',
+    'Bash {"command":"echo hello"} error=fail',
+    `Bash {"command":"node ${join(process.cwd(), 'dsh', 'src', 'index.ts')}"} result=ok`,
+    [],
+  );
+  s.close();
+
+  await runTurnStopping(fx, agent, 2);
+  const skipped = queryAll(dbPath, 'SELECT status, note FROM distill_jobs WHERE id = ?', jobId);
+  assert.equal(skipped[0].status, 'skipped');
+  assert.match(skipped[0].note, /self-noise/);
+});
+
 

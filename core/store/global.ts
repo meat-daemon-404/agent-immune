@@ -25,6 +25,7 @@ import {
   findMatches,
   insertAntibody,
   bumpHits,
+  listAntibodies,
   pruneZombieAntibodies,
   retireZombieAntibodies,
 } from './antibodies.js';
@@ -98,10 +99,7 @@ export class GlobalStore {
   }
 
   listAll(includeRetired = true): Antibody[] {
-    const sql = includeRetired
-      ? 'SELECT * FROM antibodies ORDER BY status ASC, hit_count DESC, created_at DESC'
-      : "SELECT * FROM antibodies WHERE status = 'active' ORDER BY hit_count DESC, created_at DESC";
-    return this.db.prepare(sql).all() as unknown as Antibody[];
+    return listAntibodies(this.db, includeRetired);
   }
 
   close(): void {

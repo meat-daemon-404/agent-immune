@@ -210,7 +210,26 @@ test('the full learning loop works over MCP tools', async (t) => {
 
     const stats = textOf(await server.call('tools/call', { name: 'immune_stats', arguments: {} }));
     assert.match(stats, /active: 1/);
+    assert.match(stats, /shared: \d+/);
+    assert.match(stats, /repeats suppressed: \d+/);
     assert.match(stats, /database:/);
+
+    const { ImmuneStore } = await import('../dsh-immune-system/dist/core/store/index.js');
+    const { callTool } = await import('../dsh-immune-system/dist/zcode/src/mcp-server.js');
+    const directStore = new ImmuneStore({ dbPath: ':memory:' });
+    try {
+      directStore.insert({
+        trigger_pattern: 'tsconfig.json paths',
+        symptom: 'relative import fails',
+        prescription: 'update tsconfig.json paths before compiling',
+        tool_name: 'Edit',
+        repair_path: ['Edit tsconfig.json', 'Bash npm run build'],
+      });
+      const directList = callTool(directStore, 'immune_list', {});
+      assert.match(directList, /repaired by: Edit tsconfig\.json \| Bash npm run build/);
+    } finally {
+      directStore.close();
+    }
 
     const id = Number(/#(\d+)/.exec(learned)[1]);
     const retired = textOf(

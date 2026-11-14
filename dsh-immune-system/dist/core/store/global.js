@@ -18,7 +18,7 @@ import { dirname, join } from 'node:path';
 import { DatabaseSync as Database } from 'node:sqlite';
 import { SCHEMA_STATEMENTS } from './schema.js';
 import { openDatabase } from './open.js';
-import { findMatches, insertAntibody, bumpHits, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
+import { findMatches, insertAntibody, bumpHits, listAntibodies, pruneZombieAntibodies, retireZombieAntibodies, } from './antibodies.js';
 /** File name of the shared library next to the per-project database. */
 export const GLOBAL_DB_FILE = 'global.sqlite';
 /** Path of the global library that belongs to a given project database. */
@@ -77,10 +77,7 @@ export class GlobalStore {
         return retireZombieAntibodies(this.db, olderThanMs);
     }
     listAll(includeRetired = true) {
-        const sql = includeRetired
-            ? 'SELECT * FROM antibodies ORDER BY status ASC, hit_count DESC, created_at DESC'
-            : "SELECT * FROM antibodies WHERE status = 'active' ORDER BY hit_count DESC, created_at DESC";
-        return this.db.prepare(sql).all();
+        return listAntibodies(this.db, includeRetired);
     }
     close() {
         this.db.close();

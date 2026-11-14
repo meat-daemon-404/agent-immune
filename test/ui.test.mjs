@@ -185,3 +185,42 @@ test('3.3 the evolution strip renders from data the store can prove', async (t) 
   assert.equal(evo.detours, 0);
   s.close();
 });
+
+test('shared view filters by query and oversized bodies return 413', async (t) => {
+  const { handle, token, dbPath } = await boot(t);
+  const { ImmuneStore: S } = await import('../dsh-immune-system/dist/core/store/index.js');
+  const s = new S({ dbPath });
+  s.insertShared(
+    {
+      trigger_pattern: 'pnpm peer dependency',
+      symptom: 'install conflict',
+      prescription: 'use pnpm install --no-frozen-lockfile',
+    },
+    { generic: true },
+  );
+  s.insertShared(
+    {
+      trigger_pattern: 'docker mount permission',
+      symptom: 'container EACCES',
+      prescription: 'pass user uid gid to container',
+    },
+    { generic: true },
+  );
+  s.close();
+
+  const allShared = await (await fetch(`${handle.url}api/shared?t=${token}`)).json();
+  assert.equal(allShared.antibodies.length, 2);
+
+  const filtered = await (
+    await fetch(`${handle.url}api/shared?t=${token}&q=${encodeURIComponent('docker')}`)
+  ).json();
+  assert.equal(filtered.antibodies.length, 1);
+  assert.match(filtered.antibodies[0].trigger_pattern, /docker/);
+
+  const huge = await fetch(`${handle.url}api/action?t=${token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'retire', id: 1, pad: 'x'.repeat(6000) }),
+  });
+  assert.equal(huge.status, 413);
+});

@@ -28,9 +28,9 @@ import { isSelfEpisode } from '../../core/selfnoise.js';
 import { isRelated } from '../../core/relevance.js';
 import { looksEchoPrescription } from '../../core/rewrite.js';
 import { maybeSleepConsolidate } from '../../core/sleep-consolidate.js';
-import { targetSignature } from '../../core/pairing.js';
+import { normaliseTargetPath, targetSignature } from '../../core/pairing.js';
 import { findGuardHit, guardMode } from '../../core/guards.js';
-import { REPAIR_TOOLS } from '../../core/repair-tools.js';
+import { isRepairTool } from '../../core/repair-tools.js';
 import { redact } from '../../core/redact.js';
 import { registerImmuneUiRoute } from './ui-route.js';
 import { maybeSyncDocAfterDrain } from '../../core/sync-doc.js';
@@ -283,6 +283,10 @@ async function drain(store: ImmuneStore, budgetMs = drainBudgetMs()): Promise<vo
     if (remaining <= 0) break;
     const job = store.claimJob();
     if (!job) break;
+    if (isSelfEpisode(`${job.failure_trace} ${job.success_trace}`, selfMarkers())) {
+      store.finishJob(job.id, 'skipped', 'self-noise episode (drain-time gate)');
+      continue;
+    }
     try {
       const result = await distillEpisode(job.tool_name, job.failure_trace, job.success_trace, {
         signal: AbortSignal.timeout(Math.max(1000, remaining)),
@@ -361,6 +365,13 @@ function startPlugin(ctx: DshContext): void {
       store.resetTurnState(agent.id);
     }
     store.pruneStale();
+    // ROADMAP 3.1: environment metabolism — a lockfile/runtime change puts
+    // rules learned in the OLD environment on probation.
+    try {
+      store.runEnvMetabolism(process.cwd());
+    } catch {
+      // Metabolism is bookkeeping; a failed pass must not block the session.
+    }
     const active = store.listAll(false);
     // Priming has no prompt/tool query to match against, so drop echo-grade
     // command dumps here (`looksEchoPrescription`, Decision #39) while recording
@@ -477,18 +488,28 @@ function startPlugin(ctx: DshContext): void {
       // to a file is very often the actual repair. A tool with its own open
       // episode does not record itself as its own repair.
       if (
-        (REPAIR_TOOLS.has(event.toolName) ||
-          ['write', 'edit', 'multiedit', 'notebookedit'].includes(event.toolName.toLowerCase())) &&
+        isRepairTool(event.toolName) &&
         store.hasPendingFailure(event.sessionId) &&
         !store.hasPendingFailure(event.sessionId, event.toolName)
       ) {
         const raw = (event.toolInput ?? {}) as Record<string, unknown>;
-        const filePath = raw.file_path ?? raw.path ?? raw.notebook_path ?? '';
+        const filePath =
+          raw.file_path ??
+          raw.path ??
+          raw.notebook_path ??
+          raw.TargetFile ??
+          raw.AbsolutePath ??
+          raw.Path ??
+          '';
         const base =
           typeof filePath === 'string' && filePath.length > 0
             ? filePath.split(/[\\/]/).pop() ?? filePath
             : event.toolName;
-        store.recordRepairAction(event.sessionId, `${event.toolName} ${base}`);
+        const relative =
+          typeof filePath === 'string' && filePath.length > 0
+            ? normaliseTargetPath(filePath, process.cwd())
+            : '';
+        store.recordRepairAction(event.sessionId, `${event.toolName} ${relative || base}`);
       }
 
       // Probe-thrash bookkeeping & convergent detours (ROADMAP 2.3b).
@@ -538,11 +559,11 @@ function startPlugin(ctx: DshContext): void {
       const failure = store.claimFailure(event.sessionId, event.toolName, successTarget);
       const hypothesized = store.wasHypothesized(event.sessionId, successTarget.signature);
       store.clearStuck(event.sessionId, successTarget.signature);
-      if (failure && !isSelfEpisode(failure.trace, selfMarkers())) {
+      const baseTrace = traceFor(event, `result=${event.resultText}`);
+      if (failure && !isSelfEpisode(`${failure.trace} ${baseTrace}`, selfMarkers())) {
         // The action diff travels with the success trace: keyword extraction
         // picks the repaired files out of it, and the LLM prompt gets the
         // repair shape as context.
-        const baseTrace = traceFor(event, `result=${event.resultText}`);
         const successTrace =
           failure.repair_path.length > 0
             ? `${baseTrace}\nrepair actions: ${failure.repair_path.join(' | ')}`

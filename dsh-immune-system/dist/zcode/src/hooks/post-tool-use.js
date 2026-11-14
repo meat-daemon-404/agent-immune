@@ -38,9 +38,13 @@ await runHook('PostToolUse', (event) => {
         if (isRepairTool(toolName) &&
             store.hasPendingFailure(sessionId) &&
             !store.hasPendingFailure(sessionId, toolName)) {
-            const filePath = event.tool_input?.file_path ??
-                event.tool_input?.path ??
-                event.tool_input?.notebook_path ??
+            const inputObj = event.tool_input ?? {};
+            const filePath = inputObj.file_path ??
+                inputObj.path ??
+                inputObj.notebook_path ??
+                inputObj.TargetFile ??
+                inputObj.AbsolutePath ??
+                inputObj.Path ??
                 '';
             const base = typeof filePath === 'string' && filePath.length > 0
                 ? filePath.split(/[\\/]/).pop() ?? filePath
@@ -67,6 +71,10 @@ await runHook('PostToolUse', (event) => {
         }
         store.recordProbeOutcome(sessionId, target.probeOnly ? target.signature : null);
         if (outcome.failed) {
+            // A sandbox file-access denial is a permission negotiation, not a project
+            // pitfall (AGENTS.md #12): never record it or penalise antibodies for it.
+            if (outcome.sandboxDenied)
+                return null;
             const snapshot = store.recordFailure(sessionId, toolName, trace, target.signature);
             // ROADMAP 1.5 stuck detection for non-zero exit tools (Bash returns
             // through PostToolUse, not PostToolUseFailure — Decision #1). `peek`

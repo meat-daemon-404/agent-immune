@@ -30,6 +30,8 @@ function exitCodeOf(response) {
  * as a pitfall.
  */
 const FAILURE_MARKERS = /\bexit (?:code|status)\s*[:=]?\s*[1-9]\d*\b|ENOENT|EACCES|EPERM|ECONNREFUSED|command not found|is not recognized as an internal|Traceback \(most recent call last\)|npm ERR!|\bfatal:\s|^Error:|Cannot find module/i;
+const SANDBOX_DENIED = /\[sandbox:\s*file access denied under [^\]\n]+ mode\]/i;
+const TIMED_OUT = /\n\[timed out after \d+ms\]/i;
 /** Classify one successful-looking tool result as failure or success. */
 export function classifyOutcome(event) {
     const response = event.tool_response ?? event.toolResponse;
@@ -45,10 +47,20 @@ export function classifyOutcome(event) {
                 return '';
             }
         })();
+    if (SANDBOX_DENIED.test(body) || SANDBOX_DENIED.test(topError)) {
+        return { failed: true, sandboxDenied: true, text: (body && body !== '""' ? body : '') || topError };
+    }
     // Antigravity PostToolUse carries top-level `error: "..."` when the tool
     // execution fails, with no `tool_response` wrapper.
     if (topError.length > 0) {
         return { failed: true, text: (body && body !== '""' ? body : '') || topError };
+    }
+    const timedOut = (typeof response === 'object' &&
+        response !== null &&
+        response.timedOut === true) ||
+        TIMED_OUT.test(body);
+    if (timedOut) {
+        return { failed: true, text: body || 'timed out' };
     }
     const exit = exitCodeOf(response);
     if (exit !== null) {

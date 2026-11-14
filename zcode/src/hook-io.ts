@@ -132,7 +132,12 @@ export function normaliseToolInput(raw: unknown): unknown {
   }
   if (obj.file_path === undefined) {
     const pathCandidate =
-      obj.Path ?? obj.TargetFile ?? obj.AbsolutePath ?? obj.DirectoryPath;
+      obj.Path ??
+      obj.TargetFile ??
+      obj.AbsolutePath ??
+      obj.DirectoryPath ??
+      obj.SearchPath ??
+      obj.SearchDirectory;
     if (typeof pathCandidate === 'string') obj.file_path = pathCandidate;
   }
   if (obj.pattern === undefined) {

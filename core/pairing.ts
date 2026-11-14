@@ -150,8 +150,42 @@ export function targetSignature(
     return { signature: `Bash:${program || '?'}:${sub || '-'}`, probeOnly };
   }
 
+  if (tool === 'grep' || tool === 'glob') {
+    const rawPath = pickString(obj, [
+      'file_path',
+      'path',
+      'SearchPath',
+      'SearchDirectory',
+      'DirectoryPath',
+      'Path',
+    ]);
+    if (rawPath) {
+      return {
+        signature: `${toolName}:${normaliseTargetPath(rawPath, cwd) || '?'}`,
+        probeOnly: true,
+      };
+    }
+    const rawPat = pickString(obj, ['pattern', 'Pattern', 'query', 'Query']);
+    return {
+      signature: `${toolName}:${rawPat ? rawPat.slice(0, 80) : '?'}`,
+      probeOnly: true,
+    };
+  }
+
   // Unknown tool: fall back to its name plus the first path-ish field.
-  const raw = pickString(obj, ['file_path', 'path', 'notebook_path', 'TargetFile', 'AbsolutePath', 'Path', 'command', 'CommandLine']);
+  const raw = pickString(obj, [
+    'file_path',
+    'path',
+    'notebook_path',
+    'TargetFile',
+    'AbsolutePath',
+    'Path',
+    'DirectoryPath',
+    'SearchPath',
+    'SearchDirectory',
+    'command',
+    'CommandLine',
+  ]);
   return {
     signature: `${toolName}:${raw ? normaliseTargetPath(raw, cwd) : '?'}`,
     probeOnly: false,

@@ -33,7 +33,16 @@ export function dashboardStats(store) {
 }
 /** Read state for one view. Never bumps hit counts: browsing is not delivery. */
 export function readState(store, view, query = '', budgetMs = resolveBudgetMs()) {
-    const antibodies = view === 'shared' ? store.sharedAntibodies(MAX_QUERY) : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
+    const q = query.slice(0, MAX_QUERY).trim().toLowerCase();
+    const antibodies = view === 'shared'
+        ? store
+            .sharedAntibodies(MAX_QUERY)
+            .filter((a) => !q ||
+            a.trigger_pattern.toLowerCase().includes(q) ||
+            a.symptom.toLowerCase().includes(q) ||
+            a.prescription.toLowerCase().includes(q) ||
+            (a.tool_name ?? '').toLowerCase().includes(q))
+        : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
     return { stats: dashboardStats(store), antibodies, budgetMs };
 }
 const WEEK = 7 * 24 * 60 * 60 * 1000;

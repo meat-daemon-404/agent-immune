@@ -58,6 +58,16 @@ function readVendorVersion(vendorRoot: string): string | null {
   }
 }
 
+function hasVendorModuleType(vendorRoot: string): boolean {
+  try {
+    const raw = readFileSync(join(vendorRoot, 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { type?: unknown };
+    return parsed.type === 'module';
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Copy the dist tree into the vendor root unless that version is already
  * there. `force` re-copies (a dev checkout can change code without a version
@@ -73,7 +83,11 @@ export function vendorDist(home: string, opts: { force?: boolean } = {}): Vendor
   // scripts are gone. A missing canary forces the re-copy too.
   const canary = join(distDir, 'zcode', 'src', 'hooks', 'session-start.js');
   const refreshed =
-    opts.force === true || existing === null || existing !== version || !existsSync(canary);
+    opts.force === true ||
+    existing === null ||
+    existing !== version ||
+    !existsSync(canary) ||
+    !hasVendorModuleType(vendorRoot);
   if (refreshed) {
     rmSync(distDir, { recursive: true, force: true });
     cpSync(ownDistRoot(), distDir, { recursive: true });
@@ -83,7 +97,7 @@ export function vendorDist(home: string, opts: { force?: boolean } = {}): Vendor
     // from failures on the immune install itself (maintenance, not pitfalls).
     writeFileSync(
       join(vendorRoot, 'package.json'),
-      `${JSON.stringify({ name: 'dsh-immune-system', version, private: true }, null, 2)}\n`,
+      `${JSON.stringify({ name: 'dsh-immune-system', version, type: 'module', private: true }, null, 2)}\n`,
       'utf8',
     );
     writeFileSync(

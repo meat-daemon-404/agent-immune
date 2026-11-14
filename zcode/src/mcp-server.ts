@@ -188,17 +188,24 @@ export function callTool(store: ImmuneStore, name: string, args: Record<string, 
         .map(
           (a) =>
             `#${a.id} [${a.status}] hits ${a.hit_count}/fails ${a.fail_count}\n` +
-            `  trigger: ${a.trigger_pattern}\n  avoid: ${a.symptom}\n  do: ${a.prescription}`,
+            `  trigger: ${a.trigger_pattern}\n  avoid: ${a.symptom}\n  do: ${a.prescription}` +
+            (Array.isArray(a.repair_path) && a.repair_path.length > 0
+              ? `\n  repaired by: ${a.repair_path.join(' | ')}`
+              : ''),
         )
         .join('\n\n');
     }
 
     case 'immune_stats': {
       const all = store.listAll(true) as Array<{ status: string; hit_count: number }>;
+      const s = store.stats();
+      const sharedCount = store.sharedAntibodies(1000).length;
       return (
         `active: ${all.filter((a: { status: string }) => a.status === 'active').length}\n` +
         `retired: ${all.filter((a: { status: string }) => a.status === 'retired').length}\n` +
-        `injections: ${all.reduce((s: number, a: { hit_count: number }) => s + a.hit_count, 0)}\n` +
+        `shared: ${sharedCount}\n` +
+        `injections: ${all.reduce((sum: number, a: { hit_count: number }) => sum + a.hit_count, 0)}\n` +
+        `repeats suppressed: ${s.suppressedRepeats}\n` +
         `queued distill jobs: ${store.pendingJobCount()}\n` +
         `database: ${store.dbPath}`
       );

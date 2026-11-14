@@ -116,7 +116,7 @@ export function attachHumanHint(db, sessionId, hint) {
 export function hasPendingFailure(db, sessionId, toolName) {
     const row = toolName
         ? db
-            .prepare('SELECT 1 FROM pending_failures WHERE session_id = ? AND tool_name = ? LIMIT 1')
+            .prepare('SELECT 1 FROM pending_failures WHERE session_id = ? AND LOWER(tool_name) = LOWER(?) LIMIT 1')
             .get(sessionId, toolName)
         : db.prepare('SELECT 1 FROM pending_failures WHERE session_id = ? LIMIT 1').get(sessionId);
     return row !== undefined;
@@ -210,14 +210,16 @@ function readRepairActions(db, sessionId) {
 export function claimFailure(db, sessionId, toolName, incoming) {
     pruneStale(db);
     let row = db
-        .prepare('SELECT * FROM pending_failures WHERE session_id = ? AND tool_name = ?')
-        .get(sessionId, toolName);
+        .prepare(`SELECT * FROM pending_failures
+        WHERE session_id = ? AND LOWER(tool_name) = LOWER(?)
+        ORDER BY CASE WHEN tool_name = ? THEN 0 ELSE 1 END, created_at DESC LIMIT 1`)
+        .get(sessionId, toolName, toolName);
     if (!row) {
         row = db
             .prepare(`SELECT * FROM pending_failures
-          WHERE tool_name = ? AND session_id != ?
-          ORDER BY created_at DESC LIMIT 1`)
-            .get(toolName, sessionId);
+          WHERE LOWER(tool_name) = LOWER(?) AND session_id != ?
+          ORDER BY CASE WHEN tool_name = ? THEN 0 ELSE 1 END, created_at DESC LIMIT 1`)
+            .get(toolName, sessionId, toolName);
     }
     if (!row)
         return null;

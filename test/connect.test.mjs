@@ -202,6 +202,7 @@ test('connect vendors the dist tree and points hooks at the fixed copy', async (
   // walks up to; without it, vendor-layout self episodes are learnable.
   const pkg = JSON.parse(readFileSync(join(h, '.dsh-immune', 'package.json'), 'utf8'));
   assert.equal(pkg.name, 'dsh-immune-system');
+  assert.equal(pkg.type, 'module', 'vendored package.json sets type: module to prevent Node CJS reparse warnings');
   const vendoredFile = join(h, '.dsh-immune', 'dist', 'x.js').replace(/\\/g, '/');
   assert.equal(
     isSelfEpisode(`tool=Edit input={"file_path":"${vendoredFile}","old_string":"a"}`),
@@ -400,7 +401,7 @@ test('zero-arg auto-detect discovers ~/.gemini/antigravity and normalises Antigr
   assert.equal(normaliseToolName('grep_search'), 'Grep');
   assert.equal(normaliseToolName('find_by_name'), 'Glob');
 
-  const { normaliseHookEvent, isAntigravityEvent } = await import(
+  const { normaliseHookEvent, normaliseToolInput, isAntigravityEvent } = await import(
     '../dsh-immune-system/dist/zcode/src/hook-io.js'
   );
   const ev = normaliseHookEvent({
@@ -416,4 +417,14 @@ test('zero-arg auto-detect discovers ~/.gemini/antigravity and normalises Antigr
   assert.equal(ev.tool_name, 'run_command');
   assert.equal(ev.tool_input.command, 'npm test');
   assert.equal(targetSignature(normaliseToolName(ev.tool_name), ev.tool_input).signature, 'Bash:npm:test');
+  assert.equal(normaliseToolInput({ SearchPath: '/tmp/ws/src', Query: 'foo' }).file_path, '/tmp/ws/src');
+  assert.equal(normaliseToolInput({ SearchDirectory: '/tmp/ws/lib', Pattern: '*.ts' }).file_path, '/tmp/ws/lib');
+  assert.deepEqual(
+    targetSignature('Grep', { SearchPath: '/tmp/ws/src', Query: 'foo' }, '/tmp/ws'),
+    { signature: 'Grep:src', probeOnly: true },
+  );
+  assert.deepEqual(
+    targetSignature('Glob', { Pattern: '**/*.ts' }, '/tmp/ws'),
+    { signature: 'Glob:**/*.ts', probeOnly: true },
+  );
 });

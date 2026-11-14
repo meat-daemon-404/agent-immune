@@ -125,7 +125,7 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (path === '/api/import' && req.method === 'POST') {
-      readBody(req, (body) => {
+      readBody(req, res, (body) => {
         let parsed: unknown;
         try {
           parsed = JSON.parse(body);
@@ -140,12 +140,13 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
     }
 
     if (path === '/api/shared' && req.method === 'GET') {
-      sendJson(res, 200, readState(store, 'shared'));
+      const query = url.searchParams.get('q') ?? '';
+      sendJson(res, 200, readState(store, 'shared', query));
       return;
     }
 
     if (path === '/api/action' && req.method === 'POST') {
-      readBody(req, (body) => {
+      readBody(req, res, (body) => {
         let parsed: unknown;
         try {
           parsed = JSON.parse(body);
@@ -219,14 +220,25 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(body);
 }
 
-function readBody(req: IncomingMessage, done: (body: string) => void, max = 4096): void {
+function readBody(
+  req: IncomingMessage,
+  res: ServerResponse,
+  done: (body: string) => void,
+  max = 4096,
+): void {
   let body = '';
+  let aborted = false;
   req.on('data', (chunk: Buffer) => {
+    if (aborted) return;
     body += chunk.toString('utf8');
     // Small action objects by default; import raises the cap for snapshots.
     if (body.length > max) {
+      aborted = true;
+      sendJson(res, 413, { error: 'body too large' });
       req.destroy();
     }
   });
-  req.on('end', () => done(body));
+  req.on('end', () => {
+    if (!aborted) done(body);
+  });
 }

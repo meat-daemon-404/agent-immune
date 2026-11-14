@@ -295,6 +295,19 @@ test('audit parses Antigravity transcripts: PLANNER_RESPONSE + GENERIC, plan den
         created_at: iso(t + 400),
       }),
       row({
+        step_index: 4.1,
+        type: 'PLANNER_RESPONSE',
+        created_at: iso(t + 420),
+        tool_calls: [{ name: 'edit_file', args: { Path: '"d:\\\\repo\\\\a.ts"' } }],
+      }),
+      row({
+        step_index: 4.2,
+        type: 'GENERIC',
+        status: 'ERROR',
+        error: 'editing tools are refused while plan mode is on',
+        created_at: iso(t + 440),
+      }),
+      row({
         step_index: 5,
         type: 'PLANNER_RESPONSE',
         created_at: iso(t + 500),

@@ -85,8 +85,20 @@ export function readState(
   query = '',
   budgetMs = resolveBudgetMs(),
 ): DashboardState {
+  const q = query.slice(0, MAX_QUERY).trim().toLowerCase();
   const antibodies =
-    view === 'shared' ? store.sharedAntibodies(MAX_QUERY) : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
+    view === 'shared'
+      ? store
+          .sharedAntibodies(MAX_QUERY)
+          .filter(
+            (a) =>
+              !q ||
+              a.trigger_pattern.toLowerCase().includes(q) ||
+              a.symptom.toLowerCase().includes(q) ||
+              a.prescription.toLowerCase().includes(q) ||
+              (a.tool_name ?? '').toLowerCase().includes(q),
+          )
+      : store.peek(query.slice(0, MAX_QUERY), MAX_QUERY);
   return { stats: dashboardStats(store), antibodies, budgetMs };
 }
 

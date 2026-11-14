@@ -92,7 +92,7 @@ export async function startUiServer(options = {}) {
             return;
         }
         if (path === '/api/import' && req.method === 'POST') {
-            readBody(req, (body) => {
+            readBody(req, res, (body) => {
                 let parsed;
                 try {
                     parsed = JSON.parse(body);
@@ -107,11 +107,12 @@ export async function startUiServer(options = {}) {
             return;
         }
         if (path === '/api/shared' && req.method === 'GET') {
-            sendJson(res, 200, readState(store, 'shared'));
+            const query = url.searchParams.get('q') ?? '';
+            sendJson(res, 200, readState(store, 'shared', query));
             return;
         }
         if (path === '/api/action' && req.method === 'POST') {
-            readBody(req, (body) => {
+            readBody(req, res, (body) => {
                 let parsed;
                 try {
                     parsed = JSON.parse(body);
@@ -177,14 +178,22 @@ function sendJson(res, status, payload) {
     });
     res.end(body);
 }
-function readBody(req, done, max = 4096) {
+function readBody(req, res, done, max = 4096) {
     let body = '';
+    let aborted = false;
     req.on('data', (chunk) => {
+        if (aborted)
+            return;
         body += chunk.toString('utf8');
         // Small action objects by default; import raises the cap for snapshots.
         if (body.length > max) {
+            aborted = true;
+            sendJson(res, 413, { error: 'body too large' });
             req.destroy();
         }
     });
-    req.on('end', () => done(body));
+    req.on('end', () => {
+        if (!aborted)
+            done(body);
+    });
 }

@@ -20,7 +20,7 @@ import { isRelated } from './relevance.js';
  * skips these as episodes; counting them as "uncovered" only makes the
  * percentage look worse than it is.
  */
-const NOISE = /(was cancelled|was aborted|execution cancelled|timed out after \d+ms|econnreset|interrupted|plan mode only allows|context (?:window|length) exceeded)/i;
+const NOISE = /(was cancelled|was aborted|execution cancelled|timed out after \d+ms|econnreset|interrupted|plan mode only allows|context (?:window|length) exceeded|\[sandbox:\s*file access denied|user rejected|permission denied by user)/i;
 export function isNoiseFailure(text) {
     return NOISE.test(text);
 }

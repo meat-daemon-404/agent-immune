@@ -569,7 +569,13 @@ function unwrapAntigravityArgs(raw: unknown): Record<string, unknown> {
   }
   if (out.command === undefined && typeof out.CommandLine === 'string') out.command = out.CommandLine;
   if (out.file_path === undefined) {
-    const pathCandidate = out.Path ?? out.TargetFile ?? out.AbsolutePath ?? out.DirectoryPath;
+    const pathCandidate =
+      out.Path ??
+      out.TargetFile ??
+      out.AbsolutePath ??
+      out.DirectoryPath ??
+      out.SearchPath ??
+      out.SearchDirectory;
     if (typeof pathCandidate === 'string') out.file_path = pathCandidate;
   }
   if (out.pattern === undefined) {
@@ -600,7 +606,11 @@ function antigravityVerdictOf(
   const errField = typeof record.error === 'string' ? record.error.trim() : '';
   if (record.status === 'ERROR' || errField.length > 0) {
     const rawErr = errField || content;
-    if (/tool call denied by pre-tool hook/i.test(rawErr)) {
+    if (
+      /tool call denied by pre-tool hook|editing tools are refused while plan mode|plan mode only allows|\[sandbox:\s*file access denied|was cancelled|was aborted/i.test(
+        rawErr,
+      )
+    ) {
       return { ignore: true, status: 'completed', output: '' };
     }
     return { status: 'error', error: antigravityErrorLine(rawErr), output: clampText(content || rawErr) };

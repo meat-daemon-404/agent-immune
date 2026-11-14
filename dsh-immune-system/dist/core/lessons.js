@@ -32,9 +32,15 @@ export const GENERIC_LESSONS = [
     },
     {
         match: /found \d+ matches of the string to replace, but replace_all is false/i,
-        trigger: 'Edit multiple-matches replace_all 多处匹配 unique-context',
+        trigger: 'Edit multiple-matches matches replace_all 多处匹配 unique-context',
         symptom: 'old_string 在文件中匹配多处且未开启 replace_all / multiple matches found with replace_all=false',
         prescription: 'Edit: 扩大 old_string 上下文使其唯一，或显式设置 replace_all: true / include more surrounding lines or set replace_all: true',
+    },
+    {
+        match: /no changes to make:\s*old_string and new_string are (?:exactly )?the same|old_string and new_string (?:must be different|are identical)/i,
+        trigger: 'Edit identical-strings no-changes old_string new_string 相同无变化',
+        symptom: 'old_string 与 new_string 完全相同导致无改动 / old_string and new_string are identical (no-op edit)',
+        prescription: 'Edit: 先 Read 确认文件当前状态，仅提交有实际差异的 new_string / verify current file content and only pass a changed new_string',
     },
 ];
 /** The first generic lesson matching `symptomText`, or null. */

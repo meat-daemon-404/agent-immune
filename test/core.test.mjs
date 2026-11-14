@@ -818,7 +818,11 @@ test('doctor reports the new lifecycle subsystems without turning red', async ()
   empty.close();
   s.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1146,7 +1150,11 @@ test('a generic lesson reaches a brand-new project through the shared library', 
     assert.equal(b.listAll().length, 0, 'recalling does not copy it into project B');
     b.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1183,7 +1191,11 @@ test('a rule crossing five injections is promoted at match time', async () => {
     g.close();
     s.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1216,7 +1228,11 @@ test('shared rules count their own hits and respect per-session dedup', async ()
     g.close();
     b.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1354,7 +1370,11 @@ test('shared-library zombies age out on pruneStale', async () => {
     assert.equal(after.listAll(true).length, 1, 'kept recoverable, not deleted');
     after.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1892,7 +1912,11 @@ test('sync-doc writes a managed, idempotent, sanitized section', async () => {
   assert.equal(text.split(SECTION_START).length - 1, 1);
   s.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -1933,7 +1957,11 @@ test('turn-end auto sync is opt-in, resolves the path, and never throws', async 
     void ro;
     s.close();
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
   }
 });
 
@@ -2450,4 +2478,77 @@ test('pairSession closes Edit/Write failures while still recording repair action
     { fail: 'Edit', success: 'Edit', repairs: [] },
     { fail: 'Bash', success: 'Bash', repairs: ['Write b.ts'] },
   ]);
+});
+
+test('post-1.1.8 regressions: global repair_path parsing, case-insensitive episodes, identical-strings lesson, outcome timeout/sandbox, coverage sandbox noise', async () => {
+  const { GlobalStore, globalDbPathFor } = await import(
+    '../dsh-immune-system/dist/core/store/global.js'
+  );
+  const { matchGenericLesson } = await import('../dsh-immune-system/dist/core/lessons.js');
+  const { classifyOutcome } = await import('../dsh-immune-system/dist/zcode/src/outcome.js');
+  const { isNoiseFailure } = await import('../dsh-immune-system/dist/core/coverage.js');
+  const { rmSync } = await import('node:fs');
+
+  // 1. GlobalStore.listAll returns parsed repair_path arrays (via listAntibodies)
+  const dir = mkdtempSync(join(tmpdir(), 'immune-global-parse-'));
+  try {
+    const dbPath = join(dir, 'immune.sqlite');
+    const s = new ImmuneStore({ dbPath });
+    s.insertShared(
+      {
+        trigger_pattern: 'global repair array check',
+        symptom: 'failed once',
+        prescription: 'edit config cleanly',
+        repair_path: ['Edit config.json'],
+      },
+      { generic: true },
+    );
+    s.close();
+    const g = new GlobalStore(globalDbPathFor(dbPath));
+    const rows = g.listAll(true);
+    assert.equal(rows.length, 1);
+    assert.equal(Array.isArray(rows[0].repair_path), true, 'repair_path must be parsed into an array, not raw JSON string');
+    assert.deepEqual(rows[0].repair_path, []);
+    g.close();
+  } finally {
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 30 });
+    } catch {
+      // Windows NTFS/Defender can hold the unlinked WAL handle briefly.
+    }
+  }
+
+  // 2. hasPendingFailure & claimFailure handle cross-host tool_name casing
+  const epStore = store();
+  epStore.recordFailure('sess-case', 'Edit', 'Edit {"file_path":"src/x.ts"} error=not found', 'Edit:src/x.ts');
+  assert.equal(epStore.hasPendingFailure('sess-case', 'edit'), true);
+  const claimed = epStore.claimFailure('sess-case', 'edit', {
+    signature: 'edit:src/x.ts',
+    probeOnly: false,
+  });
+  assert.ok(claimed, 'lowercase edit should claim pending Edit failure');
+  assert.equal(epStore.hasPendingFailure('sess-case', 'Edit'), false);
+  epStore.close();
+
+  // 3. GENERIC_LESSONS: identical old_string/new_string + bare `matches` token
+  const multi = matchGenericLesson('Found 2 matches of the string to replace, but replace_all is false');
+  assert.ok(multi);
+  assert.ok(multi.trigger.split(/\s+/).includes('matches'), 'multiple-matches trigger includes standalone matches token');
+  const identical = matchGenericLesson('Edit no changes to make: old_string and new_string are exactly the same.');
+  assert.ok(identical, 'matches identical old_string/new_string error');
+  assert.match(identical.trigger, /identical-strings/);
+
+  // 4. classifyOutcome: timedOut wins over exitCode:0; sandbox denial sets sandboxDenied
+  const timed = classifyOutcome({ tool_response: { exitCode: 0, timedOut: true }, tool_result_preview: 'ok' });
+  assert.equal(timed.failed, true);
+  const timedTrailer = classifyOutcome({ tool_response: { exitCode: 0 }, tool_result_preview: 'partial\n[timed out after 5000ms]' });
+  assert.equal(timedTrailer.failed, true);
+  const denied = classifyOutcome({ tool_result_preview: '[sandbox: file access denied under read-only mode]' });
+  assert.equal(denied.failed, true);
+  assert.equal(denied.sandboxDenied, true);
+
+  // 5. coverage NOISE treats sandbox denials & user rejections as noise while keeping EPERM
+  assert.equal(isNoiseFailure('[sandbox: file access denied under workspace-write mode]'), true);
+  assert.equal(isNoiseFailure('Tool execution failed: user rejected tool call'), true);
+  assert.equal(isNoiseFailure("EPERM: operation not permitted, mkdir 'C:\\a'"), false);
 });

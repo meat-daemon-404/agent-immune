@@ -90,7 +90,12 @@ export function normaliseToolInput(raw) {
         obj.command = obj.CommandLine;
     }
     if (obj.file_path === undefined) {
-        const pathCandidate = obj.Path ?? obj.TargetFile ?? obj.AbsolutePath ?? obj.DirectoryPath;
+        const pathCandidate = obj.Path ??
+            obj.TargetFile ??
+            obj.AbsolutePath ??
+            obj.DirectoryPath ??
+            obj.SearchPath ??
+            obj.SearchDirectory;
         if (typeof pathCandidate === 'string')
             obj.file_path = pathCandidate;
     }
