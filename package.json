@@ -116,7 +116,7 @@
     "verify": "npm run build && npm run check && npm test && node scripts/bench-recall.mjs && node scripts/bench-seed-recall.mjs && node scripts/verify-connected-runtime.mjs"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.6",
     "typescript": "^5.7.0"
   }
 }
